@@ -1,0 +1,13 @@
+bin/
+obj/
+.vs/
+*.user
+web-ui/node_modules/
+web-ui/dist/
+backend/.venv/
+backend/temp/
+backend/__pycache__/
+*.pyc
+tools/*/bin/
+tools/*/obj/
+*.tsbuildinfo

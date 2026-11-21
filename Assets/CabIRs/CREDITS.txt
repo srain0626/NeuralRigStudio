@@ -1,0 +1,44 @@
+NeuralRigStudio - Embedded Real Microphone-Measured Cabinet Impulse Responses
+
+Each WAV file embedded in NeuralRigStudio is a real acoustic microphone capture of the physical guitar speaker cabinet (no synthetic curve generation):
+
+1. cab_v30.wav
+   - Cabinet / Speaker: 4x12 Celestion Vintage 30
+   - Microphone: Shure SM57
+   - Source: Kalthallen Cabs via orodamaral/Speaker-Cabinets-IRs
+   - URL: https://raw.githubusercontent.com/orodamaral/Speaker-Cabinets-IRs/master/Kalthallen/001a-SM57-V30-4x12.wav
+
+2. cab_jc120.wav
+   - Cabinet / Speaker: Roland JC-120 Jazz Chorus 2x12 Open Back
+   - Microphone: Shure SM7B
+   - Source: GK09 Roland Jazz Chorus via orodamaral/Speaker-Cabinets-IRs
+   - URL: https://raw.githubusercontent.com/orodamaral/Speaker-Cabinets-IRs/master/Roland_Jazz%20Chorus/GK09%20-jazz%20chorus%20sm7-04.wav
+
+3. cab_alnico.wav
+   - Cabinet / Speaker: VOX AC30 2x12 Open Back (Internal Speakers)
+   - Microphone: Shure SM57 (on-axis)
+   - Source: VOX AC30 internal channel capture via orodamaral/Speaker-Cabinets-IRs
+   - URL: https://raw.githubusercontent.com/orodamaral/Speaker-Cabinets-IRs/master/VOX_AC30_normal_channel/vox%20intern%20normal_sm57%20on%20axis.wav
+
+4. cab_1960a.wav
+   - Cabinet / Speaker: Marshall 1960A 4x12 Celestion G12T-75
+   - Microphone: Shure SM57
+   - Source: Kalthallen Cabs via orodamaral/Speaker-Cabinets-IRs
+   - URL: https://raw.githubusercontent.com/orodamaral/Speaker-Cabinets-IRs/master/Kalthallen/010a-SM57-G12T75-4x12.wav
+
+5. cab_mesa412.wav
+   - Cabinet / Speaker: Mesa/Boogie Rectifier Oversized 4x12 Celestion Vintage 30
+   - Microphone: Shure SM57
+   - Source: [SP] MB OS 4x12 V30 via orodamaral/Speaker-Cabinets-IRs
+   - URL: https://raw.githubusercontent.com/orodamaral/Speaker-Cabinets-IRs/master/%5BSP%5D%20MB%20OS%204x12%20V30/MB%20OS%204x12%20V30%2057%2001.wav
+
+6. cab_jensen112.wav
+   - Cabinet / Speaker: Fender Deluxe Reverb 1x12 Open Back
+   - License: Public Domain (Soundwoofer) via jfsantos/guitar-fx
+   - URL: https://raw.githubusercontent.com/jfsantos/guitar-fx/master/data/ir.wav
+
+7. cab_1960bv.wav
+   - Cabinet / Speaker: Marshall 1960 4x12 Celestion Vintage 30
+   - Microphone: Shure SM57
+   - Source: [SP] MSH 60 4x12 V30 + G12 via orodamaral/Speaker-Cabinets-IRs
+   - URL: https://raw.githubusercontent.com/orodamaral/Speaker-Cabinets-IRs/master/%5BSP%5D%20MSH%2060%204x12%20V30%20%2B%20G12%20(XP)/MSH%2060%20V30%2057%20-%2001.wav
