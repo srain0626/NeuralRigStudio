@@ -1,8 +1,15 @@
 ﻿using System.Diagnostics;
+using System.Runtime.InteropServices;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
 
 namespace NeuralRigStudio.Audio;
+
+public enum InputBackendKind
+{
+    Asio = 0,
+    Wasapi = 1,
+}
 
 public enum OutputKind
 {
@@ -13,12 +20,17 @@ public enum OutputKind
 
 public sealed class RouterConfig
 {
-    public required string InputDriver;
-    public int ChannelMode;              // 0: 스테레오(L+R), 1: 모노 L, 2: 모노 R
+    public InputBackendKind InputKind = InputBackendKind.Asio;
+    public string InputDriver = "";
+    public string? WasapiInDeviceId;     // null/"" = 시스템 기본 녹음 장치
+    public bool WasapiInExclusive;       // WASAPI 입력 단독 모드
+    public bool WasapiInRaw = true;      // Windows 소음 억제/AGC APO 우회 (기타 서스테인 보호)
+    public int ChannelMode = 1;          // 0: 스테레오(Offset, Offset+1), 1: 모노(Offset), 2: 모노 Ch2(하위호환)
+    public int InputChannelOffset = 0;   // 다채널 인터페이스 0-based 시작 채널
     public int AsioInBufferSize;         // 0 = 드라이버 선호 크기
     public OutputKind Kind = OutputKind.Wasapi;
-    public bool Exclusive;               // WASAPI 단독 모드
-    public string? WasapiDeviceId;       // null = 시스템 기본 장치
+    public bool Exclusive;               // WASAPI 출력 단독 모드
+    public string? WasapiDeviceId;       // null = 시스템 기본 출력 장치
     public string? AsioOutDriver;
     public int RingTargetMs = 16;        // 링 프리롤/목표 지연
     public int WasapiLatencyMs = 25;     // WASAPI 버퍼 힌트
@@ -42,12 +54,14 @@ internal sealed record BackingBuffer(float[] Left, float[] Right, int SampleRate
 }
 
 /// <summary>
-/// ASIO 입력 → (단일 ASIO 풀듀플렉스 직결 OR Lock-free 링 버퍼 → WASAPI / 제2 ASIO) 초저지연 오디오 라우터.
-/// + Lock-free MR 백킹 트랙 믹서 + 50fps 비주얼라이저 / YIN 크로매틱 튜너 스냅샷 버퍼.
+/// 범용 오디오 입력(ASIO 다채널 오디오 인터페이스 / GP-100 / Windows WASAPI USB 케이블·라인인·마이크)
+/// → (단일 ASIO 풀듀플렉스 직결 OR Lock-free 링 버퍼 → WASAPI / 제2 ASIO) 초저지연 오디오 라우터.
+/// + Lock-free MR 백킹 트랙 믹서 + 50fps 비주얼라이저 / MPM 크로매틱 튜너 스냅샷 버퍼.
 /// </summary>
-public sealed class AudioRouter
+public sealed class AudioRouter : IAudioTelemetrySource
 {
     private AsioDevice? _in;
+    private WasapiRecorder? _inWasapi;
     private AsioDevice? _outAsio;
     private WasapiPlayer? _wasapi;
     private RingBuffer? _ring;
@@ -58,11 +72,21 @@ public sealed class AudioRouter
 
     private int _rate;
     private int _inSelChannels;      // 1 or 2
-    private int _inFrames;           // 입력 버퍼 프레임
+    private int _inFrames;           // 입력 버퍼 프레임 추정치
+    private double _usedInLatencyMs;
     private double _usedOutLatencyMs;
     private bool _directDuplex;
+    private bool _usingWasapiInput;
     private int _runningFlag;
     private int _stopping;
+
+    // WASAPI 입력 제로 할당 패킷 디코딩 상태 (시작 시 1회 캐싱)
+    private int _wasapiInChannels = 2;
+    private int _wasapiInBytesPerFrame = 8;
+    private bool _wasapiInIsFloat = true;
+    private int _wasapiInBits = 32;
+    private int _wasapiCh0;
+    private int _wasapiCh1;
 
     private long _pkL;               // double 비트 저장
     private long _pkR;
@@ -101,6 +125,7 @@ public sealed class AudioRouter
 
     public bool IsRunning => Volatile.Read(ref _runningFlag) == 1;
     public bool IsDirectDuplex => _directDuplex;
+    public bool IsWasapiInput => _usingWasapiInput;
 
     public long PaddedFrames => _ring?.PaddedFrames ?? 0;
     public long DroppedFrames => _ring?.DroppedOldest ?? 0;
@@ -141,13 +166,25 @@ public sealed class AudioRouter
         return best;
     }
 
-    private static MMDevice? ResolveDevice(string? id)
+    private static MMDevice? ResolveRenderDevice(string? id)
     {
         if (string.IsNullOrEmpty(id)) return null;
         var en = new MMDeviceEnumerator();
         foreach (var d in en.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active))
             if (d.ID == id) return d;
         return null;
+    }
+
+    private static MMDevice? ResolveCaptureDevice(string? id)
+    {
+        var en = new MMDeviceEnumerator();
+        if (!string.IsNullOrEmpty(id))
+        {
+            foreach (var d in en.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active))
+                if (d.ID == id) return d;
+        }
+        try { return en.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Console); }
+        catch { return en.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active).FirstOrDefault(); }
     }
 
     private static WasapiPlayer BuildSharedPlayer(RouterConfig cfg, int latencyMs, bool requireLowLatency)
@@ -157,7 +194,7 @@ public sealed class AudioRouter
             .WithLatency(latencyMs)
             .WithMmcssThreadPriority("Pro Audio");
         if (requireLowLatency) b.WithLowLatency(true);
-        var dev = ResolveDevice(cfg.WasapiDeviceId);
+        var dev = ResolveRenderDevice(cfg.WasapiDeviceId);
         if (dev != null) b.WithDevice(dev);
         return b.Build();
     }
@@ -278,49 +315,299 @@ public sealed class AudioRouter
         float[] arrR = right.ToArray();
         if (srcRate != targetSr && srcRate > 0 && arrL.Length > 1)
         {
-            arrL = ResampleLinear(arrL, srcRate, targetSr);
-            arrR = ResampleLinear(arrR, srcRate, targetSr);
+            arrL = SincResampler.Resample(arrL, srcRate, targetSr);
+            arrR = SincResampler.Resample(arrR, srcRate, targetSr);
         }
         return new BackingBuffer(arrL, arrR, targetSr, Path.GetFileName(path), path);
-    }
-
-    private static float[] ResampleLinear(float[] src, int srcRate, int dstRate)
-    {
-        double ratio = (double)srcRate / dstRate;
-        int outLen = Math.Max(16, (int)Math.Round(src.Length / ratio));
-        var dst = new float[outLen];
-        for (int i = 0; i < outLen; i++)
-        {
-            double pos = i * ratio;
-            int idx = (int)pos;
-            float frac = (float)(pos - idx);
-            float a = src[Math.Min(idx, src.Length - 1)];
-            float b = src[Math.Min(idx + 1, src.Length - 1)];
-            dst[i] = a + (b - a) * frac;
-        }
-        return dst;
     }
 
     public async Task StartAsync(RouterConfig cfg, CancellationToken ct = default)
     {
         if (Volatile.Read(ref _runningFlag) == 1) throw new InvalidOperationException("이미 실행 중입니다.");
         if (Volatile.Read(ref _stopping) == 1) throw new InvalidOperationException("중지 처리 중입니다. 잠시 후 다시 시도하세요.");
-        if (Thread.CurrentThread.GetApartmentState() != ApartmentState.STA)
-            RaiseLog("경고: STA 스레드가 아닙니다. ASIO COM 드라이버 생성이 실패할 수 있습니다.");
 
         _stopCts?.Dispose();
         _stopCts = new CancellationTokenSource();
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _stopCts.Token);
         CancellationToken token = linked.Token;
 
+        _directDuplex = false;
+        _usingWasapiInput = cfg.InputKind == InputBackendKind.Wasapi;
+        Volatile.Write(ref _visPos, 0);
+        Volatile.Write(ref _dryVisPos, 0);
+        Volatile.Write(ref _dryTotalWritten, 0);
+
+        if (_usingWasapiInput)
+        {
+            await StartWasapiInputPipelineAsync(cfg, token);
+            return;
+        }
+
+        if (Thread.CurrentThread.GetApartmentState() != ApartmentState.STA)
+            RaiseLog("경고: STA 스레드가 아닙니다. ASIO COM 드라이버 생성이 실패할 수 있습니다.");
+
+        await StartAsioInputPipelineAsync(cfg, token);
+    }
+
+    // ── 경로 A: 범용 Windows WASAPI 캡처 입력 파이프라인 (USB 기타 케이블 / 무드라이버 인터페이스 / 라인인 / 마이크) ──
+    private async Task StartWasapiInputPipelineAsync(RouterConfig cfg, CancellationToken token)
+    {
+        WasapiRecorder? wasapiIn = null;
+        AsioDevice? output = null;
+        WasapiPlayer? wasapi = null;
+        bool exclusiveOutAttempted = false;
+
+        try
+        {
+            var capDev = ResolveCaptureDevice(cfg.WasapiInDeviceId)
+                ?? throw new InvalidOperationException("활성화된 Windows 오디오 입력(녹음) 장치를 찾을 수 없습니다.");
+
+            int reqInMs = Math.Max(6, cfg.WasapiLatencyMs > 0 ? cfg.WasapiLatencyMs : 15);
+            wasapiIn = CreateAndStartWasapiRecorder(capDev, cfg.WasapiInExclusive, cfg.WasapiInRaw, reqInMs);
+
+            var rawFmt = wasapiIn.WaveFormat;
+            var stdFmt = rawFmt is WaveFormatExtensible wfe ? wfe.ToStandardWaveFormat() : rawFmt;
+            int rate = Math.Max(8000, stdFmt.SampleRate);
+            int outRate = rate;
+
+            _wasapiInChannels = Math.Max(1, stdFmt.Channels);
+            _wasapiInBytesPerFrame = Math.Max(2, stdFmt.BlockAlign);
+            _wasapiInIsFloat = stdFmt.Encoding == WaveFormatEncoding.IeeeFloat;
+            _wasapiInBits = stdFmt.BitsPerSample;
+
+            int startCh = cfg.ChannelMode == 2
+                ? (_wasapiInChannels > 1 ? 1 : 0)
+                : Math.Clamp(cfg.InputChannelOffset, 0, _wasapiInChannels - 1);
+            _wasapiCh0 = startCh;
+            _wasapiCh1 = cfg.ChannelMode == 0 && _wasapiInChannels > 1
+                ? Math.Min(_wasapiInChannels - 1, startCh + 1)
+                : startCh;
+            _inSelChannels = cfg.ChannelMode == 0 && _wasapiInChannels > 1 ? 2 : 1;
+
+            _usedInLatencyMs = wasapiIn.LatencyMilliseconds > 0 ? wasapiIn.LatencyMilliseconds : reqInMs;
+            _inFrames = Math.Max(64, (int)Math.Round(_usedInLatencyMs * rate / 1000.0));
+            int capScratch = Math.Max(4096, _inFrames * 4);
+            _scratchL = new float[capScratch];
+            _scratchR = new float[capScratch];
+            _scratchWarned = false;
+            Tone.Prepare(capScratch, rate);
+
+            RaiseLog($"범용 WASAPI 입력 '{capDev.FriendlyName}': {_wasapiInChannels}ch {(stdFmt.Encoding == WaveFormatEncoding.IeeeFloat ? "Float32" : $"PCM{_wasapiInBits}")} @ {rate}Hz (지연 ≈ {_usedInLatencyMs:F1}ms, 저지연={wasapiIn.LowLatencyActive})");
+
+            // WASAPI 입력 시 AsioDirectDuplex는 해당 없으므로 WASAPI 출력으로 안전 전환
+            OutputKind outKind = cfg.Kind == OutputKind.AsioDirectDuplex ? OutputKind.Wasapi : cfg.Kind;
+
+            if (outKind == OutputKind.AsioOut)
+            {
+                output = AsioDevice.Open(cfg.AsioOutDriver ?? throw new InvalidOperationException("ASIO 출력 드라이버가 선택되지 않았습니다."));
+                var oc = output.Capabilities;
+                outRate = output.IsSampleRateSupported(rate)
+                    ? rate
+                    : (output.CurrentSampleRate > 0 ? output.CurrentSampleRate : rate);
+                if (outRate != rate)
+                    RaiseLog($"범용 입력 → ASIO 출력: 입력 {rate}Hz → 출력 {outRate}Hz 실시간 무할당 브리지 활성화");
+            }
+            else if (cfg.Exclusive)
+            {
+                exclusiveOutAttempted = true;
+                var b = new WasapiPlayerBuilder().WithExclusiveMode().WithLatency(Math.Max(8, cfg.WasapiLatencyMs)).WithMmcssThreadPriority("Pro Audio");
+                var dev = ResolveRenderDevice(cfg.WasapiDeviceId);
+                if (dev != null) b.WithDevice(dev);
+                wasapi = b.Build();
+                var f32 = WaveFormat.CreateIeeeFloatWaveFormat(rate, 2);
+                WasapiPlaybackCapability? cap = null;
+                try { cap = wasapi.GetPlaybackCapability(f32); } catch { }
+                if (cap is { Supported: true })
+                {
+                    outRate = cap.OutputFormat?.SampleRate ?? rate;
+                }
+                else
+                {
+                    var alt = wasapi.GetSupportedExclusiveFormat(f32);
+                    if (alt is { SampleRate: > 0 })
+                        outRate = alt.SampleRate;
+                    else
+                    {
+                        RaiseLog("WASAPI 출력 단독 포맷 미지원 → 저지연 공유 모드로 대체");
+                        wasapi.Dispose();
+                        wasapi = null;
+                        exclusiveOutAttempted = false;
+                    }
+                }
+            }
+
+            if (outKind == OutputKind.Wasapi && wasapi is null)
+            {
+                wasapi = BuildSharedPlayer(cfg, Math.Max(10, cfg.WasapiLatencyMs), requireLowLatency: true);
+                int mixRate = 0;
+                try { mixRate = wasapi.DeviceMixFormat?.SampleRate ?? 0; } catch { }
+                if (mixRate > 0 && mixRate != rate)
+                {
+                    outRate = mixRate;
+                    RaiseLog($"범용 입력 {rate}Hz → 출력 {outRate}Hz 실시간 무할당 브리지 활성화");
+                }
+            }
+
+            _rate = rate;
+            EnsureBackingMatchesRate(rate);
+            var ring = new RingBuffer(Math.Max(8192, Math.Max(rate, outRate)));
+            int targetFrames = Math.Max(128, Math.Max(8, cfg.RingTargetMs) * rate / 1000);
+            var source = new RingSource(ring, rate, targetFrames, _inFrames, outRate);
+            source.Note += m => RaiseLog(m);
+
+            _source = source;
+            _ring = ring; // 이 시점부터 실행 중인 wasapiIn 콜백 패킷이 링에 적재됨
+            _inWasapi = wasapiIn;
+
+            wasapiIn.RecordingStopped += (_, e) =>
+            {
+                if (_runningFlag == 1)
+                    RaiseStoppedUnexpected(e.Exception != null ? $"WASAPI 입력 오류: {e.Exception.Message}" : "WASAPI 입력 장치 연결이 해제되었습니다.");
+            };
+
+            if (outKind == OutputKind.AsioOut)
+            {
+                var outDev = output!;
+                var oc2 = outDev.Capabilities;
+                int outBuf = oc2.BufferMinSize > 0 ? Math.Min(oc2.BufferMinSize, 512) : 256;
+                outDev.InitPlayback(new AsioPlaybackOptions
+                {
+                    Source = source,
+                    AutoStopOnEndOfStream = false,
+                    BufferSize = outBuf != oc2.BufferPreferredSize ? outBuf : null,
+                });
+                outDev.Stopped += (_, _) => { if (_runningFlag == 1) RaiseStoppedUnexpected("ASIO 출력 정지됨"); };
+                outDev.DriverResetRequest += (_, _) => { if (_runningFlag == 1) RaiseStoppedUnexpected("ASIO 출력 드라이버 재설정 요청"); };
+                await PrerollAsync(Math.Max(targetFrames, outBuf * 3), token);
+                outDev.Start();
+                _outAsio = outDev;
+                _usedOutLatencyMs = outDev.OutputLatencySamples > 0 ? outDev.OutputLatencySamples * 1000.0 / outRate : outBuf * 1000.0 / outRate;
+            }
+            else
+            {
+                wasapi ??= BuildSharedPlayer(cfg, Math.Max(10, cfg.WasapiLatencyMs), requireLowLatency: true);
+                try
+                {
+                    wasapi.Init(source);
+                }
+                catch (Exception ex) when (exclusiveOutAttempted)
+                {
+                    RaiseLog($"출력 단독 모드 실패({ex.Message}) → 저지연 공유 모드로 대체");
+                    wasapi.Dispose();
+                    wasapi = InitSharedWithFallback(cfg, BuildSharedPlayer(cfg, Math.Max(10, cfg.WasapiLatencyMs), requireLowLatency: true), source);
+                }
+                catch (Exception ex)
+                {
+                    RaiseLog($"저지연 공유 출력 실패({ex.Message}) → 표준 공유 모드로 대체");
+                    wasapi.Dispose();
+                    wasapi = InitSharedWithFallback(cfg, BuildSharedPlayer(cfg, Math.Max(12, cfg.WasapiLatencyMs), requireLowLatency: false), source);
+                }
+
+                int preroll = targetFrames;
+                if (wasapi.LatencyMilliseconds > 0) preroll = Math.Max(preroll, wasapi.LatencyMilliseconds * rate / 1000);
+                await PrerollAsync(preroll, token);
+                wasapi.Play();
+                _wasapi = wasapi;
+                _usedOutLatencyMs = wasapi.LatencyMilliseconds > 0 ? wasapi.LatencyMilliseconds : cfg.WasapiLatencyMs;
+                wasapi.PlaybackStopped += (_, _) => { if (_runningFlag == 1) RaiseStoppedUnexpected("WASAPI 출력 정지됨"); };
+            }
+
+            Volatile.Write(ref _runningFlag, 1);
+            RaiseState("실행 중 (범용 WASAPI)");
+            RaiseLog($"지연 체인(추정): 입력 {_usedInLatencyMs:F1}ms + 링 {cfg.RingTargetMs}ms + 출력 {_usedOutLatencyMs:F1}ms ≈ {_usedInLatencyMs + cfg.RingTargetMs + _usedOutLatencyMs:F1}ms");
+        }
+        catch
+        {
+            if (wasapiIn != null && _inWasapi is null)
+            {
+                try { wasapiIn.StopRecording(); } catch { }
+                try { wasapiIn.Dispose(); } catch { }
+            }
+            Cleanup();
+            throw;
+        }
+    }
+
+    private WasapiRecorder CreateAndStartWasapiRecorder(MMDevice capDev, bool exclusive, bool rawMode, int bufferMs)
+    {
+        // 1) 단독 입력 모드 요청 시 우선 시도
+        if (exclusive)
+        {
+            WasapiRecorder? exclRec = null;
+            try
+            {
+                var eb = new WasapiRecorderBuilder()
+                    .WithDevice(capDev)
+                    .WithExclusiveMode()
+                    .WithBufferLength(Math.Clamp(bufferMs, 4, 50))
+                    .WithMmcssThreadPriority("Pro Audio");
+                exclRec = eb.Build();
+                exclRec.DataAvailable += OnWasapiCaptured;
+                exclRec.StartRecording();
+                RaiseLog("WASAPI 입력 단독(Exclusive) 저지연 모드 활성화");
+                return exclRec;
+            }
+            catch (Exception ex)
+            {
+                RaiseLog($"WASAPI 입력 단독 모드 미지원({ex.Message}) → 저지연 공유 모드로 전환");
+                if (exclRec != null)
+                {
+                    exclRec.DataAvailable -= OnWasapiCaptured;
+                    try { exclRec.Dispose(); } catch { }
+                }
+            }
+        }
+
+        // 2) 공유 저지연(IAudioClient3) + Raw 악기 모드(소음 억제/AGC 우회) 우선 시도
+        if (rawMode)
+        {
+            WasapiRecorder? rawRec = null;
+            try
+            {
+                var rb = new WasapiRecorderBuilder()
+                    .WithDevice(capDev)
+                    .WithSharedMode()
+                    .WithLowLatency(false)
+                    .WithRawMode()
+                    .WithBufferLength(Math.Clamp(bufferMs, 8, 60))
+                    .WithMmcssThreadPriority("Pro Audio");
+                rawRec = rb.Build();
+                rawRec.DataAvailable += OnWasapiCaptured;
+                rawRec.StartRecording();
+                RaiseLog("WASAPI Raw 순수 악기 입력 활성화 (시스템 소음 억제/AGC 우회)");
+                return rawRec;
+            }
+            catch (Exception ex)
+            {
+                RaiseLog($"장치 Raw 스트림 미지원({ex.Message}) → 표준 저지연 공유 캡처로 전환");
+                if (rawRec != null)
+                {
+                    rawRec.DataAvailable -= OnWasapiCaptured;
+                    try { rawRec.Dispose(); } catch { }
+                }
+            }
+        }
+
+        // 3) 모든 범용 장치 100% 호환 공유 저지연 캡처
+        var stdBuilder = new WasapiRecorderBuilder()
+            .WithDevice(capDev)
+            .WithSharedMode()
+            .WithLowLatency(false)
+            .WithBufferLength(Math.Clamp(bufferMs, 10, 60))
+            .WithMmcssThreadPriority("Pro Audio");
+        var rec = stdBuilder.Build();
+        rec.DataAvailable += OnWasapiCaptured;
+        rec.StartRecording();
+        return rec;
+    }
+
+    // ── 경로 B: ASIO 입력 파이프라인 (다채널 범용 오디오 인터페이스 + Valeton GP-100) ──
+    private async Task StartAsioInputPipelineAsync(RouterConfig cfg, CancellationToken token)
+    {
         AsioDevice? input = null;
         AsioDevice? output = null;
         WasapiPlayer? wasapi = null;
         bool exclusiveAttempted = false;
-        _directDuplex = false;
-        Volatile.Write(ref _visPos, 0);
-        Volatile.Write(ref _dryVisPos, 0);
-        Volatile.Write(ref _dryTotalWritten, 0);
 
         try
         {
@@ -330,19 +617,20 @@ public sealed class AudioRouter
             RaiseLog($"입력 ASIO '{caps.DriverName}': 입력 {caps.NbInputChannels}ch / 출력 {caps.NbOutputChannels}ch / 현재 {input.CurrentSampleRate}Hz");
             if (caps.InputChannelInfos != null)
                 for (int i = 0; i < Math.Min(caps.NbInputChannels, caps.InputChannelInfos.Length); i++)
-                    RaiseLog($"  입력 ch{i} = {caps.InputChannelInfos[i].name}");
+                    RaiseLog($"  입력 ch{i + 1} = {caps.InputChannelInfos[i].name}");
             if (caps.NbInputChannels < 1) throw new InvalidOperationException("입력 채널이 없는 ASIO 드라이버입니다.");
 
-            int[] inChannels = cfg.ChannelMode switch
-            {
-                1 => new[] { 0 },
-                2 => new[] { caps.NbInputChannels > 1 ? 1 : 0 },
-                _ => caps.NbInputChannels > 1 ? new[] { 0, 1 } : new[] { 0 },
-            };
+            int startCh = cfg.ChannelMode == 2
+                ? (caps.NbInputChannels > 1 ? 1 : 0)
+                : Math.Clamp(cfg.InputChannelOffset, 0, caps.NbInputChannels - 1);
+
+            int[] inChannels = cfg.ChannelMode == 0 && caps.NbInputChannels > 1
+                ? new[] { startCh, Math.Min(caps.NbInputChannels - 1, startCh + 1) }
+                : new[] { startCh };
             _inSelChannels = inChannels.Length;
 
             int bufSize = ResolveBufferSize(caps, cfg.AsioInBufferSize);
-            RaiseLog($"입력 버퍼: {bufSize} 샘플 ({bufSize * 1000.0 / Math.Max(1, input.CurrentSampleRate):F1} ms)");
+            RaiseLog($"입력 채널: {string.Join("+", inChannels.Select(c => $"Ch{c + 1}"))}, 버퍼: {bufSize} 샘플 ({bufSize * 1000.0 / Math.Max(1, input.CurrentSampleRate):F1} ms)");
 
             int rate = input.CurrentSampleRate;
             int outRate = rate;
@@ -375,7 +663,7 @@ public sealed class AudioRouter
 
                 _directDuplex = true;
                 input.Stopped += (s, e) => { if (_runningFlag == 1) RaiseStoppedUnexpected("ASIO 풀듀플렉스 스트림 정지됨"); };
-                input.DriverResetRequest += (s, e) => { if (_runningFlag == 1) RaiseStoppedUnexpected("ASIO 드라이버 재설정 요청 — 페달 연결 확인"); };
+                input.DriverResetRequest += (s, e) => { if (_runningFlag == 1) RaiseStoppedUnexpected("ASIO 드라이버 재설정 요청 — 장치 연결 확인"); };
                 input.Start();
                 _in = input;
 
@@ -411,7 +699,7 @@ public sealed class AudioRouter
             {
                 exclusiveAttempted = true;
                 var b = new WasapiPlayerBuilder().WithExclusiveMode().WithLatency(cfg.WasapiLatencyMs).WithMmcssThreadPriority("Pro Audio");
-                var dev = ResolveDevice(cfg.WasapiDeviceId);
+                var dev = ResolveRenderDevice(cfg.WasapiDeviceId);
                 if (dev != null) b.WithDevice(dev);
                 wasapi = b.Build();
                 var f32 = WaveFormat.CreateIeeeFloatWaveFormat(rate, 2);
@@ -514,7 +802,7 @@ public sealed class AudioRouter
 
             input.AudioCaptured += OnCaptured;
             input.Stopped += (s, e) => { if (_runningFlag == 1) RaiseStoppedUnexpected("입력 스트림(ASIO) 정지됨"); };
-            input.DriverResetRequest += (s, e) => { if (_runningFlag == 1) RaiseStoppedUnexpected("입력 드라이버 재설정 요청 — 페달 연결/전원 상태 확인"); };
+            input.DriverResetRequest += (s, e) => { if (_runningFlag == 1) RaiseStoppedUnexpected("입력 드라이버 재설정 요청 — 인터페이스 연결/전원 상태 확인"); };
             input.Start();
             _in = input;
             RaiseLog($"입력 스트림 시작: {_inSelChannels}ch @ {rate}Hz, 버퍼 {input.FramesPerBuffer}fr");
@@ -609,7 +897,7 @@ public sealed class AudioRouter
             await Task.Delay(4, ct).ConfigureAwait(false);
         }
         if (ring.FillFrames < frames)
-            RaiseLog("주의: 프리롤 대기 시간 초과 — 페달 전원/연결/기타 입력을 확인하세요.");
+            RaiseLog("주의: 프리롤 대기 시간 초과 — 오디오 입력 장치 전원/케이블 연결을 확인하세요.");
     }
 
     /// <summary>단일 ASIO 풀듀플렉스 RT 콜백 (0-Ring 직결). 할당 없음.</summary>
@@ -664,6 +952,133 @@ public sealed class AudioRouter
         ring.Write(frames, sl, sr);
     }
 
+    /// <summary>범용 WASAPI 캡처 콜백(Pro Audio MMCSS 스레드). 할당 0 Bytes.</summary>
+    private void OnWasapiCaptured(ReadOnlySpan<byte> buffer, AudioClientBufferFlags flags, long devicePosition, long qpcPosition)
+    {
+        var ring = _ring;
+        var sl = _scratchL;
+        var sr = _scratchR;
+        if (ring is null || sl is null || sr is null) return;
+
+        int bpf = _wasapiInBytesPerFrame;
+        if (bpf <= 0 || buffer.Length < bpf) return;
+
+        int totalFrames = buffer.Length / bpf;
+        int offsetFrames = 0;
+        while (offsetFrames < totalFrames)
+        {
+            int chunkFrames = Math.Min(totalFrames - offsetFrames, sl.Length);
+            var slice = buffer.Slice(offsetFrames * bpf, chunkFrames * bpf);
+
+            int decoded = DecodeWasapiPacketToStereo(
+                slice,
+                flags,
+                _wasapiInChannels,
+                bpf,
+                _wasapiInIsFloat,
+                _wasapiInBits,
+                _wasapiCh0,
+                _wasapiCh1,
+                sl.AsSpan(0, chunkFrames),
+                sr.AsSpan(0, chunkFrames));
+
+            if (decoded > 0)
+            {
+                ProcessInputFrameBlock(sl, sr, decoded);
+                ring.Write(decoded, sl, sr);
+            }
+            offsetFrames += chunkFrames;
+        }
+    }
+
+    /// <summary>
+    /// WASAPI 인터리브 바이트 버퍼(Float32 / PCM16 / PCM24 / PCM32)를 힙 할당 0 Bytes로 디인터리브·정규화한다.
+    /// </summary>
+    internal static int DecodeWasapiPacketToStereo(
+        ReadOnlySpan<byte> buffer,
+        AudioClientBufferFlags flags,
+        int channels,
+        int bytesPerFrame,
+        bool isFloat,
+        int bitsPerSample,
+        int ch0,
+        int ch1,
+        Span<float> dstL,
+        Span<float> dstR)
+    {
+        if (bytesPerFrame <= 0 || channels <= 0) return 0;
+        int frames = Math.Min(buffer.Length / bytesPerFrame, Math.Min(dstL.Length, dstR.Length));
+        if (frames <= 0) return 0;
+
+        if ((flags & AudioClientBufferFlags.Silent) != 0)
+        {
+            dstL.Slice(0, frames).Clear();
+            dstR.Slice(0, frames).Clear();
+            return frames;
+        }
+
+        int c0 = Math.Clamp(ch0, 0, channels - 1);
+        int c1 = Math.Clamp(ch1, 0, channels - 1);
+
+        if (isFloat && bitsPerSample == 32)
+        {
+            var fs = MemoryMarshal.Cast<byte, float>(buffer);
+            for (int i = 0; i < frames; i++)
+            {
+                int b = i * channels;
+                dstL[i] = fs[b + c0];
+                dstR[i] = fs[b + c1];
+            }
+            return frames;
+        }
+
+        if (!isFloat && bitsPerSample == 16)
+        {
+            const float inv16 = 1f / 32768f;
+            var s16 = MemoryMarshal.Cast<byte, short>(buffer);
+            for (int i = 0; i < frames; i++)
+            {
+                int b = i * channels;
+                dstL[i] = s16[b + c0] * inv16;
+                dstR[i] = s16[b + c1] * inv16;
+            }
+            return frames;
+        }
+
+        if (!isFloat && bitsPerSample == 24)
+        {
+            const float inv24 = 1f / 8388608f;
+            for (int i = 0; i < frames; i++)
+            {
+                int fBase = i * bytesPerFrame;
+                int p0 = fBase + c0 * 3;
+                int p1 = fBase + c1 * 3;
+                int v0 = ((buffer[p0] << 8) | (buffer[p0 + 1] << 16) | (buffer[p0 + 2] << 24)) >> 8;
+                int v1 = ((buffer[p1] << 8) | (buffer[p1 + 1] << 16) | (buffer[p1 + 2] << 24)) >> 8;
+                dstL[i] = v0 * inv24;
+                dstR[i] = v1 * inv24;
+            }
+            return frames;
+        }
+
+        if (!isFloat && bitsPerSample == 32)
+        {
+            const float inv32 = 1f / 2147483648f;
+            var s32 = MemoryMarshal.Cast<byte, int>(buffer);
+            for (int i = 0; i < frames; i++)
+            {
+                int b = i * channels;
+                dstL[i] = s32[b + c0] * inv32;
+                dstR[i] = s32[b + c1] * inv32;
+            }
+            return frames;
+        }
+
+        dstL.Slice(0, frames).Clear();
+        dstR.Slice(0, frames).Clear();
+        return frames;
+    }
+
     private int ClampFrameCount(int incoming, int maxScratch)
     {
         if (incoming <= maxScratch) return incoming;
@@ -677,7 +1092,7 @@ public sealed class AudioRouter
 
     private void ProcessInputFrameBlock(float[] sl, float[] sr, int frames)
     {
-        // 1) YIN 크로매틱 튜너 / 기타 분석용 드라이 입력 스냅샷
+        // 1) 크로매틱 튜너 / 기타 분석용 드라이 입력 스냅샷
         int dp = _dryVisPos;
         for (int i = 0; i < frames; i++)
         {
@@ -759,7 +1174,7 @@ public sealed class AudioRouter
 
     public void Stop(string reason = "사용자 중지")
     {
-        if (Volatile.Read(ref _runningFlag) == 0 && _in is null && _wasapi is null && _outAsio is null) return;
+        if (Volatile.Read(ref _runningFlag) == 0 && _in is null && _inWasapi is null && _wasapi is null && _outAsio is null) return;
         Volatile.Write(ref _stopping, 1);
         try { _stopCts?.Cancel(); } catch { }
         Cleanup();
@@ -771,9 +1186,11 @@ public sealed class AudioRouter
     private void Cleanup()
     {
         var input = _in;
+        var inputWasapi = _inWasapi;
         var output = _outAsio;
         var w = _wasapi;
         _in = null;
+        _inWasapi = null;
         _outAsio = null;
         _wasapi = null;
         _ring = null;
@@ -781,6 +1198,7 @@ public sealed class AudioRouter
         _scratchL = null;
         _scratchR = null;
         _directDuplex = false;
+        _usingWasapiInput = false;
         Array.Clear(_visRing);
         Array.Clear(_dryVisRing);
         Volatile.Write(ref _visPos, 0);
@@ -798,6 +1216,12 @@ public sealed class AudioRouter
         {
             try { output.Stop(); } catch { }
             try { output.Dispose(); } catch { }
+        }
+        if (inputWasapi != null)
+        {
+            try { inputWasapi.DataAvailable -= OnWasapiCaptured; } catch { }
+            try { inputWasapi.StopRecording(); } catch { }
+            try { inputWasapi.Dispose(); } catch { }
         }
         if (input != null)
         {
@@ -818,7 +1242,10 @@ public sealed class AudioRouter
     public LatencyInfo? GetLatency()
     {
         if (_rate <= 0) return null;
-        double inMs = (_in != null && _in.InputLatencySamples > 0 ? _in.InputLatencySamples : _inFrames) * 1000.0 / _rate;
+        double inMs = _usingWasapiInput
+            ? (_inWasapi != null && _inWasapi.CurrentLatency > TimeSpan.Zero ? _inWasapi.CurrentLatency.TotalMilliseconds : _usedInLatencyMs)
+            : (_in != null && _in.InputLatencySamples > 0 ? _in.InputLatencySamples * 1000.0 / _rate : _inFrames * 1000.0 / _rate);
+
         if (_directDuplex)
         {
             double outD = (_in != null && _in.OutputLatencySamples > 0 ? _in.OutputLatencySamples : _inFrames) * 1000.0 / _rate;
@@ -850,7 +1277,7 @@ public sealed class AudioRouter
             dst[i] = _visRing[(start + i) & (VisCap - 1)];
     }
 
-    /// <summary>UI 스레드에서 드라이 입력 최신 N 샘플을 락 없이 읽어온다(YIN 크로매틱 튜너용).</summary>
+    /// <summary>UI 스레드에서 드라이 입력 최신 N 샘플을 락 없이 읽어온다(크로매틱 튜너용).</summary>
     public void CopyRecentDrySamples(Span<float> dst)
     {
         int n = Math.Min(dst.Length, VisCap);
@@ -883,4 +1310,3 @@ public sealed class AudioRouter
         return count;
     }
 }
-

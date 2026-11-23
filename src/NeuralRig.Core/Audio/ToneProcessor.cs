@@ -1,8 +1,5 @@
 ﻿using System.Numerics;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
-using System.Runtime.Intrinsics;
-using System.Runtime.Intrinsics.X86;
 using NAudio.Wave;
 
 namespace NeuralRigStudio.Audio;
@@ -16,110 +13,20 @@ namespace NeuralRigStudio.Audio;
 public sealed class ToneProcessor
 {
     public const int HistPad = 64;
-    public const int MaxCabTaps = 2048;
+    public const int MaxCabTaps = PartitionedIr.MaxTaps;
 
-    private sealed class LayerRuntimeState
-    {
-        public readonly float[] Ring;
-        public int WritePos;
-
-        public LayerRuntimeState(CompiledWaveNet.Layer layer)
-        {
-            Ring = new float[layer.RingCapacity * layer.PadChannels];
-        }
-
-        public void Reset()
-        {
-            Array.Clear(Ring);
-            WritePos = 0;
-        }
-    }
-
-    private sealed class ArrayHeadState
-    {
-        public readonly float[]? HeadRing;
-        public int WritePos;
-
-        public ArrayHeadState(CompiledWaveNet.LayerArray arr)
-        {
-            if (arr.HeadKernelSize > 1)
-                HeadRing = new float[arr.HeadRingCapacity * arr.HeadInChannels];
-        }
-
-        public void Reset()
-        {
-            if (HeadRing != null) Array.Clear(HeadRing);
-            WritePos = 0;
-        }
-    }
-
-    /// <summary>
-    /// UI 스레드에서 프로파일 선택 시 사전 할당되는 WaveNet 실행 상태(RT 스레드 할당 0).
-    /// </summary>
-    private sealed class WaveNetWorkspace
-    {
-        public readonly CompiledWaveNet Net;
-        public readonly LayerRuntimeState[][] LayerStates;
-        public readonly ArrayHeadState[] HeadStates;
-
-        public readonly float[] YBuf;
-        public readonly float[] NextYBuf;
-        public readonly float[] MidBuf;
-        public readonly float[] PostBuf;
-        public readonly float[] HeadAcc;
-        public readonly float[] HeadBus;
-
-        public WaveNetWorkspace(CompiledWaveNet net)
-        {
-            Net = net;
-            LayerStates = new LayerRuntimeState[net.Arrays.Length][];
-            HeadStates = new ArrayHeadState[net.Arrays.Length];
-            for (int bi = 0; bi < net.Arrays.Length; bi++)
-            {
-                var arr = net.Arrays[bi];
-                LayerStates[bi] = new LayerRuntimeState[arr.Layers.Length];
-                for (int li = 0; li < arr.Layers.Length; li++)
-                    LayerStates[bi][li] = new LayerRuntimeState(arr.Layers[li]);
-                HeadStates[bi] = new ArrayHeadState(arr);
-            }
-
-            int chCap = Math.Max(16, net.MaxChannelsPadded);
-            int midCap = Math.Max(16, net.MaxMidChannelsPadded);
-            int headCap = Math.Max(16, net.MaxHeadBusChannelsPadded);
-            YBuf = new float[chCap];
-            NextYBuf = new float[chCap];
-            MidBuf = new float[midCap];
-            PostBuf = new float[midCap];
-            HeadAcc = new float[headCap];
-            HeadBus = new float[headCap];
-        }
-
-        public void Reset()
-        {
-            for (int bi = 0; bi < LayerStates.Length; bi++)
-            {
-                var ls = LayerStates[bi];
-                for (int li = 0; li < ls.Length; li++)
-                    ls[li].Reset();
-                HeadStates[bi].Reset();
-            }
-            Array.Clear(YBuf);
-            Array.Clear(NextYBuf);
-            Array.Clear(MidBuf);
-            Array.Clear(PostBuf);
-            Array.Clear(HeadAcc);
-            Array.Clear(HeadBus);
-        }
-    }
-
-    private sealed record ProfileRuntime(ToneProfile Profile, WaveNetWorkspace? WaveNet);
+    private sealed record ProfileRuntime(ToneProfile Profile, NamWorkspace? Nam, PartitionedIr? CabPartIr);
 
     private ProfileRuntime? _runtime;
+    private Dictionary<string, ToneProfile> _modelRegistry = new(StringComparer.OrdinalIgnoreCase);
     private float[]? _customCabIr;
     private float[]? _customCabIrRev;
+    private PartitionedIr? _customCabPartIr;
     private string _customCabIrName = "";
     private string? _customCabIrPath;
     private int _customCabIrRate;
+    private readonly StereoPartitionedConvolver _singleCabConvolver = new();
+    private float[] _monoCabR = Array.Empty<float>();
 
     private int _mode = (int)ToneMode.Bypass;
     private float _driveMul = 1.0f;
@@ -158,6 +65,11 @@ public sealed class ToneProcessor
     public WhiteBoxAmpEngine WhiteBox { get; } = new();
     public SignalChainEngine Chain { get; } = new();
 
+    public ToneProcessor()
+    {
+        Chain.SetNamModelResolver(ResolveModel);
+    }
+
     public ToneMode Mode
     {
         get => (ToneMode)Volatile.Read(ref _mode);
@@ -172,13 +84,45 @@ public sealed class ToneProcessor
             if (value is null)
             {
                 Volatile.Write(ref _runtime, null);
+                Chain.RefreshNamBindings();
                 return;
             }
-            if (value.CompiledNet is null && value.WaveNetConfig != null && value.Weights.Length > 0)
+            if (!value.HasNeuralNet && value.Weights.Length > 0 &&
+                (value.WaveNetConfig != null || value.LstmConfig != null || value.ConvNetConfig != null))
+            {
                 value.PrepareForRt();
-            var ws = value.CompiledNet != null ? new WaveNetWorkspace(value.CompiledNet) : null;
-            Volatile.Write(ref _runtime, new ProfileRuntime(value, ws));
+            }
+            var ws = (value.IsWaveNet || value.IsLstm || value.IsConvNet) ? new NamWorkspace(value) : null;
+            var partIr = value.CabIr is { Length: > 0 } ? PartitionedIr.Compile(value.CabIr) : null;
+            Volatile.Write(ref _runtime, new ProfileRuntime(value, ws, partIr));
+            Chain.RefreshNamBindings();
         }
+    }
+
+    public void SetModelLibrary(IEnumerable<ToneProfile> models)
+    {
+        var dict = new Dictionary<string, ToneProfile>(StringComparer.OrdinalIgnoreCase);
+        if (models != null)
+        {
+            foreach (var m in models)
+            {
+                if (m != null && !string.IsNullOrWhiteSpace(m.Id))
+                    dict[m.Id] = m;
+            }
+        }
+        Volatile.Write(ref _modelRegistry, dict);
+        Chain.RefreshNamBindings();
+    }
+
+    public ToneProfile? ResolveModel(string? id)
+    {
+        if (!string.IsNullOrWhiteSpace(id))
+        {
+            var dict = Volatile.Read(ref _modelRegistry);
+            if (dict.TryGetValue(id.Trim(), out var found))
+                return found;
+        }
+        return Volatile.Read(ref _runtime)?.Profile;
     }
 
     public string CustomCabIrName => Volatile.Read(ref _customCabIrName);
@@ -204,6 +148,13 @@ public sealed class ToneProcessor
         if (custom != null && custom.Length > 0) return custom;
         var prof = Volatile.Read(ref _runtime)?.Profile.CabIrRev;
         return prof is { Length: > 0 } ? prof : null;
+    }
+
+    internal PartitionedIr? GetCustomOrProfilePartitionedIr()
+    {
+        var custom = Volatile.Read(ref _customCabPartIr);
+        if (custom != null) return custom;
+        return Volatile.Read(ref _runtime)?.CabPartIr;
     }
 
     public float DriveMultiplier
@@ -258,7 +209,7 @@ public sealed class ToneProcessor
         float[] mono = raw.ToArray();
         int dstRate = _sampleRate > 0 ? _sampleRate : 44100;
         if (srcRate != dstRate && srcRate > 0)
-            mono = ResampleLinear(mono, srcRate, dstRate);
+            mono = SincResampler.Resample(mono, srcRate, dstRate);
 
         float maxAbs = 0f;
         for (int i = 0; i < mono.Length; i++)
@@ -301,11 +252,13 @@ public sealed class ToneProcessor
         for (int i = 0; i < len; i++)
             rev[i] = ir[len - 1 - i];
 
+        var partIr = PartitionedIr.Compile(ir);
         string name = Path.GetFileName(wavPath);
         _customCabIrPath = wavPath;
         _customCabIrRate = dstRate;
         Volatile.Write(ref _customCabIr, ir);
         Volatile.Write(ref _customCabIrRev, rev);
+        Volatile.Write(ref _customCabPartIr, partIr);
         Volatile.Write(ref _customCabIrName, name);
         return (name, len);
     }
@@ -316,24 +269,8 @@ public sealed class ToneProcessor
         _customCabIrRate = 0;
         Volatile.Write(ref _customCabIr, null);
         Volatile.Write(ref _customCabIrRev, null);
+        Volatile.Write(ref _customCabPartIr, null);
         Volatile.Write(ref _customCabIrName, "");
-    }
-
-    private static float[] ResampleLinear(float[] src, int srcRate, int dstRate)
-    {
-        double ratio = (double)srcRate / dstRate;
-        int outLen = Math.Max(16, (int)Math.Round(src.Length / ratio));
-        var dst = new float[outLen];
-        for (int i = 0; i < outLen; i++)
-        {
-            double pos = i * ratio;
-            int idx = (int)pos;
-            float frac = (float)(pos - idx);
-            float a = src[Math.Min(idx, src.Length - 1)];
-            float b = src[Math.Min(idx + 1, src.Length - 1)];
-            dst[i] = a + (b - a) * frac;
-        }
-        return dst;
     }
 
     /// <summary>스트림 시작 전 UI 스레드에서 1회 호출 — RT 작업용 모든 버퍼를 사전 할당한다.</summary>
@@ -349,13 +286,15 @@ public sealed class ToneProcessor
         _dryL = new float[_maxFrames];
         _dryR = new float[_maxFrames];
         _monoWork = new float[_maxFrames];
+        _monoCabR = new float[_maxFrames];
         _preHist = new float[64 + _maxFrames];
         _wsIn = new float[HistPad + _maxFrames];
         _wsOut = new float[_maxFrames];
         _h1 = new float[12 * (HistPad + _maxFrames)];
         _h2 = new float[12 * (HistPad + _maxFrames)];
-        _cabHist = new float[MaxCabTaps + _maxFrames];
+        _cabHist = new float[2048 + _maxFrames];
 
+        _singleCabConvolver.Prepare(_maxFrames);
         WhiteBox.Prepare(_maxFrames, _sampleRate);
         Chain.Prepare(_maxFrames, _sampleRate);
         ResetState();
@@ -369,9 +308,10 @@ public sealed class ToneProcessor
         if (_h2.Length > 0) Array.Clear(_h2);
         if (_cabHist.Length > 0) Array.Clear(_cabHist);
 
+        _singleCabConvolver.Reset();
         WhiteBox.Reset();
         Chain.Reset();
-        Volatile.Read(ref _runtime)?.WaveNet?.Reset();
+        Volatile.Read(ref _runtime)?.Nam?.Reset();
 
         _gateEnv = 0f;
         _gateGain = 1f;
@@ -383,14 +323,14 @@ public sealed class ToneProcessor
     }
 
     /// <summary>
-    /// 순수 WaveNet 추론 전용 진입점(게이트/리미터/DC블로커 없는 수치 동치 검증 및 오프라인 오디션용).
+    /// 순수 NAM(WaveNet/LSTM/ConvNet) 추론 전용 진입점(게이트/리미터/DC블로커 없는 수치 동치 검증 및 오프라인 오디션용).
     /// </summary>
     public bool ProcessWaveNetRaw(ReadOnlySpan<float> input, Span<float> output)
     {
         var rt = Volatile.Read(ref _runtime);
-        if (rt?.WaveNet is null) return false;
+        if (rt?.Nam is null || !rt.Nam.IsReady) return false;
         int n = Math.Min(input.Length, output.Length);
-        RunCompiledWaveNet(rt.WaveNet, input.Slice(0, n), output.Slice(0, n));
+        rt.Nam.Process(input.Slice(0, n), output.Slice(0, n));
         return true;
     }
 
@@ -400,7 +340,7 @@ public sealed class ToneProcessor
         var mode = (ToneMode)Volatile.Read(ref _mode);
         var rt = Volatile.Read(ref _runtime);
         var prof = rt?.Profile;
-        var ws = rt?.WaveNet;
+        var ws = rt?.Nam;
         var customCab = Volatile.Read(ref _customCabIrRev);
 
         if (mode == ToneMode.Bypass || frames <= 0) return;
@@ -499,10 +439,10 @@ public sealed class ToneProcessor
         }
         float paramAlpha = 1f - MathF.Exp(-1f / MathF.Max(1f, 0.004f * _sampleRate));
 
-        bool isWaveNet = ws != null;
+        bool isNamReady = ws != null && ws.IsReady;
         bool runAmp = (mode == ToneMode.FullRig || mode == ToneMode.AmpHeadOnly) && prof != null;
 
-        // 2) 조합형 하이브리드 라우팅 (WhiteBoxRig / HybridPreampNam / NAM WaveNet / CabIrOnly)
+        // 2) 조합형 하이브리드 라우팅 (WhiteBoxRig / HybridPreampNam / NAM / CabIrOnly)
         if (mode == ToneMode.WhiteBoxRig)
         {
             ApplySmoothedDrive(frames, targetDrive, paramAlpha);
@@ -514,9 +454,9 @@ public sealed class ToneProcessor
         {
             ApplySmoothedDrive(frames, targetDrive, paramAlpha);
             WhiteBox.ProcessFullAmp(_monoWork.AsSpan(0, frames), frames, includePowerAmp: WhiteBox.IsPowerAmpEnabled);
-            if (isWaveNet)
+            if (isNamReady)
             {
-                RunCompiledWaveNet(ws!, _monoWork.AsSpan(0, frames), _monoWork.AsSpan(0, frames));
+                ws!.Process(_monoWork.AsSpan(0, frames), _monoWork.AsSpan(0, frames));
                 if (customCab != null)
                     ApplyCabIr(customCab, frames);
             }
@@ -532,15 +472,15 @@ public sealed class ToneProcessor
                 ApplyCabIr(cabRev, frames);
             }
         }
-        else if (runAmp && isWaveNet)
+        else if (runAmp && isNamReady)
         {
             if (WhiteBox.IsTsEnabled)
                 WhiteBox.ProcessTs808Only(_monoWork.AsSpan(0, frames), frames);
 
             ApplySmoothedDrive(frames, targetDrive, paramAlpha);
-            RunCompiledWaveNet(ws!, _monoWork.AsSpan(0, frames), _monoWork.AsSpan(0, frames));
+            ws!.Process(_monoWork.AsSpan(0, frames), _monoWork.AsSpan(0, frames));
 
-            // AmpHeadOnly(3)일 때만 WaveNet 뒤에 외부/내장 Cab IR 추가 컨볼루션
+            // AmpHeadOnly(3)일 때만 NAM 뒤에 외부/내장 Cab IR 추가 컨볼루션
             if (mode == ToneMode.AmpHeadOnly)
             {
                 var cabRev = customCab ?? (prof!.CabIrRev is { Length: > 0 } ? prof.CabIrRev : WhiteBox.DefaultCabIrRev);
@@ -664,6 +604,16 @@ public sealed class ToneProcessor
     {
         int cabLen = cabRev.Length;
         if (cabLen <= 0 || cabLen > MaxCabTaps) return;
+        if (cabLen > 2048)
+        {
+            var part = GetCustomOrProfilePartitionedIr();
+            if (part != null)
+            {
+                _monoWork.AsSpan(0, frames).CopyTo(_monoCabR.AsSpan(0, frames));
+                _singleCabConvolver.ConvolveStereo(_monoWork.AsSpan(0, frames), _monoCabR.AsSpan(0, frames), frames, part);
+                return;
+            }
+        }
         int histN = cabLen - 1;
         _monoWork.AsSpan(0, frames).CopyTo(_cabHist.AsSpan(histN, frames));
         for (int i = 0; i < frames; i++)
@@ -689,450 +639,6 @@ public sealed class ToneProcessor
         _cabHist.AsSpan(frames, histN).CopyTo(_cabHist.AsSpan(0, histN));
     }
 
-    // =========================================================================
-    // AVX2 / FMA 공식 NAM Multi-Block Gated Dilated WaveNet 실시간 추론 커널
-    // =========================================================================
-    private static void RunCompiledWaveNet(WaveNetWorkspace ws, ReadOnlySpan<float> input, Span<float> output)
-    {
-        var net = ws.Net;
-        var arrays = net.Arrays;
-        int nArrays = arrays.Length;
-        int frames = input.Length;
-        float headScale = net.HeadScale;
-
-        ref float yRef = ref MemoryMarshal.GetArrayDataReference(ws.YBuf);
-        ref float nextYRef = ref MemoryMarshal.GetArrayDataReference(ws.NextYBuf);
-        ref float midRef = ref MemoryMarshal.GetArrayDataReference(ws.MidBuf);
-        ref float postRef = ref MemoryMarshal.GetArrayDataReference(ws.PostBuf);
-        ref float headAccRef = ref MemoryMarshal.GetArrayDataReference(ws.HeadAcc);
-        ref float headBusRef = ref MemoryMarshal.GetArrayDataReference(ws.HeadBus);
-
-        for (int t = 0; t < frames; t++)
-        {
-            float x0 = input[t];
-            yRef = x0;
-
-            for (int bi = 0; bi < nArrays; bi++)
-            {
-                var arr = arrays[bi];
-                int inCh = arr.InputSize;
-                int ch = arr.Channels;
-                int padCh = arr.PadChannels;
-
-                // 1) Rechannel: y[inCh] -> nextY[padCh] (no bias), then copy to y
-                ref float rechW = ref MemoryMarshal.GetArrayDataReference(arr.RechannelW);
-                ScaleRow(ref nextYRef, ref rechW, yRef, padCh);
-                for (int ic = 1; ic < inCh; ic++)
-                {
-                    float v = Unsafe.Add(ref yRef, ic);
-                    MacRow(ref nextYRef, ref Unsafe.Add(ref rechW, ic * padCh), v, padCh);
-                }
-                CopyVec(ref yRef, ref nextYRef, padCh);
-
-                // 2) Head accumulator init
-                int headInPad = Pad8(arr.HeadInChannels);
-                if (bi == 0)
-                    ZeroVec(ref headAccRef, headInPad);
-                else
-                    CopyVec(ref headAccRef, ref headBusRef, headInPad);
-
-                // 3) Dilated causal layers
-                var layers = arr.Layers;
-                var lStates = ws.LayerStates[bi];
-                for (int li = 0; li < layers.Length; li++)
-                {
-                    var layer = layers[li];
-                    var st = lStates[li];
-                    int wPos = st.WritePos;
-                    int ringMask = layer.RingMask;
-                    ref float ringBase = ref MemoryMarshal.GetArrayDataReference(st.Ring);
-
-                    // 현재 잔차 y를 링 버퍼 wPos에 기록
-                    CopyVec(ref Unsafe.Add(ref ringBase, wPos * padCh), ref yRef, padCh);
-
-                    // 3a) Dilated Causal Conv1d + Bias + InputMixer (레지스터 고정 AVX2/FMA)
-                    int kSize = layer.KernelSize;
-                    int dil = layer.Dilation;
-                    int padMid = layer.PadMidChannels;
-                    ref float convW = ref MemoryMarshal.GetArrayDataReference(layer.ConvW);
-                    ref float convB = ref MemoryMarshal.GetArrayDataReference(layer.ConvB);
-                    ref float mixW = ref MemoryMarshal.GetArrayDataReference(layer.InputMixerW);
-
-                    ConvDilatedFma(
-                        ref midRef,
-                        ref convB,
-                        ref mixW,
-                        x0,
-                        ref ringBase,
-                        ref convW,
-                        wPos,
-                        ringMask,
-                        kSize,
-                        dil,
-                        ch,
-                        padCh,
-                        padMid);
-
-                    // 3b) Activation (+ Gating)
-                    int bn = layer.Bottleneck;
-                    if (layer.Gated)
-                        ActivateGated(ref midRef, ref postRef, bn, layer.Act);
-                    else
-                        ActivatePlain(ref midRef, ref postRef, bn, layer.Act);
-
-                    // 3c) Residual 1x1: y = y + Layer1x1(post) (or y + post)
-                    if (layer.Layer1x1Active)
-                    {
-                        ref float l1w = ref MemoryMarshal.GetArrayDataReference(layer.Layer1x1W);
-                        ref float l1b = ref MemoryMarshal.GetArrayDataReference(layer.Layer1x1B);
-                        ResidualLayer1x1Fma(ref yRef, ref l1b, ref l1w, ref postRef, bn, padCh);
-                    }
-                    else
-                    {
-                        AddScalarRange(ref yRef, ref postRef, bn);
-                    }
-
-                    // 3d) Skip Head1x1 accumulation into headAcc
-                    if (layer.Head1x1Active)
-                    {
-                        ref float h1w = ref MemoryMarshal.GetArrayDataReference(layer.Head1x1W);
-                        int padH1Out = layer.PadHeadOut;
-                        for (int ic = 0; ic < bn; ic++)
-                        {
-                            float pv = Unsafe.Add(ref postRef, ic);
-                            MacRow(ref headAccRef, ref Unsafe.Add(ref h1w, ic * padH1Out), pv, padH1Out);
-                        }
-                    }
-                    else
-                    {
-                        AddScalarRange(ref headAccRef, ref postRef, bn);
-                    }
-
-                    st.WritePos = (wPos + 1) & ringMask;
-                }
-
-                // 4) Head Rechannel: headAcc -> headBus
-                int hInCh = arr.HeadInChannels;
-                int padHOut = arr.PadHeadOutChannels;
-                ref float hRechW = ref MemoryMarshal.GetArrayDataReference(arr.HeadRechannelW);
-                ref float hRechB = ref MemoryMarshal.GetArrayDataReference(arr.HeadRechannelB);
-                CopyVec(ref headBusRef, ref hRechB, padHOut);
-
-                if (arr.HeadKernelSize == 1)
-                {
-                    for (int ic = 0; ic < hInCh; ic++)
-                    {
-                        float hv = Unsafe.Add(ref headAccRef, ic);
-                        MacRow(ref headBusRef, ref Unsafe.Add(ref hRechW, ic * padHOut), hv, padHOut);
-                    }
-                }
-                else
-                {
-                    var hst = ws.HeadStates[bi];
-                    int hwPos = hst.WritePos;
-                    int hMask = arr.HeadRingMask;
-                    ref float hRing = ref MemoryMarshal.GetArrayDataReference(hst.HeadRing!);
-                    ref float dstSlot = ref Unsafe.Add(ref hRing, hwPos * hInCh);
-                    for (int ic = 0; ic < hInCh; ic++)
-                        Unsafe.Add(ref dstSlot, ic) = Unsafe.Add(ref headAccRef, ic);
-
-                    int hK = arr.HeadKernelSize;
-                    for (int k = 0; k < hK; k++)
-                    {
-                        int slot = (hwPos - (hK - 1 - k)) & hMask;
-                        ref float srcSlot = ref Unsafe.Add(ref hRing, slot * hInCh);
-                        int wKBase = k * hInCh * padHOut;
-                        for (int ic = 0; ic < hInCh; ic++)
-                        {
-                            float hv = Unsafe.Add(ref srcSlot, ic);
-                            MacRow(ref headBusRef, ref Unsafe.Add(ref hRechW, wKBase + ic * padHOut), hv, padHOut);
-                        }
-                    }
-                    hst.WritePos = (hwPos + 1) & hMask;
-                }
-            }
-
-            output[t] = headBusRef * headScale;
-        }
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int Pad8(int n) => (n + 7) & ~7;
-
-    /// <summary>
-    /// 레지스터 누적 AVX2/FMA 인과 Dilated Conv1d + InputMixer 커널.
-    /// Nano(24), Feather(24/16), Standard(32/16)의 출력 채널을 YMM 레지스터에 고정하여 L1 쓰기를 최소화한다.
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void ConvDilatedFma(
-        ref float midRef,
-        ref float convB,
-        ref float mixW,
-        float x0,
-        ref float ringBase,
-        ref float convW,
-        int wPos,
-        int ringMask,
-        int kSize,
-        int dil,
-        int ch,
-        int padCh,
-        int padMid)
-    {
-        if (Fma.IsSupported)
-        {
-            var vx0 = Vector256.Create(x0);
-            if (padMid == 24)
-            {
-                var a0 = Fma.MultiplyAdd(Vector256.LoadUnsafe(ref mixW, 0), vx0, Vector256.LoadUnsafe(ref convB, 0));
-                var a1 = Fma.MultiplyAdd(Vector256.LoadUnsafe(ref mixW, 8), vx0, Vector256.LoadUnsafe(ref convB, 8));
-                var a2 = Fma.MultiplyAdd(Vector256.LoadUnsafe(ref mixW, 16), vx0, Vector256.LoadUnsafe(ref convB, 16));
-
-                int wOffset = 0;
-                for (int k = 0; k < kSize; k++)
-                {
-                    int slot = (wPos - (kSize - 1 - k) * dil) & ringMask;
-                    ref float rRow = ref Unsafe.Add(ref ringBase, slot * padCh);
-                    for (int ic = 0; ic < ch; ic++)
-                    {
-                        var v = Vector256.Create(Unsafe.Add(ref rRow, ic));
-                        ref float wRow = ref Unsafe.Add(ref convW, wOffset);
-                        a0 = Fma.MultiplyAdd(Vector256.LoadUnsafe(ref wRow, 0), v, a0);
-                        a1 = Fma.MultiplyAdd(Vector256.LoadUnsafe(ref wRow, 8), v, a1);
-                        a2 = Fma.MultiplyAdd(Vector256.LoadUnsafe(ref wRow, 16), v, a2);
-                        wOffset += 24;
-                    }
-                }
-                Vector256.StoreUnsafe(a0, ref midRef, 0);
-                Vector256.StoreUnsafe(a1, ref midRef, 8);
-                Vector256.StoreUnsafe(a2, ref midRef, 16);
-                return;
-            }
-            if (padMid == 32)
-            {
-                var a0 = Fma.MultiplyAdd(Vector256.LoadUnsafe(ref mixW, 0), vx0, Vector256.LoadUnsafe(ref convB, 0));
-                var a1 = Fma.MultiplyAdd(Vector256.LoadUnsafe(ref mixW, 8), vx0, Vector256.LoadUnsafe(ref convB, 8));
-                var a2 = Fma.MultiplyAdd(Vector256.LoadUnsafe(ref mixW, 16), vx0, Vector256.LoadUnsafe(ref convB, 16));
-                var a3 = Fma.MultiplyAdd(Vector256.LoadUnsafe(ref mixW, 24), vx0, Vector256.LoadUnsafe(ref convB, 24));
-
-                int wOffset = 0;
-                for (int k = 0; k < kSize; k++)
-                {
-                    int slot = (wPos - (kSize - 1 - k) * dil) & ringMask;
-                    ref float rRow = ref Unsafe.Add(ref ringBase, slot * padCh);
-                    for (int ic = 0; ic < ch; ic++)
-                    {
-                        var v = Vector256.Create(Unsafe.Add(ref rRow, ic));
-                        ref float wRow = ref Unsafe.Add(ref convW, wOffset);
-                        a0 = Fma.MultiplyAdd(Vector256.LoadUnsafe(ref wRow, 0), v, a0);
-                        a1 = Fma.MultiplyAdd(Vector256.LoadUnsafe(ref wRow, 8), v, a1);
-                        a2 = Fma.MultiplyAdd(Vector256.LoadUnsafe(ref wRow, 16), v, a2);
-                        a3 = Fma.MultiplyAdd(Vector256.LoadUnsafe(ref wRow, 24), v, a3);
-                        wOffset += 32;
-                    }
-                }
-                Vector256.StoreUnsafe(a0, ref midRef, 0);
-                Vector256.StoreUnsafe(a1, ref midRef, 8);
-                Vector256.StoreUnsafe(a2, ref midRef, 16);
-                Vector256.StoreUnsafe(a3, ref midRef, 24);
-                return;
-            }
-            if (padMid == 16)
-            {
-                var a0 = Fma.MultiplyAdd(Vector256.LoadUnsafe(ref mixW, 0), vx0, Vector256.LoadUnsafe(ref convB, 0));
-                var a1 = Fma.MultiplyAdd(Vector256.LoadUnsafe(ref mixW, 8), vx0, Vector256.LoadUnsafe(ref convB, 8));
-
-                int wOffset = 0;
-                for (int k = 0; k < kSize; k++)
-                {
-                    int slot = (wPos - (kSize - 1 - k) * dil) & ringMask;
-                    ref float rRow = ref Unsafe.Add(ref ringBase, slot * padCh);
-                    for (int ic = 0; ic < ch; ic++)
-                    {
-                        var v = Vector256.Create(Unsafe.Add(ref rRow, ic));
-                        ref float wRow = ref Unsafe.Add(ref convW, wOffset);
-                        a0 = Fma.MultiplyAdd(Vector256.LoadUnsafe(ref wRow, 0), v, a0);
-                        a1 = Fma.MultiplyAdd(Vector256.LoadUnsafe(ref wRow, 8), v, a1);
-                        wOffset += 16;
-                    }
-                }
-                Vector256.StoreUnsafe(a0, ref midRef, 0);
-                Vector256.StoreUnsafe(a1, ref midRef, 8);
-                return;
-            }
-            if (padMid == 8)
-            {
-                var a0 = Fma.MultiplyAdd(Vector256.LoadUnsafe(ref mixW, 0), vx0, Vector256.LoadUnsafe(ref convB, 0));
-                int wOffset = 0;
-                for (int k = 0; k < kSize; k++)
-                {
-                    int slot = (wPos - (kSize - 1 - k) * dil) & ringMask;
-                    ref float rRow = ref Unsafe.Add(ref ringBase, slot * padCh);
-                    for (int ic = 0; ic < ch; ic++)
-                    {
-                        var v = Vector256.Create(Unsafe.Add(ref rRow, ic));
-                        a0 = Fma.MultiplyAdd(Vector256.LoadUnsafe(ref Unsafe.Add(ref convW, wOffset), 0), v, a0);
-                        wOffset += 8;
-                    }
-                }
-                Vector256.StoreUnsafe(a0, ref midRef, 0);
-                return;
-            }
-        }
-
-        // 범용 경로 (임의 대형 .nam 채널 폭 지원)
-        CopyVec(ref midRef, ref convB, padMid);
-        MacRow(ref midRef, ref mixW, x0, padMid);
-        int genOffset = 0;
-        for (int k = 0; k < kSize; k++)
-        {
-            int slot = (wPos - (kSize - 1 - k) * dil) & ringMask;
-            ref float rRow = ref Unsafe.Add(ref ringBase, slot * padCh);
-            for (int ic = 0; ic < ch; ic++)
-            {
-                float v = Unsafe.Add(ref rRow, ic);
-                MacRow(ref midRef, ref Unsafe.Add(ref convW, genOffset), v, padMid);
-                genOffset += padMid;
-            }
-        }
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void ResidualLayer1x1Fma(
-        ref float yRef,
-        ref float l1b,
-        ref float l1w,
-        ref float postRef,
-        int bn,
-        int padCh)
-    {
-        if (Fma.IsSupported)
-        {
-            if (padCh == 16)
-            {
-                var a0 = Vector256.LoadUnsafe(ref yRef, 0) + Vector256.LoadUnsafe(ref l1b, 0);
-                var a1 = Vector256.LoadUnsafe(ref yRef, 8) + Vector256.LoadUnsafe(ref l1b, 8);
-                int wOff = 0;
-                for (int ic = 0; ic < bn; ic++)
-                {
-                    var v = Vector256.Create(Unsafe.Add(ref postRef, ic));
-                    ref float wRow = ref Unsafe.Add(ref l1w, wOff);
-                    a0 = Fma.MultiplyAdd(Vector256.LoadUnsafe(ref wRow, 0), v, a0);
-                    a1 = Fma.MultiplyAdd(Vector256.LoadUnsafe(ref wRow, 8), v, a1);
-                    wOff += 16;
-                }
-                Vector256.StoreUnsafe(a0, ref yRef, 0);
-                Vector256.StoreUnsafe(a1, ref yRef, 8);
-                return;
-            }
-            if (padCh == 8)
-            {
-                var a0 = Vector256.LoadUnsafe(ref yRef, 0) + Vector256.LoadUnsafe(ref l1b, 0);
-                int wOff = 0;
-                for (int ic = 0; ic < bn; ic++)
-                {
-                    var v = Vector256.Create(Unsafe.Add(ref postRef, ic));
-                    a0 = Fma.MultiplyAdd(Vector256.LoadUnsafe(ref Unsafe.Add(ref l1w, wOff), 0), v, a0);
-                    wOff += 8;
-                }
-                Vector256.StoreUnsafe(a0, ref yRef, 0);
-                return;
-            }
-        }
-
-        AddVec(ref yRef, ref l1b, padCh);
-        for (int ic = 0; ic < bn; ic++)
-        {
-            float pv = Unsafe.Add(ref postRef, ic);
-            MacRow(ref yRef, ref Unsafe.Add(ref l1w, ic * padCh), pv, padCh);
-        }
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void ActivateGated(ref float midRef, ref float postRef, int bn, WaveNetActKind act)
-    {
-        int oc = 0;
-        if (Vector256.IsHardwareAccelerated && bn >= 8)
-        {
-            for (; oc <= bn - 8; oc += 8)
-            {
-                var va = Vector256.LoadUnsafe(ref midRef, (nuint)oc);
-                var vb = Vector256.LoadUnsafe(ref midRef, (nuint)(bn + oc));
-                var res = ApplyAct256(va, act) * FastSigmoid256(vb);
-                Vector256.StoreUnsafe(res, ref postRef, (nuint)oc);
-            }
-        }
-        for (; oc < bn; oc++)
-        {
-            float a = Unsafe.Add(ref midRef, oc);
-            float b = Unsafe.Add(ref midRef, bn + oc);
-            Unsafe.Add(ref postRef, oc) = ApplyActScalar(a, act) * FastSigmoidScalar(b);
-        }
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void ActivatePlain(ref float midRef, ref float postRef, int bn, WaveNetActKind act)
-    {
-        int oc = 0;
-        if (Vector256.IsHardwareAccelerated && bn >= 8)
-        {
-            for (; oc <= bn - 8; oc += 8)
-            {
-                var va = Vector256.LoadUnsafe(ref midRef, (nuint)oc);
-                Vector256.StoreUnsafe(ApplyAct256(va, act), ref postRef, (nuint)oc);
-            }
-        }
-        for (; oc < bn; oc++)
-        {
-            Unsafe.Add(ref postRef, oc) = ApplyActScalar(Unsafe.Add(ref midRef, oc), act);
-        }
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Vector256<float> ApplyAct256(Vector256<float> x, WaveNetActKind act) => act switch
-    {
-        WaveNetActKind.Tanh => FastTanh256(x),
-        WaveNetActKind.SiLU => x * FastSigmoid256(x),
-        WaveNetActKind.ReLU => Vector256.Max(Vector256<float>.Zero, x),
-        WaveNetActKind.LeakyReLU => Vector256.ConditionalSelect(
-            Vector256.GreaterThanOrEqual(x, Vector256<float>.Zero),
-            x,
-            x * Vector256.Create(0.01f)),
-        WaveNetActKind.Sigmoid => FastSigmoid256(x),
-        _ => FastTanh256(x),
-    };
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static float ApplyActScalar(float x, WaveNetActKind act) => act switch
-    {
-        WaveNetActKind.Tanh => FastTanhScalar(x),
-        WaveNetActKind.SiLU => x * FastSigmoidScalar(x),
-        WaveNetActKind.ReLU => x > 0f ? x : 0f,
-        WaveNetActKind.LeakyReLU => x >= 0f ? x : 0.01f * x,
-        WaveNetActKind.Sigmoid => FastSigmoidScalar(x),
-        _ => FastTanhScalar(x),
-    };
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Vector256<float> FastTanh256(Vector256<float> x)
-    {
-        x = Vector256.Min(Vector256.Create(4.97f), Vector256.Max(Vector256.Create(-4.97f), x));
-        var x2 = x * x;
-        var num = x * (Vector256.Create(135135f) + x2 * (Vector256.Create(17325f) + x2 * (Vector256.Create(378f) + x2)));
-        var den = Vector256.Create(135135f) + x2 * (Vector256.Create(62370f) + x2 * (Vector256.Create(3150f) + Vector256.Create(28f) * x2));
-        return num / den;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Vector256<float> FastSigmoid256(Vector256<float> x)
-    {
-        var half = Vector256.Create(0.5f);
-        return half + half * FastTanh256(x * half);
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static float FastSigmoidScalar(float x) => 0.5f + 0.5f * FastTanhScalar(0.5f * x);
-
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static float SoftKneeCeiling(float y)
     {
@@ -1140,102 +646,6 @@ public sealed class ToneProcessor
         if (ay <= 0.92f) return y;
         float limited = 0.92f + 0.075f * FastTanhScalar((ay - 0.92f) / 0.075f);
         return y >= 0f ? limited : -limited;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void ZeroVec(ref float dst, int padLen)
-    {
-        if (Vector256.IsHardwareAccelerated)
-        {
-            var z = Vector256<float>.Zero;
-            for (int i = 0; i < padLen; i += 8)
-                Vector256.StoreUnsafe(z, ref dst, (nuint)i);
-            return;
-        }
-        for (int i = 0; i < padLen; i++) Unsafe.Add(ref dst, i) = 0f;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void CopyVec(ref float dst, ref float src, int padLen)
-    {
-        if (Vector256.IsHardwareAccelerated)
-        {
-            for (int i = 0; i < padLen; i += 8)
-                Vector256.StoreUnsafe(Vector256.LoadUnsafe(ref src, (nuint)i), ref dst, (nuint)i);
-            return;
-        }
-        for (int i = 0; i < padLen; i++) Unsafe.Add(ref dst, i) = Unsafe.Add(ref src, i);
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void AddVec(ref float dst, ref float src, int padLen)
-    {
-        if (Vector256.IsHardwareAccelerated)
-        {
-            for (int i = 0; i < padLen; i += 8)
-            {
-                var v = Vector256.LoadUnsafe(ref dst, (nuint)i) + Vector256.LoadUnsafe(ref src, (nuint)i);
-                Vector256.StoreUnsafe(v, ref dst, (nuint)i);
-            }
-            return;
-        }
-        for (int i = 0; i < padLen; i++) Unsafe.Add(ref dst, i) += Unsafe.Add(ref src, i);
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void AddScalarRange(ref float dst, ref float src, int len)
-    {
-        int i = 0;
-        if (Vector256.IsHardwareAccelerated && len >= 8)
-        {
-            for (; i <= len - 8; i += 8)
-            {
-                var v = Vector256.LoadUnsafe(ref dst, (nuint)i) + Vector256.LoadUnsafe(ref src, (nuint)i);
-                Vector256.StoreUnsafe(v, ref dst, (nuint)i);
-            }
-        }
-        for (; i < len; i++) Unsafe.Add(ref dst, i) += Unsafe.Add(ref src, i);
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void ScaleRow(ref float dst, ref float wRow, float scalar, int padLen)
-    {
-        if (Vector256.IsHardwareAccelerated)
-        {
-            var vs = Vector256.Create(scalar);
-            for (int i = 0; i < padLen; i += 8)
-                Vector256.StoreUnsafe(Vector256.LoadUnsafe(ref wRow, (nuint)i) * vs, ref dst, (nuint)i);
-            return;
-        }
-        for (int i = 0; i < padLen; i++) Unsafe.Add(ref dst, i) = Unsafe.Add(ref wRow, i) * scalar;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void MacRow(ref float dst, ref float wRow, float scalar, int padLen)
-    {
-        if (Fma.IsSupported)
-        {
-            var vs = Vector256.Create(scalar);
-            for (int i = 0; i < padLen; i += 8)
-            {
-                var vd = Vector256.LoadUnsafe(ref dst, (nuint)i);
-                var vw = Vector256.LoadUnsafe(ref wRow, (nuint)i);
-                Vector256.StoreUnsafe(Fma.MultiplyAdd(vw, vs, vd), ref dst, (nuint)i);
-            }
-            return;
-        }
-        if (Vector256.IsHardwareAccelerated)
-        {
-            var vs = Vector256.Create(scalar);
-            for (int i = 0; i < padLen; i += 8)
-            {
-                var vd = Vector256.LoadUnsafe(ref dst, (nuint)i);
-                var vw = Vector256.LoadUnsafe(ref wRow, (nuint)i);
-                Vector256.StoreUnsafe(vd + vw * vs, ref dst, (nuint)i);
-            }
-            return;
-        }
-        for (int i = 0; i < padLen; i++) Unsafe.Add(ref dst, i) += Unsafe.Add(ref wRow, i) * scalar;
     }
 
     // =========================================================================

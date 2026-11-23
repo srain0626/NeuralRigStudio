@@ -41,6 +41,7 @@ import type {
   BackingTrackStateDto,
   GuitarAnalysisLiveStateDto,
   GuitarProfileDto,
+  MidiSnapshotDto,
   ModelProfileSummary,
   PresetDef,
   SignalChainConfigDto,
@@ -73,6 +74,9 @@ export default function App() {
   const [wasapiDevices, setWasapiDevices] = useState<WasapiDeviceDto[]>([
     { id: "", label: "시스템 기본 출력 장치" },
   ])
+  const [wasapiInputDevices, setWasapiInputDevices] = useState<WasapiDeviceDto[]>([
+    { id: "", label: "시스템 기본 입력 장치 (자동)" },
+  ])
   const [presets, setPresets] = useState<PresetDef[]>([
     { index: 0, name: "극한 (링 4ms / WASAPI 8~12ms)", ringMs: 4, sharedMs: 12, exclMs: 8 },
     { index: 1, name: "최소 (링 8ms / WASAPI 10~15ms)", ringMs: 8, sharedMs: 15, exclMs: 10 },
@@ -80,8 +84,13 @@ export default function App() {
     { index: 3, name: "안정 (링 32ms / WASAPI 25~50ms)", ringMs: 32, sharedMs: 50, exclMs: 25 },
   ])
 
+  const [inputKind, setInputKind] = useState<"ASIO" | "WASAPI">("ASIO")
   const [inputDriver, setInputDriver] = useState("")
+  const [wasapiInputDeviceId, setWasapiInputDeviceId] = useState("")
+  const [wasapiInputExclusive, setWasapiInputExclusive] = useState(false)
+  const [wasapiInputRaw, setWasapiInputRaw] = useState(true)
   const [channelMode, setChannelMode] = useState(1)
+  const [inputChannelOffset, setInputChannelOffset] = useState(0)
   const [bufferSize, setBufferSize] = useState(0)
   const [outputKind, setOutputKind] = useState("WASAPI")
   const [wasapiExclusive, setWasapiExclusive] = useState(false)
@@ -96,6 +105,13 @@ export default function App() {
   const [initialChain, setInitialChain] = useState<SignalChainConfigDto>(FACTORY_PRESETS[0])
   const [savedPresets, setSavedPresets] = useState<SignalChainConfigDto[]>([])
   const [backingInitState, setBackingInitState] = useState<BackingTrackStateDto | undefined>(undefined)
+  const [midiState, setMidiState] = useState<MidiSnapshotDto>({
+    devices: [],
+    activeDevice: "",
+    connected: false,
+    bindings: [],
+    learning: null,
+  })
 
   const [isAudioRunning, setIsAudioRunning] = useState(false)
   const [isAudioBusy, setIsAudioBusy] = useState(false)
@@ -140,6 +156,12 @@ export default function App() {
       setGuitarProfiles(ev.guitarProfiles || [])
       setActiveGuitarProfileId(ev.activeGuitarProfileId || "")
     })
+    const unsubMidi = studioBridge.on<MidiSnapshotDto>("midiStateChanged", (ev) => {
+      if (ev) setMidiState(ev)
+    })
+    const unsubTunerMute = studioBridge.on<{ mute: boolean }>("tunerMuteChanged", (ev) => {
+      if (ev !== undefined) setTunerMute(Boolean(ev.mute))
+    })
 
     let lastHdrSync = 0
     let lastGuitarSync = 0
@@ -170,14 +192,30 @@ export default function App() {
       studioBridge
         .invoke<StudioInitSnapshot>("init")
         .then((snap) => {
-          setAsioDrivers(snap.audio.asioDrivers || [])
+          const loadedAsio = snap.audio.asioDrivers || []
+          setAsioDrivers(loadedAsio)
           setWasapiDevices(snap.audio.wasapiDevices || [{ id: "", label: "시스템 기본 출력 장치" }])
+          setWasapiInputDevices(
+            snap.audio.wasapiInputDevices || [{ id: "", label: "시스템 기본 입력 장치 (자동)" }]
+          )
           if (snap.presets?.length) setPresets(snap.presets)
           if (snap.audio.initialCaps) setCaps(snap.audio.initialCaps)
 
           const s = snap.settings
+          const resolvedInKind =
+            s.inputKind?.toUpperCase() === "WASAPI" || loadedAsio.length === 0 ? "WASAPI" : "ASIO"
+          setInputKind(resolvedInKind)
           setInputDriver(snap.audio.initialDriver || s.inputDriver || "")
-          setChannelMode(s.channelMode ?? 1)
+          setWasapiInputDeviceId(s.wasapiInputDeviceId || "")
+          setWasapiInputExclusive(Boolean(s.wasapiInputExclusive))
+          setWasapiInputRaw(s.wasapiInputRaw ?? true)
+          if (s.channelMode === 2) {
+            setChannelMode(1)
+            setInputChannelOffset(1)
+          } else {
+            setChannelMode(s.channelMode ?? 1)
+            setInputChannelOffset(s.inputChannelOffset ?? 0)
+          }
           setBufferSize(s.asioInBufferSize ?? 0)
           setOutputKind(s.outputKind || "WASAPI")
           setWasapiExclusive(Boolean(s.wasapiExclusive))
@@ -195,6 +233,7 @@ export default function App() {
           setTunerMute(Boolean(snap.tunerMute))
           if (snap.tunerRefA4Hz) setTunerRefA4Hz(snap.tunerRefA4Hz)
           if (snap.backing) setBackingInitState(snap.backing)
+          if (snap.midi) setMidiState(snap.midi)
           setIsAudioRunning(snap.isAudioRunning)
         })
         .catch((e) => addLog(`초기화 오류: ${String(e)}`, "error"))
@@ -205,6 +244,8 @@ export default function App() {
       unsubAudio()
       unsubTones()
       unsubGuitars()
+      unsubMidi()
+      unsubTunerMute()
       unsubTel()
     }
   }, [])
@@ -225,12 +266,14 @@ export default function App() {
       const res = await studioBridge.invoke<{
         asioDrivers: string[]
         wasapiDevices: WasapiDeviceDto[]
+        wasapiInputDevices?: WasapiDeviceDto[]
         initialDriver?: string
         initialCaps?: AsioCapabilitiesDto | null
       }>("refreshAudioDevices")
       const drivers = res.asioDrivers || []
       setAsioDrivers(drivers)
       setWasapiDevices(res.wasapiDevices || [])
+      if (res.wasapiInputDevices) setWasapiInputDevices(res.wasapiInputDevices)
 
       const gpDriver = drivers.find((d) => /valeton|gp-?100/i.test(d))
       let activeDriver = inputDriver
@@ -251,16 +294,72 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (audioDialogOpen && !isAudioRunning && studioBridge.isWebView2) {
-      handleRefreshDevices()
+    if (audioDialogOpen && studioBridge.isWebView2) {
+      if (!isAudioRunning) handleRefreshDevices()
+      studioBridge
+        .invoke<MidiSnapshotDto>("refreshMidiDevices")
+        .then((m) => m && setMidiState(m))
+        .catch(() => {})
     }
   }, [audioDialogOpen])
+
+  const handleSelectMidiDevice = async (deviceName: string) => {
+    if (!studioBridge.isWebView2) return
+    try {
+      const res = await studioBridge.invoke<MidiSnapshotDto>("selectMidiDevice", { deviceName })
+      if (res) setMidiState(res)
+    } catch (e) {
+      addLog(`MIDI 장치 연결 오류: ${String(e)}`, "error")
+    }
+  }
+
+  const handleStartMidiLearn = async (req: {
+    targetKind: string
+    slotIndex?: number
+    paramIndex?: number
+    sceneIndex?: number
+  }) => {
+    if (!studioBridge.isWebView2) return
+    try {
+      const res = await studioBridge.invoke<MidiSnapshotDto>("startMidiLearn", req)
+      if (res) setMidiState(res)
+    } catch (e) {
+      addLog(`MIDI Learn 시작 실패: ${String(e)}`, "error")
+    }
+  }
+
+  const handleCancelMidiLearn = async () => {
+    if (!studioBridge.isWebView2) return
+    try {
+      const res = await studioBridge.invoke<MidiSnapshotDto>("cancelMidiLearn")
+      if (res) setMidiState(res)
+    } catch {
+      // ignore
+    }
+  }
+
+  const handleClearMidiBinding = async (req: {
+    targetKind: string
+    slotIndex?: number
+    paramIndex?: number
+    sceneIndex?: number
+  }) => {
+    if (!studioBridge.isWebView2) return
+    try {
+      const res = await studioBridge.invoke<MidiSnapshotDto>("clearMidiBinding", req)
+      if (res) setMidiState(res)
+    } catch {
+      // ignore
+    }
+  }
 
   const handleQuickStartGp100 = async (mode: "WASAPI" | "ASIO_DUPLEX") => {
     if (!studioBridge.isWebView2 || isAudioBusy) return
     const gpDriver = asioDrivers.find((d) => /valeton|gp-?100/i.test(d)) || "Valeton USB Audio Device"
+    setInputKind("ASIO")
     setInputDriver(gpDriver)
     setChannelMode(1)
+    setInputChannelOffset(0)
     setOutputKind(mode)
     setPresetIndex(1)
     addLog(`[GP-100] Valeton GP-100 원클릭 연결 시작 (${mode === "ASIO_DUPLEX" ? "GP-100 헤드폰 직결" : "PC 스피커/헤드셋"})…`, "info")
@@ -268,9 +367,19 @@ export default function App() {
       if (isAudioRunning) {
         await studioBridge.invoke("stopMonitoring")
       }
-      const res = await studioBridge.invoke<{ isRunning: boolean; inputDriver?: string }>("startMonitoring", {
+      const res = await studioBridge.invoke<{
+        isRunning: boolean
+        inputKind?: string
+        inputDriver?: string
+        outputKind?: string
+      }>("startMonitoring", {
+        inputKind: "ASIO",
         inputDriver: gpDriver,
+        wasapiInputDeviceId,
+        wasapiInputExclusive,
+        wasapiInputRaw,
         channelMode: 1,
+        inputChannelOffset: 0,
         asioInBufferSize: bufferSize,
         outputKind: mode,
         wasapiExclusive,
@@ -279,10 +388,52 @@ export default function App() {
         presetIndex: 1,
       })
       if (res?.inputDriver) setInputDriver(res.inputDriver)
+      if (res?.inputKind === "WASAPI" || res?.inputKind === "ASIO") setInputKind(res.inputKind)
+      if (res?.outputKind) setOutputKind(res.outputKind)
       setAudioDialogOpen(false)
       addLog(`[GP-100] 연결 완료 (${gpDriver})`, "success")
     } catch (e) {
       addLog(`GP-100 연결 실패: ${String(e)}`, "error")
+      setAudioDialogOpen(true)
+    }
+  }
+
+  const handleQuickStartUniversalWasapi = async () => {
+    if (!studioBridge.isWebView2 || isAudioBusy) return
+    setInputKind("WASAPI")
+    setChannelMode(1)
+    setInputChannelOffset(0)
+    const safeOut = outputKind === "ASIO_DUPLEX" ? "WASAPI" : outputKind
+    setOutputKind(safeOut)
+    addLog("[범용 입력] Windows 표준 오디오 입력(WASAPI) 원클릭 시작…", "info")
+    try {
+      if (isAudioRunning) {
+        await studioBridge.invoke("stopMonitoring")
+      }
+      const res = await studioBridge.invoke<{
+        isRunning: boolean
+        inputKind?: string
+        outputKind?: string
+      }>("startMonitoring", {
+        inputKind: "WASAPI",
+        inputDriver,
+        wasapiInputDeviceId,
+        wasapiInputExclusive,
+        wasapiInputRaw,
+        channelMode: 1,
+        inputChannelOffset: 0,
+        asioInBufferSize: bufferSize,
+        outputKind: safeOut,
+        wasapiExclusive,
+        wasapiDeviceId,
+        asioOutDriver,
+        presetIndex,
+      })
+      if (res?.outputKind) setOutputKind(res.outputKind)
+      setAudioDialogOpen(false)
+      addLog("[범용 입력] 연결 완료", "success")
+    } catch (e) {
+      addLog(`범용 입력 시작 실패: ${String(e)}`, "error")
       setAudioDialogOpen(true)
     }
   }
@@ -297,22 +448,35 @@ export default function App() {
       }
       return
     }
-    if (!inputDriver) {
+    const effectiveInKind = inputKind === "ASIO" && !inputDriver && asioDrivers.length === 0 ? "WASAPI" : inputKind
+    if (effectiveInKind === "ASIO" && !inputDriver) {
       setAudioDialogOpen(true)
       return
     }
     try {
-      const res = await studioBridge.invoke<{ isRunning: boolean; inputDriver?: string }>("startMonitoring", {
+      const res = await studioBridge.invoke<{
+        isRunning: boolean
+        inputKind?: string
+        inputDriver?: string
+        outputKind?: string
+      }>("startMonitoring", {
+        inputKind: effectiveInKind,
         inputDriver,
+        wasapiInputDeviceId,
+        wasapiInputExclusive,
+        wasapiInputRaw,
         channelMode,
+        inputChannelOffset,
         asioInBufferSize: bufferSize,
-        outputKind,
+        outputKind: effectiveInKind === "WASAPI" && outputKind === "ASIO_DUPLEX" ? "WASAPI" : outputKind,
         wasapiExclusive,
         wasapiDeviceId,
         asioOutDriver,
         presetIndex,
       })
+      if (res?.inputKind === "WASAPI" || res?.inputKind === "ASIO") setInputKind(res.inputKind)
       if (res?.inputDriver) setInputDriver(res.inputDriver)
+      if (res?.outputKind) setOutputKind(res.outputKind)
     } catch (e) {
       addLog(`오디오 시작 실패: ${String(e)}`, "error")
       setAudioDialogOpen(true)
@@ -377,8 +541,18 @@ export default function App() {
           })}
         </nav>
 
-        {/* Right: Tuner + Live Audio Engine Control + Audio Settings + Logs */}
+        {/* Right: MIDI Learn Indicator + Tuner + Live Audio Engine Control + Audio Settings + Logs */}
         <div className="flex items-center gap-1.5 justify-end min-w-[180px]">
+          {midiState.learning && (
+            <button
+              type="button"
+              onClick={handleCancelMidiLearn}
+              className="h-7 px-2 rounded-md border border-amber-400/70 bg-amber-500/20 text-amber-200 text-[10px] font-mono font-bold animate-pulse cursor-pointer"
+              title="외부 MIDI 페달/스위치를 조작하세요 (클릭하여 취소)"
+            >
+              MIDI LEARN… (취소)
+            </button>
+          )}
           {/* Live MPM Chromatic Tuner Pill (Click to Open Studio Tuner) */}
           <button
             type="button"
@@ -438,7 +612,11 @@ export default function App() {
           {asioDrivers.some((d) => /valeton|gp-?100/i.test(d)) && (
             <Button
               size="sm"
-              variant={isAudioRunning && /valeton|gp-?100/i.test(inputDriver) ? "default" : "secondary"}
+              variant={
+                isAudioRunning && inputKind === "ASIO" && /valeton|gp-?100/i.test(inputDriver)
+                  ? "default"
+                  : "secondary"
+              }
               className="h-7 px-2 text-[11px] font-mono gap-1"
               disabled={isAudioBusy}
               onClick={() => {
@@ -506,6 +684,9 @@ export default function App() {
         selectedToneId={selectedToneId}
         customCabIrName={customCabIrName}
         initialBacking={backingInitState}
+        midiState={midiState}
+        onStartMidiLearn={handleStartMidiLearn}
+        onClearMidiBinding={handleClearMidiBinding}
         onTonesUpdated={(nextTones, nextId) => {
           setTones(nextTones)
           setSelectedToneId(nextId)
@@ -517,47 +698,106 @@ export default function App() {
 
       {/* ── Audio I/O Settings Dialog ── */}
       <Dialog open={audioDialogOpen} onOpenChange={setAudioDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>오디오 I/O 설정 (ASIO / WASAPI)</DialogTitle>
+            <DialogTitle>범용 오디오 I/O 설정 (ASIO · WASAPI · GP-100)</DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-4 text-xs">
-            {/* Valeton GP-100 Quick Setup Banner */}
-            <div className="rounded-md border border-border bg-secondary/45 p-3 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] font-semibold text-foreground flex items-center gap-1.5">
-                  <Usb className="w-3.5 h-3.5" />
-                  Valeton GP-100 빠른 연결
-                </span>
-                <Badge variant={asioDrivers.some((d) => /valeton|gp-?100/i.test(d)) ? "default" : "outline"} className="text-[10px] font-mono">
-                  {asioDrivers.some((d) => /valeton|gp-?100/i.test(d)) ? "GP-100 감지됨" : "USB 연결 대기"}
-                </Badge>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  size="sm"
-                  variant="default"
-                  className="h-7 text-[11px]"
-                  disabled={isAudioBusy}
-                  onClick={() => handleQuickStartGp100("WASAPI")}
-                >
-                  GP-100 → PC 스피커/헤드셋 (권장)
-                </Button>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="h-7 text-[11px]"
-                  disabled={isAudioBusy}
-                  onClick={() => handleQuickStartGp100("ASIO_DUPLEX")}
-                >
-                  GP-100 → GP-100 헤드폰 단자 직결
-                </Button>
-              </div>
-              <p className="text-[11px] text-muted-foreground leading-snug">
-                기타 입력을 위해 모노 In 1 (좌→양쪽)이 자동 선택됩니다. 순수 앰프·이펙터 톤을 위해 GP-100 본체는 빈 패치(바이패스) 또는 USB Dry 입력을 권장합니다.
-              </p>
+          <div className="space-y-3.5 text-xs">
+            {/* Input Backend Selector: ASIO vs Universal WASAPI */}
+            <div className="grid grid-cols-2 gap-1.5 p-1 rounded-lg bg-secondary/60 border border-border">
+              <button
+                type="button"
+                disabled={isAudioRunning}
+                onClick={() => setInputKind("ASIO")}
+                className={`h-8 rounded-md text-[11px] font-semibold transition-all disabled:opacity-60 ${
+                  inputKind === "ASIO"
+                    ? "bg-card text-foreground shadow border border-border"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                ⚡ ASIO 인터페이스 / GP-100
+              </button>
+              <button
+                type="button"
+                disabled={isAudioRunning}
+                onClick={() => {
+                  setInputKind("WASAPI")
+                  if (outputKind === "ASIO_DUPLEX") setOutputKind("WASAPI")
+                }}
+                className={`h-8 rounded-md text-[11px] font-semibold transition-all disabled:opacity-60 ${
+                  inputKind === "WASAPI"
+                    ? "bg-card text-foreground shadow border border-border"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                🔌 범용 Windows 입력 (WASAPI)
+              </button>
             </div>
+
+            {/* Quick Start Banner (GP-100 + Universal Plug-and-Play) */}
+            {inputKind === "ASIO" ? (
+              <div className="rounded-md border border-border bg-secondary/45 p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-foreground flex items-center gap-1.5">
+                    <Usb className="w-3.5 h-3.5" />
+                    Valeton GP-100 빠른 연결 (범용 ASIO 겸용)
+                  </span>
+                  <Badge
+                    variant={asioDrivers.some((d) => /valeton|gp-?100/i.test(d)) ? "default" : "outline"}
+                    className="text-[10px] font-mono"
+                  >
+                    {asioDrivers.some((d) => /valeton|gp-?100/i.test(d))
+                      ? "GP-100 감지됨"
+                      : `${asioDrivers.length}개 ASIO 드라이버`}
+                  </Badge>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    size="sm"
+                    variant="default"
+                    className="h-7 text-[11px]"
+                    disabled={isAudioBusy}
+                    onClick={() => handleQuickStartGp100("WASAPI")}
+                  >
+                    GP-100 → PC 스피커/헤드셋
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="h-7 text-[11px]"
+                    disabled={isAudioBusy}
+                    onClick={() => handleQuickStartGp100("ASIO_DUPLEX")}
+                  >
+                    GP-100 → 본체 헤드폰 직결
+                  </Button>
+                </div>
+                <p className="text-[10px] text-muted-foreground leading-snug">
+                  Focusrite, Steinberg, Audient, MOTU 등 모든 표준 ASIO 다채널 인터페이스와 GP-100을 동시에 지원합니다. ASIO 드라이버가 없는 USB 기타 케이블/라인인은 상단의 <b>범용 Windows 입력</b> 탭을 선택하세요.
+                </p>
+              </div>
+            ) : (
+              <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-emerald-200 flex items-center gap-1.5">
+                    <Usb className="w-3.5 h-3.5" />
+                    범용 플러그앤플레이 입력 (무드라이버 WASAPI)
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="h-6 px-2.5 text-[10px]"
+                    disabled={isAudioBusy}
+                    onClick={handleQuickStartUniversalWasapi}
+                  >
+                    기본 입력으로 즉시 시작
+                  </Button>
+                </div>
+                <p className="text-[10px] text-muted-foreground leading-snug">
+                  별도 ASIO 드라이버 없이 USB 기타 케이블(Rocksmith 등), 클래스 컴플라이언트 오디오 인터페이스, PC 라인인(Line-In)·마이크 단자를 즉시 연결합니다.
+                </p>
+              </div>
+            )}
 
             <div className="flex items-center justify-between gap-2">
               <Badge variant="outline" className="font-mono text-[11px]">
@@ -569,104 +809,239 @@ export default function App() {
                   <RefreshCw className="w-3 h-3 mr-1" />
                   새로고침
                 </Button>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="h-7 text-xs"
-                  disabled={!inputDriver || isAudioRunning}
-                  onClick={handleOpenAsioPanel}
-                >
-                  <Wrench className="w-3 h-3 mr-1" />
-                  ASIO 제어판
-                </Button>
+                {inputKind === "ASIO" && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="h-7 text-xs"
+                    disabled={!inputDriver || isAudioRunning}
+                    onClick={handleOpenAsioPanel}
+                  >
+                    <Wrench className="w-3 h-3 mr-1" />
+                    ASIO 제어판
+                  </Button>
+                )}
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-[11px] text-muted-foreground">ASIO 입력 드라이버</Label>
-                <Select
-                  value={inputDriver || "__none__"}
-                  disabled={isAudioRunning}
-                  onValueChange={(v) => {
-                    if (v === "__none__") return
-                    setInputDriver(v)
-                    probeAsioCaps(v)
-                  }}
-                >
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue placeholder="드라이버 선택" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {asioDrivers.length === 0 ? (
-                      <SelectItem value="__none__">감지된 ASIO 없음</SelectItem>
-                    ) : (
-                      asioDrivers.map((d) => (
-                        <SelectItem key={d} value={d}>
-                          {d}
+            {inputKind === "ASIO" ? (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] text-muted-foreground">ASIO 입력 드라이버</Label>
+                  <Select
+                    value={inputDriver || "__none__"}
+                    disabled={isAudioRunning}
+                    onValueChange={(v) => {
+                      if (v === "__none__") return
+                      setInputDriver(v)
+                      setInputChannelOffset(0)
+                      probeAsioCaps(v)
+                    }}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="드라이버 선택" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {asioDrivers.length === 0 ? (
+                        <SelectItem value="__none__">감지된 ASIO 없음 (범용 탭 권장)</SelectItem>
+                      ) : (
+                        asioDrivers.map((d) => (
+                          <SelectItem key={d} value={d}>
+                            {d}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] text-muted-foreground">입력 단자 / 채널 선택</Label>
+                  {(() => {
+                    const chNames =
+                      caps?.inputChannels && caps.inputChannels.length > 0
+                        ? caps.inputChannels
+                        : ["In 1", "In 2"]
+                    const selKey = `${channelMode === 0 ? "stereo" : "mono"}:${Math.min(
+                      inputChannelOffset,
+                      Math.max(0, chNames.length - 1)
+                    )}`
+                    return (
+                      <Select
+                        value={selKey}
+                        disabled={isAudioRunning}
+                        onValueChange={(v) => {
+                          const [modeStr, offStr] = v.split(":")
+                          setChannelMode(modeStr === "stereo" ? 0 : 1)
+                          setInputChannelOffset(Math.max(0, Number(offStr) || 0))
+                        }}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {chNames.map((nm, idx) => (
+                            <SelectItem key={`mono:${idx}`} value={`mono:${idx}`}>
+                              모노 Ch {idx + 1} ({nm} → 양쪽)
+                            </SelectItem>
+                          ))}
+                          {Array.from({ length: Math.floor(chNames.length / 2) }, (_, pairIdx) => {
+                            const c = pairIdx * 2
+                            return (
+                              <SelectItem key={`stereo:${c}`} value={`stereo:${c}`}>
+                                스테레오 Ch {c + 1}+{c + 2} ({chNames[c]}/{chNames[c + 1]})
+                              </SelectItem>
+                            )
+                          })}
+                        </SelectContent>
+                      </Select>
+                    )
+                  })()}
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] text-muted-foreground">출력 엔진</Label>
+                  <Select
+                    value={outputKind}
+                    disabled={isAudioRunning}
+                    onValueChange={(v) => setOutputKind(v)}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="WASAPI">WASAPI (PC 스피커/헤드셋)</SelectItem>
+                      <SelectItem value="ASIO_DUPLEX">ASIO 직결 풀듀플렉스 (인터페이스 출력)</SelectItem>
+                      <SelectItem value="ASIO">별도 제2 ASIO 출력</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] text-muted-foreground">ASIO 버퍼 크기</Label>
+                  <Select
+                    value={String(bufferSize)}
+                    disabled={isAudioRunning}
+                    onValueChange={(v) => setBufferSize(Number(v))}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(caps?.bufferSizes?.length ? caps.bufferSizes : [64, 128, 256, 512, 0]).map((sz) => (
+                        <SelectItem key={sz} value={String(sz)}>
+                          {sz === 0 ? "드라이버 기본값" : `${sz} samples`}
                         </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] text-muted-foreground">Windows 오디오 입력 장치 (WASAPI Capture)</Label>
+                  <Select
+                    value={wasapiInputDeviceId || "__default__"}
+                    disabled={isAudioRunning}
+                    onValueChange={(v) => {
+                      setWasapiInputDeviceId(v === "__default__" ? "" : v)
+                      setInputChannelOffset(0)
+                    }}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {wasapiInputDevices.map((d) => (
+                        <SelectItem key={d.id || "__default__"} value={d.id || "__default__"}>
+                          {d.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-              <div className="space-y-1.5">
-                <Label className="text-[11px] text-muted-foreground">입력 채널 모드</Label>
-                <Select
-                  value={String(channelMode)}
-                  disabled={isAudioRunning}
-                  onValueChange={(v) => setChannelMode(Number(v))}
-                >
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="0">스테레오 (In 1 + In 2)</SelectItem>
-                    <SelectItem value="1">모노 In 1 (좌→양쪽)</SelectItem>
-                    <SelectItem value="2">모노 In 2 (우→양쪽)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] text-muted-foreground">입력 채널 매핑</Label>
+                    {(() => {
+                      const selDev = wasapiInputDevices.find((d) => d.id === wasapiInputDeviceId)
+                      const maxCh = Math.max(2, selDev?.channels ?? 2)
+                      const selKey = `${channelMode === 0 ? "stereo" : "mono"}:${Math.min(
+                        inputChannelOffset,
+                        maxCh - 1
+                      )}`
+                      return (
+                        <Select
+                          value={selKey}
+                          disabled={isAudioRunning}
+                          onValueChange={(v) => {
+                            const [modeStr, offStr] = v.split(":")
+                            setChannelMode(modeStr === "stereo" ? 0 : 1)
+                            setInputChannelOffset(Math.max(0, Number(offStr) || 0))
+                          }}
+                        >
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Array.from({ length: maxCh }, (_, idx) => (
+                              <SelectItem key={`mono:${idx}`} value={`mono:${idx}`}>
+                                모노 Ch {idx + 1} ({idx === 0 ? "좌→양쪽 권장" : idx === 1 ? "우→양쪽" : `In ${idx + 1}`})
+                              </SelectItem>
+                            ))}
+                            <SelectItem value="stereo:0">스테레오 (Ch 1 + Ch 2)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )
+                    })()}
+                  </div>
 
-              <div className="space-y-1.5">
-                <Label className="text-[11px] text-muted-foreground">출력 엔진</Label>
-                <Select
-                  value={outputKind}
-                  disabled={isAudioRunning}
-                  onValueChange={(v) => setOutputKind(v)}
-                >
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="WASAPI">WASAPI (PC 스피커/헤드셋)</SelectItem>
-                    <SelectItem value="ASIO_DUPLEX">ASIO 직결 풀듀플렉스</SelectItem>
-                    <SelectItem value="ASIO">별도 ASIO 출력</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] text-muted-foreground">출력 엔진</Label>
+                    <Select
+                      value={outputKind === "ASIO_DUPLEX" ? "WASAPI" : outputKind}
+                      disabled={isAudioRunning}
+                      onValueChange={(v) => setOutputKind(v)}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="WASAPI">WASAPI (PC 스피커/헤드셋)</SelectItem>
+                        <SelectItem value="ASIO">ASIO 출력 드라이버</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
 
-              <div className="space-y-1.5">
-                <Label className="text-[11px] text-muted-foreground">버퍼 크기</Label>
-                <Select
-                  value={String(bufferSize)}
-                  disabled={isAudioRunning}
-                  onValueChange={(v) => setBufferSize(Number(v))}
-                >
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(caps?.bufferSizes?.length ? caps.bufferSizes : [64, 128, 256, 512, 0]).map((sz) => (
-                      <SelectItem key={sz} value={String(sz)}>
-                        {sz === 0 ? "드라이버 기본값" : `${sz} samples`}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="grid grid-cols-2 gap-2">
+                  <div
+                    className="flex items-center justify-between rounded-md border border-border bg-secondary/40 px-2.5 py-2"
+                    title="Windows 마이크 소음 억제·자동 게인(AGC)을 우회하여 일렉기타 서스테인이 끊기는 현상을 방지합니다."
+                  >
+                    <Label className="text-[11px]">순수 악기 Raw 모드</Label>
+                    <Switch
+                      checked={wasapiInputRaw}
+                      disabled={isAudioRunning}
+                      onCheckedChange={setWasapiInputRaw}
+                    />
+                  </div>
+                  <div
+                    className="flex items-center justify-between rounded-md border border-border bg-secondary/40 px-2.5 py-2"
+                    title="입력 장치를 단독 점유하여 캡처 레이턴시를 최소화합니다 (미지원 시 공유 저지연 자동 폴백)."
+                  >
+                    <Label className="text-[11px]">WASAPI 입력 단독 모드</Label>
+                    <Switch
+                      checked={wasapiInputExclusive}
+                      disabled={isAudioRunning}
+                      onCheckedChange={setWasapiInputExclusive}
+                    />
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
 
             {outputKind === "WASAPI" && (
               <div className="space-y-3">
@@ -741,6 +1116,47 @@ export default function App() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            {/* External MIDI Controller & Foot Pedal Section */}
+            <div className="rounded-md border border-border bg-secondary/35 p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-[11px] font-semibold text-foreground">
+                  외부 MIDI 컨트롤러 / 익스프레션 페달
+                </Label>
+                <Badge variant={midiState.connected ? "default" : "outline"} className="text-[10px] font-mono">
+                  {midiState.connected ? `연결됨 (${midiState.bindings.length} 매핑)` : "미연결"}
+                </Badge>
+              </div>
+              <div className="flex items-center gap-2">
+                <Select
+                  value={midiState.activeDevice || "__none__"}
+                  onValueChange={(v) => handleSelectMidiDevice(v)}
+                >
+                  <SelectTrigger className="h-8 text-xs flex-1">
+                    <SelectValue placeholder="MIDI 입력 포트 선택" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">사용 안 함</SelectItem>
+                    {midiState.devices.map((m) => (
+                      <SelectItem key={m} value={m}>
+                        {m}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="h-8 text-[11px]"
+                  onClick={() => handleStartMidiLearn({ targetKind: "tunerMute" })}
+                >
+                  튜너 뮤트 학습
+                </Button>
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                스튜디오 화면에서 아무 노브(와우 페달 등), Scene A–H, 블록 전원, TAP 버튼을 우클릭하면 즉시 MIDI CC를 학습합니다.
+              </p>
             </div>
 
             <div className="pt-2 flex justify-end gap-2">

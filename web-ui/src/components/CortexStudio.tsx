@@ -4,9 +4,11 @@ import {
   ArrowRight,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Download,
   FolderOpen,
   GitBranch,
+  Mic,
   Music,
   Pause,
   Play,
@@ -14,9 +16,12 @@ import {
   Repeat,
   RotateCcw,
   Save,
+  Search,
+  Sparkles,
   Trash2,
   Upload,
   Volume2,
+  X,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -33,6 +38,7 @@ import { Slider } from "@/components/ui/slider"
 import { CategoryVectorIcon } from "@/components/CortexIcons"
 import { CortexGrid } from "@/components/CortexGrid"
 import { CortexKnob, CortexToggleCell } from "@/components/CortexKnob"
+import { VirtualCabRoom } from "@/components/VirtualCabRoom"
 import { VisualizerCanvas } from "@/components/VisualizerCanvas"
 import {
   CATEGORIES,
@@ -41,9 +47,12 @@ import {
   DEVICE_MAP,
   FACTORY_PRESETS,
   SCENE_LABELS,
+  TEMPO_SYNC_DIVISIONS,
   commitActiveScene,
+  computeSyncedValueLabel,
   createDefaultParams,
   ensurePresetScenes,
+  supportsTempoSync,
   switchSceneOnChain,
   syncScenesOnAssignSlot,
   syncScenesOnSwapSlots,
@@ -51,7 +60,9 @@ import {
 import { studioBridge } from "@/lib/bridge"
 import type {
   BackingTrackStateDto,
+  CabMicConfigDto,
   DeviceCategoryId,
+  MidiSnapshotDto,
   ModelProfileSummary,
   SignalChainConfigDto,
   TelemetryFrame,
@@ -66,6 +77,9 @@ interface CortexStudioProps {
   selectedToneId: string
   customCabIrName: string
   initialBacking?: BackingTrackStateDto
+  midiState?: MidiSnapshotDto
+  onStartMidiLearn?: (req: { targetKind: string; slotIndex?: number; paramIndex?: number; sceneIndex?: number }) => void
+  onClearMidiBinding?: (req: { targetKind: string; slotIndex?: number; paramIndex?: number; sceneIndex?: number }) => void
   onTonesUpdated: (tones: ModelProfileSummary[], selectedId: string) => void
   onSelectToneId: (id: string) => void
   onCustomCabIrChange: (name: string) => void
@@ -81,6 +95,9 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
   selectedToneId,
   customCabIrName,
   initialBacking,
+  midiState,
+  onStartMidiLearn,
+  onClearMidiBinding,
   onTonesUpdated,
   onSelectToneId,
   onCustomCabIrChange,
@@ -90,7 +107,20 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
   const [savedPresets, setSavedPresets] = useState<SignalChainConfigDto[]>(initialSavedPresets)
   const [selectedSlot, setSelectedSlot] = useState<number>(2) // Amp slot selected by default
   const [activeCategory, setActiveCategory] = useState<DeviceCategoryId>("amp")
+  const [searchQuery, setSearchQuery] = useState("")
   const [editingName, setEditingName] = useState(false)
+  const [editingBpm, setEditingBpm] = useState(false)
+  const [draftBpm, setDraftBpm] = useState("120")
+
+  const [aiBarOpen, setAiBarOpen] = useState(false)
+  const [aiPrompt, setAiPrompt] = useState("")
+  const [aiBusy, setAiBusy] = useState(false)
+  const [aiSummary, setAiSummary] = useState<string | null>(null)
+  const [cabRoomOpen, setCabRoomOpen] = useState(false)
+
+  const searchInputRef = useRef<HTMLInputElement | null>(null)
+  const aiInputRef = useRef<HTMLInputElement | null>(null)
+  const tapTimesRef = useRef<number[]>([])
 
   const [meterL, setMeterL] = useState(0)
   const [meterR, setMeterR] = useState(0)
@@ -187,10 +217,14 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
   const loadPreset = (preset: SignalChainConfigDto) => {
     const clone: SignalChainConfigDto = ensurePresetScenes({
       ...preset,
-      slots: preset.slots.map((s) => ({ ...s, params: [...s.params] })),
+      slots: preset.slots.map((s) => ({
+        ...s,
+        params: [...s.params],
+        cabMic: s.cabMic ? { ...s.cabMic } : undefined,
+      })),
       scenes: preset.scenes?.map((sc) => ({
         parallelMix: sc.parallelMix,
-        slots: sc.slots.map((sl) => ({ enabled: sl.enabled, params: [...sl.params] })),
+        slots: sc.slots.map((sl) => ({ enabled: sl.enabled, syncDivision: sl.syncDivision, params: [...sl.params] })),
       })),
     })
     pushChainToEngine(clone, true, true)
@@ -255,6 +289,7 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
     nextSlots[slotIdx] = {
       index: slotIdx,
       modelId,
+      namModelId: modelId === "nam_capture" ? selectedToneId || null : undefined,
       enabled: true,
       params: nextParams,
     }
@@ -302,6 +337,72 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
     pushChainToEngine({ ...chain, slots: nextSlots }, false)
   }
 
+  const updateSlotSyncDivision = (slotIdx: number, syncDivision: number) => {
+    const nextSlots = chain.slots.map((s, i) =>
+      i === slotIdx ? { ...s, syncDivision, params: [...s.params] } : s
+    )
+    pushChainToEngine({ ...chain, slots: nextSlots }, true)
+  }
+
+  const updateSlotNamModel = (slotIdx: number, namModelId: string) => {
+    const nextSlots = chain.slots.map((s, i) =>
+      i === slotIdx ? { ...s, namModelId, params: [...s.params] } : s
+    )
+    pushChainToEngine({ ...chain, slots: nextSlots }, true)
+    if (!selectedToneId) {
+      handleSelectNamModel(namModelId)
+    }
+  }
+
+  const updateSlotCabMic = (slotIdx: number, cabMic: CabMicConfigDto) => {
+    const nextSlots = chain.slots.map((s, i) =>
+      i === slotIdx ? { ...s, cabMic, params: [...s.params] } : s
+    )
+    pushChainToEngine({ ...chain, slots: nextSlots }, false)
+  }
+
+  const handleTapTempo = () => {
+    const now = performance.now()
+    const prev = tapTimesRef.current.filter((t) => now - t < 2200)
+    prev.push(now)
+    if (prev.length > 4) prev.shift()
+    tapTimesRef.current = prev
+    if (prev.length >= 2) {
+      const avgMs = (prev[prev.length - 1] - prev[0]) / (prev.length - 1)
+      const bpm = Math.max(40, Math.min(280, Math.round((60000 / avgMs) * 2) / 2))
+      pushChainToEngine({ ...chain, tempoBpm: bpm }, true, true)
+    }
+  }
+
+  const handleRunAiArchitect = async (overridePrompt?: string) => {
+    const text = (overridePrompt ?? aiPrompt).trim()
+    if (!text || aiBusy) return
+    if (!studioBridge.isWebView2) {
+      onLog("[AI] 데스크톱 앱(WebView2) 연결 상태에서 동작합니다.", "info")
+      return
+    }
+    setAiBusy(true)
+    try {
+      const res = await studioBridge.invoke<{
+        ok: boolean
+        presetName: string
+        summary: string
+        signalChain: SignalChainConfigDto
+        savedPresets?: SignalChainConfigDto[]
+      }>("generateAiTone", { prompt: text, autoSave: false })
+      if (res?.signalChain) {
+        setChain(ensurePresetScenes(res.signalChain))
+        setAiSummary(res.summary)
+        setAiPrompt("")
+      }
+      if (res?.savedPresets) setSavedPresets(res.savedPresets)
+    } catch (e) {
+      onLog(`AI 톤 생성 실패: ${String(e)}`, "error")
+    } finally {
+      setAiBusy(false)
+    }
+  }
+
   const resetSlotDefaults = (slotIdx: number) => {
     const slot = chain.slots[slotIdx]
     if (!slot?.modelId) return
@@ -322,21 +423,30 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
     }
   }
 
-  const handleImportNam = async () => {
+  const importNamWithSlot = async (slotIndex?: number) => {
     if (!studioBridge.isWebView2) return
     try {
+      const payload = typeof slotIndex === "number" ? { slotIndex } : {}
       const res = await studioBridge.invoke<{
         cancelled?: boolean
         tones?: ModelProfileSummary[]
         selectedToneId?: string
-      }>("importNamFile", {})
+        signalChain?: SignalChainConfigDto
+      }>("importNamFile", payload)
       if (!res?.cancelled && res?.tones) {
         onTonesUpdated(res.tones, res.selectedToneId || "")
+        if (res.signalChain) {
+          setChain(ensurePresetScenes(res.signalChain))
+        } else if (typeof slotIndex === "number" && res.selectedToneId) {
+          updateSlotNamModel(slotIndex, res.selectedToneId)
+        }
       }
     } catch (e) {
       onLog(`NAM 가져오기 실패: ${String(e)}`, "error")
     }
   }
+
+  const handleImportNam = () => void importNamWithSlot()
 
   const handleExportNam = async () => {
     if (!studioBridge.isWebView2) return
@@ -412,10 +522,57 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
     }
   }
 
-  const categoryModels = useMemo(
-    () => DEVICE_CATALOG.filter((d) => d.category === activeCategory),
-    [activeCategory]
-  )
+  const categoryModels = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return DEVICE_CATALOG.filter((d) => d.category === activeCategory)
+    return DEVICE_CATALOG.filter(
+      (d) =>
+        d.name.toLowerCase().includes(q) ||
+        d.shortName.toLowerCase().includes(q) ||
+        d.categoryLabel.toLowerCase().includes(q) ||
+        d.id.toLowerCase().includes(q)
+    )
+  }, [activeCategory, searchQuery])
+
+  // Global Studio Keyboard Shortcuts (disabled when typing inside inputs)
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase()
+      const isInput = tag === "input" || tag === "textarea" || (e.target as HTMLElement | null)?.isContentEditable
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault()
+        setAiBarOpen((v) => !v)
+        window.setTimeout(() => aiInputRef.current?.focus(), 20)
+        return
+      }
+      if (isInput) return
+      if (e.key === "/") {
+        e.preventDefault()
+        if (activeView !== "grid") onChangeView("grid")
+        window.setTimeout(() => searchInputRef.current?.focus(), 10)
+        return
+      }
+      if (activeView !== "grid") return
+      if (e.key >= "1" && e.key <= "8" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault()
+        pushChainToEngine(switchSceneOnChain(chain, Number(e.key) - 1), true, true)
+      } else if (e.key.toLowerCase() === "b" && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault()
+        toggleSlotBypass(selectedSlot)
+      } else if ((e.key === "Delete" || e.key === "Backspace") && !e.ctrlKey) {
+        e.preventDefault()
+        removeSlotBlock(selectedSlot)
+      } else if (e.key.toLowerCase() === "t" && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault()
+        handleTapTempo()
+      } else if (e.key === " " && backing.loaded) {
+        e.preventDefault()
+        controlBacking({ playing: !backing.playing })
+      }
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [activeView, chain, selectedSlot, backing.loaded, backing.playing])
 
   const formatTime = (sec: number) => {
     const s = Math.max(0, Math.floor(sec))
@@ -688,47 +845,95 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
       </aside>
 
       {/* ── Left Device List Sidebar ── */}
-      <aside className="w-56 shrink-0 border-r border-border bg-card/55 flex flex-col min-h-0">
-        <div className="px-3.5 py-2.5 border-b border-border flex items-center justify-between">
-          <span className="text-[11px] font-bold tracking-wider uppercase text-foreground">
-            {CATEGORY_MAP[activeCategory].label}
-          </span>
-          <span
-            className="w-2 h-2 rounded-full"
-            style={{ backgroundColor: CATEGORY_MAP[activeCategory].hex }}
-          />
+      <aside className="w-60 shrink-0 border-r border-border bg-card/55 flex flex-col min-h-0">
+        <div className="px-3 py-2 border-b border-border space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold tracking-wider uppercase text-foreground">
+              {searchQuery.trim() ? `검색 결과 (${categoryModels.length})` : CATEGORY_MAP[activeCategory].label}
+            </span>
+            <span
+              className="w-2 h-2 rounded-full"
+              style={{ backgroundColor: CATEGORY_MAP[activeCategory].hex }}
+            />
+          </div>
+          <div className="relative flex items-center">
+            <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-2.5 pointer-events-none" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setSearchQuery("")
+                  e.currentTarget.blur()
+                }
+              }}
+              placeholder="장비 검색 ( / ) 예: TS808, Twin"
+              className="w-full h-7 pl-7 pr-6 rounded-md bg-background/80 border border-border text-[11px] text-foreground placeholder:text-muted-foreground/65 focus:outline-none focus:border-foreground/40"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="absolute right-1.5 text-muted-foreground hover:text-foreground"
+                title="검색어 지우기"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
         </div>
 
         <ScrollArea className="flex-1">
           <div className="p-2 space-y-0.5">
-            {categoryModels.map((model) => {
-              const isInSelectedSlot = currentSlot?.modelId === model.id
-              return (
-                <button
-                  key={model.id}
-                  type="button"
-                  draggable
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData("application/x-cortex-model", model.id)
-                    e.dataTransfer.effectAllowed = "copy"
-                  }}
-                  onClick={() => assignModelToSlot(model.id, selectedSlot)}
-                  className={`w-full text-left px-3 py-2 rounded-md text-xs transition-colors flex items-center justify-between gap-2 ${
-                    isInSelectedSlot
-                      ? "bg-emerald-500/15 text-emerald-300 font-semibold border border-emerald-500/30"
-                      : "text-foreground/80 hover:bg-accent hover:text-foreground border border-transparent"
-                  }`}
-                  title="클릭하여 선택된 슬롯에 배치 / 드래그하여 원하는 슬롯에 배치"
-                >
-                  <span className="truncate">{model.name}</span>
-                </button>
-              )
-            })}
+            {categoryModels.length === 0 ? (
+              <div className="py-6 text-center text-[11px] text-muted-foreground">
+                일치하는 장비가 없습니다
+              </div>
+            ) : (
+              categoryModels.map((model) => {
+                const isInSelectedSlot = currentSlot?.modelId === model.id
+                const catColor = CATEGORY_MAP[model.category].hex
+                return (
+                  <button
+                    key={model.id}
+                    type="button"
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData("application/x-cortex-model", model.id)
+                      e.dataTransfer.effectAllowed = "copy"
+                    }}
+                    onClick={() => assignModelToSlot(model.id, selectedSlot)}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-md text-xs transition-colors flex items-center justify-between gap-2 ${
+                      isInSelectedSlot
+                        ? "bg-emerald-500/15 text-emerald-300 font-semibold border border-emerald-500/30"
+                        : "text-foreground/85 hover:bg-accent hover:text-foreground border border-transparent"
+                    }`}
+                    title="클릭하여 선택된 슬롯에 배치 / 드래그하여 원하는 슬롯에 배치"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className="w-1.5 h-1.5 rounded-full shrink-0"
+                        style={{ backgroundColor: catColor }}
+                      />
+                      <span className="truncate">{model.name}</span>
+                    </div>
+                    {searchQuery.trim() && (
+                      <span className="text-[9px] font-mono text-muted-foreground uppercase shrink-0">
+                        {model.categoryLabel}
+                      </span>
+                    )}
+                  </button>
+                )
+              })
+            )}
           </div>
         </ScrollArea>
 
-        <div className="px-3 py-2 border-t border-border text-[10px] text-muted-foreground">
-          슬롯 #{selectedSlot + 1} ({selectedSlot < 8 ? "Row 1" : "Row 2"}) 선택됨
+        <div className="px-3 py-1.5 border-t border-border flex items-center justify-between text-[10px] text-muted-foreground font-mono">
+          <span>SLOT #{selectedSlot + 1} ({selectedSlot < 8 ? "R1" : "R2"})</span>
+          <span title="단축키: 1~8 씬, B 바이패스, T 탭템포, / 검색">1-8 · B · T · /</span>
         </div>
       </aside>
 
@@ -797,34 +1002,129 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
             >
               <Save className="w-3.5 h-3.5" />
             </Button>
+
+            {/* In-App AI Tone Architect Toggle */}
+            <Button
+              size="sm"
+              variant={aiBarOpen ? "default" : "secondary"}
+              className="h-7 px-2.5 text-[11px] font-semibold gap-1"
+              onClick={() => {
+                setAiBarOpen((v) => !v)
+                if (!aiBarOpen) window.setTimeout(() => aiInputRef.current?.focus(), 20)
+              }}
+              title="인앱 AI 톤 아키텍트 열기 (Ctrl+K)"
+            >
+              <Sparkles className="w-3 h-3 text-amber-400" />
+              AI 톤
+            </Button>
           </div>
 
-          {/* Right: Scene A..H Buttons + Routing Toggle */}
+          {/* Right: Global Tempo BPM / Tap + Scene A..H Buttons + Routing Toggle */}
           <div className="flex items-center gap-2">
+            {/* Global Tempo BPM & Tap */}
+            <div
+              className="h-7 px-2 rounded-md bg-secondary/75 border border-border flex items-center gap-1.5 text-[11px] font-mono"
+              onWheel={(e) => {
+                e.preventDefault()
+                const cur = chain.tempoBpm ?? 120
+                const next = Math.max(40, Math.min(280, cur + (e.deltaY < 0 ? 1 : -1)))
+                pushChainToEngine({ ...chain, tempoBpm: next }, false, true)
+              }}
+              title="글로벌 템포 BPM (클릭하여 직접 입력 / 마우스 휠 미세 조절)"
+            >
+              <Clock className="w-3 h-3 text-muted-foreground" />
+              {editingBpm ? (
+                <input
+                  type="text"
+                  autoFocus
+                  value={draftBpm}
+                  onChange={(e) => setDraftBpm(e.target.value)}
+                  onBlur={() => {
+                    setEditingBpm(false)
+                    const v = Number.parseFloat(draftBpm)
+                    if (!Number.isNaN(v) && Number.isFinite(v)) {
+                      pushChainToEngine({ ...chain, tempoBpm: Math.max(40, Math.min(280, v)) }, true, true)
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") e.currentTarget.blur()
+                    if (e.key === "Escape") setEditingBpm(false)
+                  }}
+                  className="w-10 h-5 px-1 rounded bg-background border border-foreground/40 text-[11px] text-foreground outline-none"
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDraftBpm(String(Math.round(chain.tempoBpm ?? 120)))
+                    setEditingBpm(true)
+                  }}
+                  className="font-bold text-foreground hover:text-amber-300 tabular-nums"
+                >
+                  {Math.round(chain.tempoBpm ?? 120)}
+                </button>
+              )}
+              <span className="text-[9px] text-muted-foreground">BPM</span>
+              <button
+                type="button"
+                onClick={handleTapTempo}
+                onContextMenu={(e) => {
+                  if (onStartMidiLearn) {
+                    e.preventDefault()
+                    onStartMidiLearn({ targetKind: "tapTempo" })
+                  }
+                }}
+                className="ml-0.5 px-1.5 h-5 rounded bg-background/85 hover:bg-accent border border-border text-[9px] font-bold text-amber-300 transition-colors"
+                title="연속 클릭(또는 T 키)으로 탭 템포 설정 / 우클릭 MIDI CC 학습"
+              >
+                TAP
+              </button>
+            </div>
+
+            <div className="w-px h-5 bg-border mx-0.5" />
+
             <div className="flex items-center gap-1">
               {SCENE_LABELS.map((label, idx) => {
                 const isActive = chain.activeScene === idx
+                const sceneBinding = midiState?.bindings?.find((b) => b.targetKind === "scene" && b.sceneIndex === idx)
+                const isSceneLearning =
+                  midiState?.learning?.targetKind === "scene" && midiState?.learning?.sceneIndex === idx
                 return (
                   <button
                     key={label}
                     type="button"
                     onClick={() => pushChainToEngine(switchSceneOnChain(chain, idx), true, true)}
-                    className={`w-7 h-7 rounded-[6px] text-xs font-bold transition-all ${
-                      isActive
-                        ? "text-background shadow-sm"
-                        : "bg-secondary/80 text-muted-foreground hover:text-foreground hover:bg-accent border border-border"
+                    onContextMenu={(e) => {
+                      e.preventDefault()
+                      if (sceneBinding && onClearMidiBinding) {
+                        onClearMidiBinding({ targetKind: "scene", sceneIndex: idx })
+                      } else if (onStartMidiLearn) {
+                        onStartMidiLearn({ targetKind: "scene", sceneIndex: idx })
+                      }
+                    }}
+                    className={`relative w-7 h-7 rounded-[6px] text-xs font-bold transition-all ${
+                      isSceneLearning
+                        ? "ring-2 ring-amber-400 animate-pulse bg-amber-500/20 text-amber-200"
+                        : isActive
+                          ? "text-background shadow-sm"
+                          : "bg-secondary/80 text-muted-foreground hover:text-foreground hover:bg-accent border border-border"
                     }`}
                     style={
-                      isActive
+                      isActive && !isSceneLearning
                         ? {
                             backgroundColor: "var(--cat-scene)",
                             boxShadow: "0 0 10px rgba(250, 204, 21, 0.35)",
                           }
                         : undefined
                     }
-                    title={`Scene ${label}`}
+                    title={`Scene ${label} (단축키 ${idx + 1})${
+                      sceneBinding ? ` · MIDI CC#${sceneBinding.cc} (우클릭 해제)` : " · 우클릭 MIDI 학습"
+                    }`}
                   >
                     {label}
+                    {sceneBinding && (
+                      <span className="absolute -bottom-1 right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    )}
                   </button>
                 )
               })}
@@ -851,22 +1151,89 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
           </div>
         </div>
 
+        {/* ── Collapsible In-App AI Tone Architect Command Bar ── */}
+        {aiBarOpen && (
+          <div className="px-4 py-2 border-b border-border bg-card/80 flex flex-col gap-1.5">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <Input
+                ref={aiInputRef}
+                value={aiPrompt}
+                disabled={aiBusy}
+                onChange={(e) => setAiPrompt(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleRunAiArchitect()
+                  if (e.key === "Escape") setAiBarOpen(false)
+                }}
+                placeholder="원하는 사운드를 설명하세요 (예: 존 메이어풍 투명한 블루스 크런치 / 128bpm 점8분 워십 / 지금 톤에서 리버브 더 올려줘)"
+                className="h-7 text-xs flex-1 bg-background/85"
+              />
+              <Button
+                size="sm"
+                className="h-7 px-3 text-xs font-semibold"
+                disabled={aiBusy || !aiPrompt.trim()}
+                onClick={() => handleRunAiArchitect()}
+              >
+                {aiBusy ? "설계 중…" : "톤 생성"}
+              </Button>
+              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setAiBarOpen(false)}>
+                <X className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-1 flex-wrap">
+                {[
+                  "존 메이어 스타일 블루스 클린",
+                  "요루시카 J-Pop 스파클 클린",
+                  "126bpm 점8분 앰비언트 워십",
+                  "타이트한 모던 하이게인 메탈",
+                  "현재 톤에서 공간감 조금 더 추가해줘",
+                ].map((chip) => (
+                  <button
+                    key={chip}
+                    type="button"
+                    disabled={aiBusy}
+                    onClick={() => handleRunAiArchitect(chip)}
+                    className="px-2 py-0.5 rounded bg-secondary/70 hover:bg-accent border border-border text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {chip}
+                  </button>
+                ))}
+              </div>
+              {aiSummary && (
+                <span className="text-[10px] text-emerald-300 truncate max-w-[420px]" title={aiSummary}>
+                  {aiSummary}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* ── Center 2x8 Cortex Signal Chain Grid ── */}
         <CortexGrid
           chain={chain}
+          tones={tones}
           selectedSlot={selectedSlot}
           onSelectSlot={handleSelectSlot}
           onToggleBypass={toggleSlotBypass}
+          onRemoveSlot={removeSlotBlock}
           onMoveOrSwap={moveOrSwapSlot}
           onDropModelFromLibrary={assignModelToSlot}
           onUpdateRouting={(patch) => pushChainToEngine({ ...chain, ...patch }, false)}
+          backing={backing}
+          onLoadBacking={handleLoadBacking}
+          onControlBacking={controlBacking}
           meterL={meterL}
           meterR={meterR}
           clip={clip}
         />
 
         {/* ── Bottom Parameter Inspector Panel (Matches Cortex Control bottom deck) ── */}
-        <section className="h-[224px] shrink-0 border-t border-border bg-card/85 flex flex-col">
+        <section
+          className={`${
+            currentModel?.category === "cab" && cabRoomOpen ? "h-[268px]" : "h-[224px]"
+          } shrink-0 border-t border-border bg-card/85 flex flex-col transition-[height] duration-150`}
+        >
           {/* Inspector Header Bar */}
           <div className="h-10 shrink-0 px-4 border-b border-border bg-card flex items-center justify-between gap-3">
             {currentModel && currentCategory ? (
@@ -875,13 +1242,26 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                   <button
                     type="button"
                     onClick={() => toggleSlotBypass(selectedSlot)}
+                    onContextMenu={(e) => {
+                      e.preventDefault()
+                      const existing = midiState?.bindings?.find(
+                        (b) => b.targetKind === "bypass" && b.slotIndex === selectedSlot
+                      )
+                      if (existing && onClearMidiBinding) {
+                        onClearMidiBinding({ targetKind: "bypass", slotIndex: selectedSlot })
+                      } else if (onStartMidiLearn) {
+                        onStartMidiLearn({ targetKind: "bypass", slotIndex: selectedSlot })
+                      }
+                    }}
                     className="w-6 h-6 rounded-md flex items-center justify-center border transition-colors"
                     style={{
                       borderColor: currentSlot.enabled ? currentCategory.hex : "var(--border)",
                       backgroundColor: currentSlot.enabled ? `${currentCategory.hex}24` : "transparent",
                       color: currentSlot.enabled ? currentCategory.hex : "var(--muted-foreground)",
                     }}
-                    title={currentSlot.enabled ? "블록 활성 (클릭하여 바이패스)" : "바이패스됨 (클릭하여 활성화)"}
+                    title={`${
+                      currentSlot.enabled ? "블록 활성 (클릭하여 바이패스 / 단축키 B)" : "바이패스됨 (클릭하여 활성화 / 단축키 B)"
+                    } · 우클릭 MIDI 스위치 학습`}
                   >
                     <Power className="w-3.5 h-3.5" />
                   </button>
@@ -894,12 +1274,37 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                   )}
                 </div>
 
-                {/* Contextual NAM / Cab IR Controls */}
+                {/* Contextual Tempo Sync / NAM / Cab IR Controls */}
                 <div className="flex items-center gap-2">
+                  {supportsTempoSync(currentModel.id) && (
+                    <div className="flex items-center gap-0.5 bg-background/70 border border-border rounded-md p-0.5">
+                      {TEMPO_SYNC_DIVISIONS.map((div) => {
+                        const active = (currentSlot.syncDivision ?? 0) === div.value
+                        return (
+                          <button
+                            key={div.value}
+                            type="button"
+                            onClick={() => updateSlotSyncDivision(selectedSlot, div.value)}
+                            className={`px-1.5 h-5 rounded text-[10px] font-mono font-semibold transition-colors ${
+                              active
+                                ? "bg-amber-500/25 text-amber-300 border border-amber-400/50"
+                                : "text-muted-foreground hover:text-foreground"
+                            }`}
+                            title={div.value === 0 ? "노브 자유 조절" : `글로벌 BPM (${Math.round(chain.tempoBpm ?? 120)}) ${div.label} 동기화`}
+                          >
+                            {div.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
                   {currentModel.id === "nam_capture" && (
                     <div className="flex items-center gap-1.5">
-                      <Select value={selectedToneId || "__none__"} onValueChange={(v) => v !== "__none__" && handleSelectNamModel(v)}>
-                        <SelectTrigger className="h-7 w-44 text-xs">
+                      <Select
+                        value={currentSlot.namModelId || selectedToneId || "__none__"}
+                        onValueChange={(v) => v !== "__none__" && updateSlotNamModel(selectedSlot, v)}
+                      >
+                        <SelectTrigger className="h-7 w-52 text-xs">
                           <SelectValue placeholder=".nam 모델 선택" />
                         </SelectTrigger>
                         <SelectContent>
@@ -908,30 +1313,49 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                           ) : (
                             tones.map((t) => (
                               <SelectItem key={t.id} value={t.id}>
-                                {t.name}
+                                {t.name} [{t.architecture}]
                               </SelectItem>
                             ))
                           )}
                         </SelectContent>
                       </Select>
-                      <Button size="sm" variant="secondary" className="h-7 text-[11px] px-2" onClick={handleImportNam}>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="h-7 text-[11px] px-2"
+                        onClick={() => void importNamWithSlot(selectedSlot)}
+                      >
                         <Upload className="w-3 h-3 mr-1" />
                         .nam
                       </Button>
                     </div>
                   )}
 
-                  {(currentModel.id === "cab_custom" || currentModel.id === "cab_v30") && (
+                  {currentModel.category === "cab" && (
                     <div className="flex items-center gap-1.5">
-                      {customCabIrName && (
-                        <span className="text-[11px] font-mono text-muted-foreground max-w-[140px] truncate">
-                          {customCabIrName}
-                        </span>
-                      )}
-                      <Button size="sm" variant="secondary" className="h-7 text-[11px] px-2" onClick={handleLoadCabIr}>
-                        <FolderOpen className="w-3 h-3 mr-1" />
-                        WAV IR
+                      <Button
+                        size="sm"
+                        variant={cabRoomOpen || currentSlot.cabMic?.dualEnabled ? "default" : "secondary"}
+                        className="h-7 text-[11px] px-2 gap-1"
+                        onClick={() => setCabRoomOpen((v) => !v)}
+                        title="Virtual Cab Room 듀얼 마이킹 스튜디오 열기/닫기"
+                      >
+                        <Mic className="w-3 h-3" />
+                        Cab Room{currentSlot.cabMic?.dualEnabled ? " (2×)" : ""}
                       </Button>
+                      {(currentModel.id === "cab_custom" || currentModel.id === "cab_v30") && (
+                        <>
+                          {customCabIrName && (
+                            <span className="text-[11px] font-mono text-muted-foreground max-w-[140px] truncate">
+                              {customCabIrName}
+                            </span>
+                          )}
+                          <Button size="sm" variant="secondary" className="h-7 text-[11px] px-2" onClick={handleLoadCabIr}>
+                            <FolderOpen className="w-3 h-3 mr-1" />
+                            WAV IR
+                          </Button>
+                        </>
+                      )}
                     </div>
                   )}
 
@@ -986,11 +1410,18 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
             )}
           </div>
 
-          {/* Parameter Cells Grid */}
+          {/* Parameter Cells Grid (+ Virtual Cab Room when active on Cab slots) */}
           <ScrollArea className="flex-1">
             {currentModel && currentCategory ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-                {currentModel.params.map((p) => {
+              <div className={currentModel.category === "cab" && cabRoomOpen ? "flex items-stretch min-h-[218px]" : ""}>
+                <div
+                  className={
+                    currentModel.category === "cab" && cabRoomOpen
+                      ? "w-[330px] shrink-0 grid grid-cols-3"
+                      : "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
+                  }
+                >
+                  {currentModel.params.map((p) => {
                   const val = currentSlot.params[p.index] ?? p.defaultVal
                   if (p.kind === "toggle") {
                     return (
@@ -1016,10 +1447,62 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                       defaultVal={p.defaultVal}
                       unit={p.unit}
                       accentHex={currentCategory.hex}
+                      syncedText={
+                        supportsTempoSync(currentModel.id) &&
+                        (currentSlot.syncDivision ?? 0) > 0 &&
+                        (p.unit === "ms" || p.unit === "Hz")
+                          ? computeSyncedValueLabel(
+                              currentModel.id,
+                              currentSlot.syncDivision ?? 0,
+                              chain.tempoBpm ?? 120
+                            )
+                          : null
+                      }
+                      midiCc={
+                        midiState?.bindings?.find(
+                          (b) =>
+                            b.targetKind === "param" &&
+                            b.slotIndex === selectedSlot &&
+                            b.paramIndex === p.index
+                        )?.cc ?? null
+                      }
+                      isMidiLearning={
+                        midiState?.learning?.targetKind === "param" &&
+                        midiState?.learning?.slotIndex === selectedSlot &&
+                        midiState?.learning?.paramIndex === p.index
+                      }
                       onChange={(nextVal) => updateSlotParam(selectedSlot, p.index, nextVal)}
+                      onContextLearn={() => {
+                        const existing = midiState?.bindings?.find(
+                          (b) =>
+                            b.targetKind === "param" &&
+                            b.slotIndex === selectedSlot &&
+                            b.paramIndex === p.index
+                        )
+                        if (existing && onClearMidiBinding) {
+                          onClearMidiBinding({
+                            targetKind: "param",
+                            slotIndex: selectedSlot,
+                            paramIndex: p.index,
+                          })
+                        } else if (onStartMidiLearn) {
+                          onStartMidiLearn({
+                            targetKind: "param",
+                            slotIndex: selectedSlot,
+                            paramIndex: p.index,
+                          })
+                        }
+                      }}
                     />
                   )
                 })}
+                </div>
+                {currentModel.category === "cab" && cabRoomOpen && (
+                  <VirtualCabRoom
+                    config={currentSlot.cabMic}
+                    onChange={(next) => updateSlotCabMic(selectedSlot, next)}
+                  />
+                )}
               </div>
             ) : (
               <div className="p-4 flex flex-wrap items-center gap-2">

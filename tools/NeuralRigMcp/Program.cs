@@ -277,7 +277,12 @@ object ToolGenerateTone(JsonElement toolArgs)
 
     var settings = AppSettings.Load();
     var cur = settings.SignalChain ?? new SignalChainConfigDto();
-    var res = architect.GenerateViaBuiltinArchitect(prompt, cur);
+    var guitars = settings.GuitarProfiles ?? new List<GuitarProfileDto>();
+    string? gpId = GetStr(toolArgs, "guitarProfileId") ?? settings.ActiveGuitarProfileId;
+    var activeGuitar = !string.IsNullOrWhiteSpace(gpId)
+        ? guitars.FirstOrDefault(g => string.Equals(g.Id, gpId, StringComparison.OrdinalIgnoreCase))
+        : null;
+    var res = architect.GenerateViaBuiltinArchitect(prompt, cur, activeGuitar);
     SaveOfflinePreset(settings, res.Chain, autoSave);
     return new
     {
@@ -323,10 +328,13 @@ object ToolUpdateSlot(JsonElement toolArgs)
     bool? enabled = toolArgs.ValueKind == JsonValueKind.Object && toolArgs.TryGetProperty("enabled", out var eEl) && (eEl.ValueKind == JsonValueKind.True || eEl.ValueKind == JsonValueKind.False)
         ? eEl.GetBoolean()
         : null;
+    int? syncDiv = toolArgs.ValueKind == JsonValueKind.Object && toolArgs.TryGetProperty("syncDivision", out var sdEl) && sdEl.TryGetInt32(out int sdi)
+        ? sdi
+        : null;
     JsonElement paramsEl = toolArgs.ValueKind == JsonValueKind.Object && toolArgs.TryGetProperty("params", out var pEl) ? pEl : default;
 
     var settings = AppSettings.Load();
-    var updated = AntigravityToneArchitect.ApplySlotEdit(settings.SignalChain ?? new SignalChainConfigDto(), slotIndex, modelId, enabled, paramsEl);
+    var updated = AntigravityToneArchitect.ApplySlotEdit(settings.SignalChain ?? new SignalChainConfigDto(), slotIndex, modelId, enabled, paramsEl, syncDiv);
     SaveOfflinePreset(settings, updated, autoSave: false);
     return new
     {
@@ -345,9 +353,10 @@ object ToolSwitchScene(JsonElement toolArgs)
     int? sceneIdx = toolArgs.ValueKind == JsonValueKind.Object && toolArgs.TryGetProperty("sceneIndex", out var sEl) && sEl.TryGetInt32(out int si) ? si : null;
     int? routingMode = toolArgs.ValueKind == JsonValueKind.Object && toolArgs.TryGetProperty("routingMode", out var rEl) && rEl.TryGetInt32(out int ri) ? ri : null;
     float? parallelMix = toolArgs.ValueKind == JsonValueKind.Object && toolArgs.TryGetProperty("parallelMix", out var pEl) && pEl.TryGetSingle(out float pm) ? pm : null;
+    float? tempoBpm = toolArgs.ValueKind == JsonValueKind.Object && toolArgs.TryGetProperty("tempoBpm", out var tEl) && tEl.TryGetSingle(out float tb) ? tb : null;
 
     var settings = AppSettings.Load();
-    var updated = AntigravityToneArchitect.SwitchScene(settings.SignalChain ?? new SignalChainConfigDto(), sceneIdx, routingMode, parallelMix);
+    var updated = AntigravityToneArchitect.SwitchScene(settings.SignalChain ?? new SignalChainConfigDto(), sceneIdx, routingMode, parallelMix, tempoBpm);
     SaveOfflinePreset(settings, updated, autoSave: false);
     return new
     {

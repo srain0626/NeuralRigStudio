@@ -47,15 +47,37 @@ export type DeviceCategoryId =
   | "eq"
   | "dyn"
 
+export interface CabMicConfigDto {
+  dualEnabled: boolean
+  micAType: number // 0=SM57, 1=R121, 2=C414, 3=MD421, 4=M160, 5=SM7B
+  micAX: number // 0(Cap) .. 1(Edge)
+  micADist: number // 0(Close) .. 1(Far)
+  micALevelDb: number // -18 .. +6
+  micAPan: number // -1 .. +1
+  micAPhaseInv: boolean
+  micBType: number
+  micBX: number
+  micBDist: number
+  micBLevelDb: number
+  micBPan: number
+  micBPhaseInv: boolean
+  micBDelayMs: number // 0 .. 15
+  blend: number // 0(A) .. 1(B)
+}
+
 export interface ChainSlotDto {
   index: number
   modelId: string
+  namModelId?: string | null
   enabled: boolean
+  syncDivision?: number // 0=Free, 1=1/4, 2=1/8., 3=1/8, 4=1/8T, 5=1/16
   params: number[]
+  cabMic?: CabMicConfigDto | null
 }
 
 export interface SceneSlotStateDto {
   enabled: boolean
+  syncDivision?: number
   params: number[]
 }
 
@@ -72,10 +94,33 @@ export interface SignalChainConfigDto {
   splitCol: number
   mergeCol: number
   parallelMix: number
+  tempoBpm?: number
   inputGainDb: number
   outputGainDb: number
   slots: ChainSlotDto[]
   scenes?: SceneSnapshotDto[]
+}
+
+export interface MidiBindingDto {
+  targetKind: "param" | "bypass" | "scene" | "tapTempo" | "tunerMute" | string
+  cc: number
+  channel: number
+  slotIndex: number
+  paramIndex: number
+  sceneIndex: number
+}
+
+export interface MidiSnapshotDto {
+  devices: string[]
+  activeDevice: string
+  connected: boolean
+  bindings: MidiBindingDto[]
+  learning?: {
+    targetKind: string
+    slotIndex: number
+    paramIndex: number
+    sceneIndex: number
+  } | null
 }
 
 export interface PresetDef {
@@ -87,8 +132,13 @@ export interface PresetDef {
 }
 
 export interface AppSettingsDto {
+  inputKind?: string
   inputDriver?: string | null
+  wasapiInputDeviceId?: string | null
+  wasapiInputExclusive?: boolean
+  wasapiInputRaw?: boolean
   channelMode: number
+  inputChannelOffset?: number
   asioInBufferSize: number
   outputKind: string
   wasapiExclusive: boolean
@@ -154,6 +204,8 @@ export interface AsioCapabilitiesDto {
 export interface WasapiDeviceDto {
   id: string
   label: string
+  channels?: number
+  sampleRate?: number
 }
 
 export interface GuitarNoteMeasurementDto {
@@ -225,6 +277,7 @@ export interface StudioInitSnapshot {
   audio: {
     asioDrivers: string[]
     wasapiDevices: WasapiDeviceDto[]
+    wasapiInputDevices?: WasapiDeviceDto[]
     initialDriver?: string | null
     initialCaps?: AsioCapabilitiesDto | null
   }
@@ -239,6 +292,7 @@ export interface StudioInitSnapshot {
   tunerMute?: boolean
   tunerRefA4Hz?: number
   backing?: BackingTrackStateDto
+  midi?: MidiSnapshotDto
   isAudioRunning: boolean
 }
 

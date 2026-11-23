@@ -8,19 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="NAudio" Version="3.3.0" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Compile Include="..\..\Audio\AppSettings.cs" Link="AppSettings.cs" />
-    <Compile Include="..\..\Audio\ToneProfile.cs" Link="ToneProfile.cs" />
-    <Compile Include="..\..\Audio\ToneProcessor.cs" Link="ToneProcessor.cs" />
-    <Compile Include="..\..\Audio\WhiteBoxAmpEngine.cs" Link="WhiteBoxAmpEngine.cs" />
-    <Compile Include="..\..\Audio\CabinetIrBank.cs" Link="CabinetIrBank.cs" />
-    <Compile Include="..\..\Audio\SchematicPedalDsp.cs" Link="SchematicPedalDsp.cs" />
-    <Compile Include="..\..\Audio\SignalChainEngine.cs" Link="SignalChainEngine.cs" />
-    <Compile Include="..\..\Audio\GuitarProfile.cs" Link="GuitarProfile.cs" />
-    <Compile Include="..\..\Services\AntigravityToneArchitect.cs" Link="AntigravityToneArchitect.cs" />
+    <ProjectReference Include="..\..\src\NeuralRig.Core\NeuralRig.Core.csproj" />
   </ItemGroup>
 
 </Project>

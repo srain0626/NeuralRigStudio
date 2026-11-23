@@ -14,10 +14,12 @@ namespace NeuralRigStudio.Audio;
 public sealed class CabinetIrBank
 {
     public const int TapCount = 1024;
+    public const int MaxWavTapCount = PartitionedIr.MaxTaps;
     public const int ModelCount = 8; // indices 0..7 (1 = custom placeholder -> falls back to 0)
 
     private readonly float[][] _irs = new float[ModelCount][];
     private readonly float[][] _irsRev = new float[ModelCount][];
+    private readonly PartitionedIr?[] _partIrs = new PartitionedIr?[ModelCount];
     private readonly bool[] _isMeasured = new bool[ModelCount];
     private int _sampleRate;
 
@@ -37,6 +39,7 @@ public sealed class CabinetIrBank
         // 1: Custom IR fallback = slot 0 실측 V30 IR
         _irs[1] = _irs[0];
         _irsRev[1] = _irsRev[0];
+        _partIrs[1] = _partIrs[0];
         _isMeasured[1] = _isMeasured[0];
 
         // 2: 2x12 JC-120 Open Back (GK09 Roland Jazz Chorus, Shure SM7B 실측 WAV)
@@ -72,15 +75,18 @@ public sealed class CabinetIrBank
 
     private void LoadMeasuredOrFallback(int slot, string resourceName, int sampleRate, Action fallback)
     {
-        if (TryLoadEmbeddedWavIr(resourceName, sampleRate, TapCount, out var ir, out var rev))
+        if (TryLoadEmbeddedWavIr(resourceName, sampleRate, MaxWavTapCount, out var ir, out var rev))
         {
             _irs[slot] = ir;
             _irsRev[slot] = rev;
+            _partIrs[slot] = PartitionedIr.Compile(ir);
             _isMeasured[slot] = true;
             return;
         }
         _isMeasured[slot] = false;
         fallback();
+        if (_irs[slot] is { Length: > 0 } fbIr)
+            _partIrs[slot] = PartitionedIr.Compile(fbIr);
     }
 
     internal static bool TryLoadEmbeddedWavIr(string resourceName, int targetSampleRate, int maxTaps, out float[] ir, out float[] rev)
@@ -112,7 +118,7 @@ public sealed class CabinetIrBank
 
         float[] mono = raw.ToArray();
         if (srcRate != targetSampleRate)
-            mono = ResampleLinear(mono, srcRate, targetSampleRate);
+            mono = SincResampler.Resample(mono, srcRate, targetSampleRate);
 
         float maxAbs = 0f;
         for (int i = 0; i < mono.Length; i++)
@@ -161,23 +167,6 @@ public sealed class CabinetIrBank
         return true;
     }
 
-    private static float[] ResampleLinear(float[] src, int srcRate, int dstRate)
-    {
-        double ratio = (double)srcRate / dstRate;
-        int outLen = Math.Max(16, (int)Math.Round(src.Length / ratio));
-        var dst = new float[outLen];
-        for (int i = 0; i < outLen; i++)
-        {
-            double pos = i * ratio;
-            int idx = (int)pos;
-            float frac = (float)(pos - idx);
-            float a = src[Math.Min(idx, src.Length - 1)];
-            float b = src[Math.Min(idx + 1, src.Length - 1)];
-            dst[i] = a + (b - a) * frac;
-        }
-        return dst;
-    }
-
     public float[] GetIr(int subModel)
     {
         int idx = Math.Clamp(subModel, 0, ModelCount - 1);
@@ -188,6 +177,12 @@ public sealed class CabinetIrBank
     {
         int idx = Math.Clamp(subModel, 0, ModelCount - 1);
         return _irsRev[idx] ?? Array.Empty<float>();
+    }
+
+    public PartitionedIr? GetPartitionedIr(int subModel)
+    {
+        int idx = Math.Clamp(subModel, 0, ModelCount - 1);
+        return _partIrs[idx];
     }
 
     private void BuildModel(

@@ -15,7 +15,7 @@ flowchart TD
     subgraph Host ["C# Native Host (.NET 10 Windows Forms + WebView2)"]
         MainForm["MainForm & IPC Message Dispatcher"]
         RigBridge["RigWebBridge & Preset Storage"]
-        NamedPipe["Named Pipe IPC Server (neuralrig-studio-pipe)"]
+        NamedPipe["Named Pipe IPC Server (NeuralRigStudio_McpPipe_v1)"]
     end
 
     subgraph AudioEngine ["Real-Time Zero-Allocation Audio Engine (0 B RT Alloc)"]
@@ -112,7 +112,7 @@ Powered by the **McLeod Pitch Method (MPM)** with Normalized Square Difference F
 
 ## 5. Antigravity AI MCP Integration
 
-NeuralRig Studio runs an out-of-process Model Context Protocol (MCP) server (`tools/NeuralRigMcp`) connecting Antigravity to the live DSP engine via high-speed Windows Named Pipes (`\\.\pipe\neuralrig-studio-pipe`).
+NeuralRig Studio runs an out-of-process Model Context Protocol (MCP) server (`tools/NeuralRigMcp`) connecting Antigravity to the live DSP engine via high-speed Windows Named Pipes (`\\.\pipe\NeuralRigStudio_McpPipe_v1`).
 
 ```mermaid
 sequenceDiagram

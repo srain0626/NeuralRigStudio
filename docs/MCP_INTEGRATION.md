@@ -8,7 +8,7 @@ NeuralRig Studio features direct integration with **Google Antigravity** via the
 
 The integration consists of:
 - **`NeuralRigMcp.exe`**: A standalone single-file MCP server communicating over standard I/O (JSON-RPC).
-- **`neuralrig-studio-pipe`**: A fast, local Windows Named Pipe IPC bridge between `NeuralRigMcp` and the running `NeuralRigStudio` application.
+- **`NeuralRigStudio_McpPipe_v1`**: A fast, local Windows Named Pipe IPC bridge between `NeuralRigMcp` and the running `NeuralRigStudio` application.
 
 ---
 
@@ -45,13 +45,13 @@ Or when running from source:
 
 | Tool Name | Description | Key Parameters |
 |:---|:---|:---|
-| `neuralrig_get_catalog` | Returns the complete catalog of all 72 available pedals, amps, cabs, and utility devices with parameter schemas. | `filter_category` (optional) |
-| `neuralrig_get_state` | Retrieves the current live state: active preset, 16 slot device assignments, parameter values, active scene, and routing mode. | None |
+| `neuralrig_get_catalog` | Returns the complete catalog of all 72 available pedals, amps, cabs, and utility devices with parameter schemas. | `category` (optional) |
+| `neuralrig_get_state` | Retrieves the current live state: active preset, 16 slot device assignments, parameter values, active scene, tempo BPM, and routing mode. | None |
 | `neuralrig_get_guitar_profiles` | Retrieves all saved guitar DI profiles, including detected pickup type, noise floor, harmonic richness, and suggested trim/gate. | None |
-| `neuralrig_generate_tone` | Uses the built-in deterministic tone architect or prompts the AI to generate a complete 16-slot rig preset tailored to a genre, artist, or guitar. | `prompt`, `guitar_profile_id` (optional), `base_preset_id` (optional) |
-| `neuralrig_set_preset` | Loads an existing preset from the studio library by ID or name. | `preset_id`, `preset_name` |
-| `neuralrig_update_slot` | Modifies device selection, enabled status, or parameters for a specific slot in the 2x8 matrix. | `row` (0..1), `col` (0..7), `device_id`, `enabled`, `parameters` |
-| `neuralrig_switch_scene` | Switches the active scene (A through H) for instantaneous parameter and bypass switching. | `scene_index` (0..7) or `scene_letter` ("A".."H") |
+| `neuralrig_generate_tone` | Uses the built-in circuit tone architect (auto-calibrated to active guitar DI profile) to generate or refine a 16-slot rig preset. | `prompt`, `guitarProfileId` (optional), `autoSave` (optional) |
+| `neuralrig_set_preset` | Applies a complete 16-slot preset JSON structure directly to the live studio. | `presetName`, `slots`, `tempoBpm` (optional), `autoSave` (optional) |
+| `neuralrig_update_slot` | Modifies device selection, enabled status, tempo sync division, or parameters for a specific slot in the 2x8 matrix. | `slotIndex` (0..15), `modelId`, `enabled`, `syncDivision` (0..5), `params` |
+| `neuralrig_switch_scene` | Switches the active scene (A..H), routing mode, parallel mix, or global tempo BPM. | `sceneIndex` (0..7), `routingMode` (0..1), `parallelMix`, `tempoBpm` |
 
 ---
 

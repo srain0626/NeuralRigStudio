@@ -2,10 +2,35 @@ using System.Text.Json;
 
 namespace NeuralRigStudio.Audio;
 
+public sealed class MidiBindingDto
+{
+    public string TargetKind { get; set; } = "param"; // param | bypass | scene | tapTempo | tunerMute
+    public int Cc { get; set; }
+    public int Channel { get; set; }                  // 0 = Omni, 1..16 = specific channel
+    public int SlotIndex { get; set; }
+    public int ParamIndex { get; set; }
+    public int SceneIndex { get; set; }
+
+    public MidiBindingDto Clone() => new()
+    {
+        TargetKind = TargetKind ?? "param",
+        Cc = Math.Clamp(Cc, 0, 127),
+        Channel = Math.Clamp(Channel, 0, 16),
+        SlotIndex = Math.Clamp(SlotIndex, 0, 15),
+        ParamIndex = Math.Clamp(ParamIndex, 0, 7),
+        SceneIndex = Math.Clamp(SceneIndex, 0, 7),
+    };
+}
+
 public sealed class AppSettings
 {
+    public string InputKind { get; set; } = "ASIO";  // "ASIO" | "WASAPI"
     public string? InputDriver { get; set; }
-    public int ChannelMode { get; set; } = 1;        // 1: 모노 In 1 (기타 입력 좌→스테레오 양쪽)
+    public string? WasapiInputDeviceId { get; set; } // null/"" = 시스템 기본 녹음 장치
+    public bool WasapiInputExclusive { get; set; }
+    public bool WasapiInputRaw { get; set; } = true; // Windows APO 노이즈 억제/AGC 우회 (순수 기타 입력 보존)
+    public int ChannelMode { get; set; } = 1;        // 0: 스테레오(Offset, Offset+1), 1: 모노(Offset), 2: 모노 Ch2(하위호환)
+    public int InputChannelOffset { get; set; } = 0; // 다채널 인터페이스용 0-based 시작 입력 채널
     public int AsioInBufferSize { get; set; }
     public string OutputKind { get; set; } = "WASAPI";
     public bool WasapiExclusive { get; set; }
@@ -25,6 +50,8 @@ public sealed class AppSettings
     public List<SignalChainConfigDto> SavedPresets { get; set; } = new();
     public List<GuitarProfileDto> GuitarProfiles { get; set; } = new();
     public string? ActiveGuitarProfileId { get; set; }
+    public string? MidiInputName { get; set; }
+    public List<MidiBindingDto> MidiBindings { get; set; } = new();
 
     private static string FilePath
     {

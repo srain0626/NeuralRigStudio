@@ -8,28 +8,16 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\NeuralRig.Core\NeuralRig.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="NAudio" Version="3.3.0" />
     <PackageReference Include="NAudio.Asio" Version="3.3.0" />
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="..\..\Audio\ToneProcessor.cs" Link="ToneProcessor.cs" />
-    <Compile Include="..\..\Audio\WhiteBoxAmpEngine.cs" Link="WhiteBoxAmpEngine.cs" />
-    <Compile Include="..\..\Audio\CabinetIrBank.cs" Link="CabinetIrBank.cs" />
-    <Compile Include="..\..\Audio\SchematicPedalDsp.cs" Link="SchematicPedalDsp.cs" />
-    <Compile Include="..\..\Audio\SignalChainEngine.cs" Link="SignalChainEngine.cs" />
-    <Compile Include="..\..\Audio\ToneProfile.cs" Link="ToneProfile.cs" />
-    <Compile Include="..\..\Audio\RingBuffer.cs" Link="RingBuffer.cs" />
     <Compile Include="..\..\Audio\AudioRouter.cs" Link="AudioRouter.cs" />
-    <Compile Include="..\..\Audio\VisualizerAnalyzer.cs" Link="VisualizerAnalyzer.cs" />
-    <Compile Include="..\..\Audio\GuitarPitchDetector.cs" Link="GuitarPitchDetector.cs" />
-    <Compile Include="..\..\Audio\GuitarProfile.cs" Link="GuitarProfile.cs" />
-    <Compile Include="..\..\Audio\GuitarAnalyzer.cs" Link="GuitarAnalyzer.cs" />
-    <Compile Include="..\..\Services\AntigravityToneArchitect.cs" Link="AntigravityToneArchitect.cs" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <EmbeddedResource Include="..\..\Assets\CabIRs\*.wav" LogicalName="NeuralRigStudio.CabIRs.%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>

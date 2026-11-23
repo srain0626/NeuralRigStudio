@@ -968,8 +968,48 @@ export function createEmptySlots(): ChainSlotDto[] {
     index,
     modelId: "",
     enabled: true,
+    syncDivision: 0,
     params: [0, 0, 0, 0, 0, 0, 0, 0],
   }))
+}
+
+export const TEMPO_SYNC_DIVISIONS = [
+  { value: 0, label: "FREE", short: "" },
+  { value: 1, label: "1/4", short: "1/4" },
+  { value: 2, label: "1/8.", short: "1/8." },
+  { value: 3, label: "1/8", short: "1/8" },
+  { value: 4, label: "1/8T", short: "1/8T" },
+  { value: 5, label: "1/16", short: "1/16" },
+] as const
+
+export function supportsTempoSync(modelId?: string): boolean {
+  if (!modelId) return false
+  const def = DEVICE_MAP[modelId]
+  if (!def) return false
+  if (def.category === "delay") return true
+  return (
+    modelId === "mod_ce2" ||
+    modelId === "mod_bf2" ||
+    modelId === "mod_phase90" ||
+    modelId === "mod_tremolo" ||
+    modelId === "mod_smallclone" ||
+    modelId === "mod_univibe"
+  )
+}
+
+export function computeSyncedValueLabel(modelId: string, syncDiv: number, bpm: number): string | null {
+  if (!syncDiv || syncDiv <= 0) return null
+  const safeBpm = Math.max(40, Math.min(280, bpm || 120))
+  const def = DEVICE_MAP[modelId]
+  if (!def) return null
+  if (def.category === "delay") {
+    const beatMs = 60000 / safeBpm
+    const mult = syncDiv === 1 ? 1 : syncDiv === 2 ? 0.75 : syncDiv === 3 ? 0.5 : syncDiv === 4 ? 1 / 3 : 0.25
+    return `${Math.round(beatMs * mult)} ms`
+  }
+  const beatHz = safeBpm / 60
+  const mult = syncDiv === 1 ? 1 : syncDiv === 2 ? 4 / 3 : syncDiv === 3 ? 2 : syncDiv === 4 ? 3 : 4
+  return `${(beatHz * mult).toFixed(2)} Hz`
 }
 
 function makePreset(
@@ -979,7 +1019,8 @@ function makePreset(
   splitCol: number,
   mergeCol: number,
   parallelMix: number,
-  entries: Array<{ index: number; modelId: string; enabled?: boolean; overrides?: Record<number, number> }>
+  entries: Array<{ index: number; modelId: string; enabled?: boolean; syncDivision?: number; overrides?: Record<number, number> }>,
+  tempoBpm = 120
 ): SignalChainConfigDto {
   const slots = createEmptySlots()
   for (const e of entries) {
@@ -993,6 +1034,7 @@ function makePreset(
       index: e.index,
       modelId: e.modelId,
       enabled: e.enabled ?? true,
+      syncDivision: e.syncDivision ?? 0,
       params,
     }
   }
@@ -1004,6 +1046,7 @@ function makePreset(
     splitCol,
     mergeCol,
     parallelMix,
+    tempoBpm,
     inputGainDb: 0,
     outputGainDb: 0,
     slots,
@@ -1185,6 +1228,7 @@ function getSceneDefaultEnabled(modelId: string, baseEnabled: boolean, sceneIdx:
 function buildInitialSceneSnapshot(base: SignalChainConfigDto, sceneIdx: number): SceneSnapshotDto {
   const slots = base.slots.map((s) => ({
     enabled: getSceneDefaultEnabled(s.modelId, s.enabled, sceneIdx),
+    syncDivision: s.syncDivision ?? 0,
     params: [...s.params],
   }))
   return { parallelMix: base.parallelMix, slots }
@@ -1194,16 +1238,23 @@ function buildInitialSceneSnapshot(base: SignalChainConfigDto, sceneIdx: number)
  * 프리셋에 8개 씬(A~H) 스냅샷이 없는 경우 초기 스냅샷을 생성한다.
  */
 export function ensurePresetScenes(chain: SignalChainConfigDto): SignalChainConfigDto {
-  if (chain.scenes && chain.scenes.length === 8) return chain
+  const normalizedTempo = chain.tempoBpm && chain.tempoBpm >= 40 ? chain.tempoBpm : 120
+  if (chain.scenes && chain.scenes.length === 8) {
+    return chain.tempoBpm === normalizedTempo ? chain : { ...chain, tempoBpm: normalizedTempo }
+  }
   const scenes: SceneSnapshotDto[] = Array.from({ length: 8 }, (_, idx) =>
     idx === chain.activeScene
       ? {
           parallelMix: chain.parallelMix,
-          slots: chain.slots.map((s) => ({ enabled: s.enabled, params: [...s.params] })),
+          slots: chain.slots.map((s) => ({
+            enabled: s.enabled,
+            syncDivision: s.syncDivision ?? 0,
+            params: [...s.params],
+          })),
         }
       : buildInitialSceneSnapshot(chain, idx)
   )
-  return { ...chain, scenes }
+  return { ...chain, tempoBpm: normalizedTempo, scenes }
 }
 
 /**
@@ -1216,7 +1267,11 @@ export function commitActiveScene(chain: SignalChainConfigDto): SignalChainConfi
     i === idx
       ? {
           parallelMix: withScenes.parallelMix,
-          slots: withScenes.slots.map((s) => ({ enabled: s.enabled, params: [...s.params] })),
+          slots: withScenes.slots.map((s) => ({
+            enabled: s.enabled,
+            syncDivision: s.syncDivision ?? 0,
+            params: [...s.params],
+          })),
         }
       : sc
   )
@@ -1238,6 +1293,7 @@ export function switchSceneOnChain(chain: SignalChainConfigDto, targetSceneIdx: 
     return {
       ...s,
       enabled: snapSlot.enabled,
+      syncDivision: snapSlot.syncDivision ?? s.syncDivision ?? 0,
       params: snapSlot.params?.length === 8 ? [...snapSlot.params] : [...s.params],
     }
   })
@@ -1268,9 +1324,10 @@ export function syncScenesOnAssignSlot(
               sceneIdx === withScenes.activeScene
                 ? withScenes.slots[slotIdx]?.enabled ?? true
                 : getSceneDefaultEnabled(modelId, true, sceneIdx),
+            syncDivision: 0,
             params: [...params],
           }
-        : { enabled: sl.enabled, params: [...sl.params] }
+        : { enabled: sl.enabled, syncDivision: sl.syncDivision ?? 0, params: [...sl.params] }
     )
     return { parallelMix: sc.parallelMix, slots }
   })
@@ -1287,7 +1344,11 @@ export function syncScenesOnSwapSlots(
 ): SignalChainConfigDto {
   const withScenes = commitActiveScene(chain)
   const nextScenes = withScenes.scenes!.map((sc) => {
-    const slots = sc.slots.map((sl) => ({ enabled: sl.enabled, params: [...sl.params] }))
+    const slots = sc.slots.map((sl) => ({
+      enabled: sl.enabled,
+      syncDivision: sl.syncDivision ?? 0,
+      params: [...sl.params],
+    }))
     if (fromIdx >= 0 && fromIdx < slots.length && toIdx >= 0 && toIdx < slots.length) {
       const tmp = slots[fromIdx]
       slots[fromIdx] = slots[toIdx]

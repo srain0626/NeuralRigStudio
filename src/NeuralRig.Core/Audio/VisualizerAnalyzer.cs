@@ -1,5 +1,13 @@
 ﻿namespace NeuralRigStudio.Audio;
 
+public interface IAudioTelemetrySource
+{
+    bool IsRunning { get; }
+    int EffectiveSampleRate { get; }
+    void CopyRecentSamples(Span<float> dst);
+    void CopyRecentDrySamples(Span<float> dst);
+}
+
 public sealed record TunerSnapshot(
     bool Active,
     string NoteName,
@@ -139,7 +147,7 @@ public sealed class VisualizerAnalyzer
         _hasIrCurve = true;
     }
 
-    public VisualizerSnapshot UpdateFromRouter(AudioRouter router)
+    public VisualizerSnapshot UpdateFromRouter(IAudioTelemetrySource router)
     {
         bool active = router.IsRunning;
         bool hasSignal = false;

@@ -1151,5 +1151,483 @@ static void RunWhiteBoxVerification()
         }
 
         Console.WriteLine($"[PASS] Guided Guitar Analyzer (+Quiet -53dBFS/Hum/Eb & Wrong-Note Rejection): SC='{sc.EstimatedPickupType}'(Br={sc.BrightnessScore},Out={sc.OutputPowerScore},Hum={sc.Hum60HzDb:F1}dB,Trim={sc.SuggestedInputTrimDb:+0.0;-0.0}dB) vs HB='{hb.EstimatedPickupType}'(Br={hb.BrightnessScore},Out={hb.OutputPowerScore},Hum={hb.Hum60HzDb:F1}dB,Trim={hb.SuggestedInputTrimDb:+0.0;-0.0}dB), RT alloc: {rtAlloc} B");
+
+        // v1.1 Verification: Blackman-Harris SincResampler + Guitar-Aware AI Architect + Tempo Sync 0-Alloc RT Check
+        {
+            var src96 = new float[4800];
+            for (int i = 0; i < src96.Length; i++)
+                src96[i] = 0.8f * MathF.Sin(2f * MathF.PI * 8123f * i / 96000f);
+            var dst48 = SincResampler.Resample(src96, 96000, 48000);
+            float sincPeak = 0f;
+            for (int i = 120; i < dst48.Length - 120; i++)
+                sincPeak = MathF.Max(sincPeak, MathF.Abs(dst48[i]));
+            if (MathF.Abs(sincPeak - 0.8f) > 0.015f)
+                throw new Exception($"SincResampler high-freq attenuation out of spec: peak={sincPeak}");
+
+            var arch = new NeuralRigStudio.Services.AntigravityToneArchitect();
+            var aiRes = arch.GenerateViaBuiltinArchitect("128bpm 점8분 앰비언트 워십", null, sc);
+            if (MathF.Abs(aiRes.Chain.TempoBpm - 128f) > 0.1f)
+                throw new Exception($"Expected TempoBpm=128, got {aiRes.Chain.TempoBpm}");
+            if (MathF.Abs(aiRes.Chain.InputGainDb - MathF.Round(sc.SuggestedInputTrimDb, 1)) > 0.2f)
+                throw new Exception($"Expected Guitar InputGainDb={sc.SuggestedInputTrimDb}, got {aiRes.Chain.InputGainDb}");
+            if (!aiRes.Chain.Slots.Any(s => s.SyncDivision == 2))
+                throw new Exception("Expected dotted-eighth (SyncDivision=2) delay slot!");
+
+            var syncProc = new ToneProcessor { Mode = ToneMode.SignalChain };
+            syncProc.Prepare(256, 48000);
+            syncProc.Chain.UpdateChain(aiRes.Chain);
+            var bufL = new float[256];
+            var bufR = new float[256];
+            for (int i = 0; i < 256; i++) bufL[i] = bufR[i] = 0.15f * MathF.Sin(2f * MathF.PI * 330f * i / 48000f);
+            syncProc.Process(bufL, bufR, 256); // warmup
+
+            var fasterChain = aiRes.Chain.Clone();
+            fasterChain.TempoBpm = 142f;
+            syncProc.Chain.UpdateChain(fasterChain);
+
+            long allocBefore = GC.GetAllocatedBytesForCurrentThread();
+            for (int b = 0; b < 32; b++)
+                syncProc.Process(bufL, bufR, 256);
+            long syncAlloc = GC.GetAllocatedBytesForCurrentThread() - allocBefore;
+            if (syncAlloc != 0)
+                throw new Exception($"Tempo-synced SignalChain allocated {syncAlloc} B on RT thread!");
+
+            Console.WriteLine($"[PASS] v1.1 SincResampler (8kHz peak={sincPeak:F3}) + Guitar-Aware AI + Tempo Sync (128->142 BPM, 1/8.) verified (RT alloc: {syncAlloc} B)");
+        }
+
+        // Universal Input Verification: WASAPI Float32 / PCM16 / PCM24 + Multi-Channel (Ch3) 0-Alloc Decode
+        {
+            const int nFrames = 128;
+            var outL = new float[nFrames];
+            var outR = new float[nFrames];
+
+            var rawF32 = new byte[nFrames * 4 * sizeof(float)];
+            var spanF32 = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(rawF32.AsSpan());
+            for (int i = 0; i < nFrames; i++)
+            {
+                spanF32[i * 4 + 0] = 0.05f;
+                spanF32[i * 4 + 1] = -0.05f;
+                spanF32[i * 4 + 2] = 0.625f; // Guitar plugged into Input 3
+                spanF32[i * 4 + 3] = 0.0f;
+            }
+            AudioRouter.DecodeWasapiPacketToStereo(rawF32, NAudio.CoreAudioApi.AudioClientBufferFlags.None, 4, 16, true, 32, 2, 2, outL, outR);
+            if (MathF.Abs(outL[10] - 0.625f) > 1e-6f || MathF.Abs(outR[10] - 0.625f) > 1e-6f)
+                throw new Exception($"Universal Ch3 Float32 decode mismatch: L={outL[10]}, R={outR[10]}");
+
+            var rawPcm16 = new byte[nFrames * 2 * sizeof(short)];
+            var spanPcm16 = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, short>(rawPcm16.AsSpan());
+            for (int i = 0; i < nFrames; i++)
+            {
+                spanPcm16[i * 2] = 16384;
+                spanPcm16[i * 2 + 1] = -16384;
+            }
+            AudioRouter.DecodeWasapiPacketToStereo(rawPcm16, NAudio.CoreAudioApi.AudioClientBufferFlags.None, 2, 4, false, 16, 0, 1, outL, outR);
+            if (MathF.Abs(outL[0] - 0.5f) > 1e-4f || MathF.Abs(outR[0] + 0.5f) > 1e-4f)
+                throw new Exception("Universal PCM16 decode mismatch!");
+
+            var rawPcm24 = new byte[nFrames * 6];
+            for (int i = 0; i < nFrames; i++)
+            {
+                int b = i * 6;
+                rawPcm24[b + 0] = 0x00; rawPcm24[b + 1] = 0x00; rawPcm24[b + 2] = 0x40;
+                rawPcm24[b + 3] = 0x00; rawPcm24[b + 4] = 0x00; rawPcm24[b + 5] = 0xC0;
+            }
+            AudioRouter.DecodeWasapiPacketToStereo(rawPcm24, NAudio.CoreAudioApi.AudioClientBufferFlags.None, 2, 6, false, 24, 0, 1, outL, outR);
+            if (MathF.Abs(outL[0] - 0.5f) > 1e-5f || MathF.Abs(outR[0] + 0.5f) > 1e-5f)
+                throw new Exception($"Universal PCM24 decode mismatch: L={outL[0]}, R={outR[0]}");
+
+            long uAlloc0 = GC.GetAllocatedBytesForCurrentThread();
+            for (int iter = 0; iter < 50; iter++)
+            {
+                AudioRouter.DecodeWasapiPacketToStereo(rawF32, NAudio.CoreAudioApi.AudioClientBufferFlags.None, 4, 16, true, 32, 2, 2, outL, outR);
+                AudioRouter.DecodeWasapiPacketToStereo(rawPcm16, NAudio.CoreAudioApi.AudioClientBufferFlags.None, 2, 4, false, 16, 0, 1, outL, outR);
+                AudioRouter.DecodeWasapiPacketToStereo(rawPcm24, NAudio.CoreAudioApi.AudioClientBufferFlags.None, 2, 6, false, 24, 0, 1, outL, outR);
+                AudioRouter.DecodeWasapiPacketToStereo(rawPcm24, NAudio.CoreAudioApi.AudioClientBufferFlags.Silent, 2, 6, false, 24, 0, 1, outL, outR);
+            }
+            long uAlloc = GC.GetAllocatedBytesForCurrentThread() - uAlloc0;
+            if (uAlloc != 0)
+                throw new Exception($"Universal WASAPI decoder allocated {uAlloc} B on RT path!");
+
+            Console.WriteLine($"[PASS] Universal Input Decoder (WASAPI Float32/PCM16/PCM24/Silent + 4ch Ch3 routing) verified (RT alloc: {uAlloc} B)");
+        }
+
+        // v1.2 Verification: LSTM + ConvNet NAM + 3-Slot Multi-NAM + 16k Partitioned FFT Convolver + Dual Virtual Miking
+        VerifyMilestone2Bench();
+    }
+
+    static void VerifyMilestone2Bench()
+    {
+        const int sr = 48000;
+        const int frames = 256;
+
+        // 1) Official NAM LSTM (1 layer, hidden=16) compile + .nam export/import round-trip + 0-alloc RT bench
+        ToneProfile lstmProf;
+        {
+            var lstmCfg = new LstmConfigDto { NumLayers = 1, InputSize = 1, HiddenSize = 16 };
+            int h = lstmCfg.HiddenSize;
+            int totalIn = lstmCfg.InputSize + h;
+            int wCount = 4 * h * totalIn + 4 * h + h + h + h + 1;
+            var w = new float[wCount];
+            var rng = new Random(1201);
+            for (int i = 0; i < w.Length; i++)
+                w[i] = (float)((rng.NextDouble() * 2.0 - 1.0) * 0.18);
+
+            var rawProf = new ToneProfile
+            {
+                Id = "bench-lstm",
+                Name = "Bench LSTM 1x16",
+                Version = 3,
+                Architecture = "LSTM",
+                SampleRate = sr,
+                LstmConfig = lstmCfg,
+                Weights = w,
+            };
+            rawProf.PrepareForRt();
+            if (!rawProf.IsLstm)
+                throw new Exception("Failed to compile LSTM NAM model!");
+
+            string tmpNam = Path.Combine(Path.GetTempPath(), $"nrs_lstm_{Guid.NewGuid():N}.nam");
+            ToneProfile? imported = null;
+            try
+            {
+                ToneProfileStore.ExportNamFile(rawProf, tmpNam);
+                imported = ToneProfileStore.ImportNamFile(tmpNam, "Bench LSTM Imported");
+                if (!imported.IsLstm || !string.Equals(imported.Architecture, "LSTM", StringComparison.OrdinalIgnoreCase))
+                    throw new Exception("LSTM .nam round-trip failed!");
+            }
+            finally
+            {
+                if (imported != null) ToneProfileStore.Delete(imported);
+                try { if (File.Exists(tmpNam)) File.Delete(tmpNam); } catch { }
+            }
+            lstmProf = rawProf;
+
+            var pLstm = new ToneProcessor { ActiveProfile = lstmProf, Mode = ToneMode.FullRig, GateThresholdDb = -80f };
+            pLstm.Prepare(frames, sr);
+            var inB = new float[frames];
+            var outB = new float[frames];
+            for (int i = 0; i < frames; i++) inB[i] = 0.25f * MathF.Sin(2f * MathF.PI * 220f * i / sr);
+            for (int warm = 0; warm < 8; warm++) pLstm.ProcessWaveNetRaw(inB, outB);
+
+            var sw = Stopwatch.StartNew();
+            long a0 = GC.GetAllocatedBytesForCurrentThread();
+            for (int k = 0; k < 200; k++) pLstm.ProcessWaveNetRaw(inB, outB);
+            long alloc = GC.GetAllocatedBytesForCurrentThread() - a0;
+            sw.Stop();
+            double ms = sw.Elapsed.TotalMilliseconds / 200.0;
+            double outRms = Rms(outB);
+            if (alloc != 0 || ms >= 1.2 || !double.IsFinite(outRms) || outRms < 1e-4)
+                throw new Exception($"LSTM NAM bench failed: alloc={alloc}, ms={ms:F4}, rms={outRms}");
+            Console.WriteLine($"[PASS] Official NAM LSTM (1x16, round-trip, 256fr): {ms:F4} ms/block, rms={outRms:F4}, RT alloc: {alloc} B");
+        }
+
+        // 2) Official NAM ConvNet (8ch, dilations=[1,2,4], BatchNorm=true) compile + .nam round-trip + 0-alloc RT bench
+        ToneProfile convProf;
+        {
+            var convCfg = new ConvNetConfigDto
+            {
+                Channels = 8,
+                Dilations = new[] { 1, 2, 4 },
+                BatchNorm = true,
+                KernelSize = 2,
+            };
+            int ch = convCfg.Channels;
+            int kSz = convCfg.KernelSize;
+            int wCount = 0;
+            for (int li = 0; li < convCfg.Dilations.Length; li++)
+            {
+                int inCh = li == 0 ? 1 : ch;
+                wCount += ch * inCh * kSz; // Conv1d W
+                wCount += 4 * ch + 1;      // BatchNorm: mean, var, gamma, beta, eps
+            }
+            wCount += ch + 1;              // Head W + B
+            var w = new float[wCount];
+            var rng = new Random(1202);
+            int idx = 0;
+            for (int li = 0; li < convCfg.Dilations.Length; li++)
+            {
+                int inCh = li == 0 ? 1 : ch;
+                for (int i = 0; i < ch * inCh * kSz; i++)
+                    w[idx++] = (float)((rng.NextDouble() * 2.0 - 1.0) * 0.25);
+                for (int oc = 0; oc < ch; oc++) w[idx++] = 0.02f;  // running_mean
+                for (int oc = 0; oc < ch; oc++) w[idx++] = 0.50f;  // running_var
+                for (int oc = 0; oc < ch; oc++) w[idx++] = 1.10f;  // gamma
+                for (int oc = 0; oc < ch; oc++) w[idx++] = 0.01f;  // beta
+                w[idx++] = 1e-5f;                                  // eps
+            }
+            for (int oc = 0; oc < ch; oc++) w[idx++] = 0.35f;      // headW
+            w[idx++] = 0.0f;                                       // headB
+
+            var rawProf = new ToneProfile
+            {
+                Id = "bench-conv",
+                Name = "Bench ConvNet 8ch BN",
+                Version = 3,
+                Architecture = "ConvNet",
+                SampleRate = sr,
+                ConvNetConfig = convCfg,
+                Weights = w,
+            };
+            rawProf.PrepareForRt();
+            if (!rawProf.IsConvNet)
+                throw new Exception("Failed to compile ConvNet NAM model!");
+
+            string tmpNam = Path.Combine(Path.GetTempPath(), $"nrs_conv_{Guid.NewGuid():N}.nam");
+            ToneProfile? imported = null;
+            try
+            {
+                ToneProfileStore.ExportNamFile(rawProf, tmpNam);
+                imported = ToneProfileStore.ImportNamFile(tmpNam, "Bench ConvNet Imported");
+                if (!imported.IsConvNet || !string.Equals(imported.Architecture, "ConvNet", StringComparison.OrdinalIgnoreCase))
+                    throw new Exception("ConvNet .nam round-trip failed!");
+            }
+            finally
+            {
+                if (imported != null) ToneProfileStore.Delete(imported);
+                try { if (File.Exists(tmpNam)) File.Delete(tmpNam); } catch { }
+            }
+            convProf = rawProf;
+
+            var pConv = new ToneProcessor { ActiveProfile = convProf, Mode = ToneMode.FullRig, GateThresholdDb = -80f };
+            pConv.Prepare(frames, sr);
+            var inB = new float[frames];
+            var outB = new float[frames];
+            for (int i = 0; i < frames; i++) inB[i] = 0.25f * MathF.Sin(2f * MathF.PI * 220f * i / sr);
+            for (int warm = 0; warm < 8; warm++) pConv.ProcessWaveNetRaw(inB, outB);
+
+            var sw = Stopwatch.StartNew();
+            long a0 = GC.GetAllocatedBytesForCurrentThread();
+            for (int k = 0; k < 200; k++) pConv.ProcessWaveNetRaw(inB, outB);
+            long alloc = GC.GetAllocatedBytesForCurrentThread() - a0;
+            sw.Stop();
+            double ms = sw.Elapsed.TotalMilliseconds / 200.0;
+            double outRms = Rms(outB);
+            if (alloc != 0 || ms >= 1.2 || !double.IsFinite(outRms) || outRms < 1e-4)
+                throw new Exception($"ConvNet NAM bench failed: alloc={alloc}, ms={ms:F4}, rms={outRms}");
+            Console.WriteLine($"[PASS] Official NAM ConvNet (8ch BN-folded, round-trip, 256fr): {ms:F4} ms/block, rms={outRms:F4}, RT alloc: {alloc} B");
+        }
+
+        // 3) Per-Slot Independent Multi-NAM (3 simultaneous slots: WaveNet + LSTM + ConvNet)
+        {
+            var wnCfg = MakeTestWaveNetConfig(new[] { (1, 12, 1, new[] { 1, 2, 4, 8, 16 }, true) }, out var wnW);
+            var wnProf = new ToneProfile
+            {
+                Id = "bench-wn-slot",
+                Name = "Bench WaveNet Slot",
+                Version = 3,
+                Architecture = "WaveNet",
+                SampleRate = sr,
+                WaveNetConfig = wnCfg,
+                Weights = wnW,
+            };
+            wnProf.PrepareForRt();
+
+            var multiProc = new ToneProcessor { Mode = ToneMode.SignalChain };
+            multiProc.Prepare(frames, sr);
+            multiProc.SetModelLibrary(new[] { wnProf, lstmProf, convProf });
+
+            var chain = new SignalChainConfigDto { RoutingMode = (int)ChainRoutingMode.Serial };
+            for (int i = 0; i < SignalChainConfigDto.SlotCount; i++)
+                chain.Slots[i] = new ChainSlotDto { Index = i, ModelId = "", Enabled = false, Params = new float[8] };
+
+            chain.Slots[0] = new ChainSlotDto { Index = 0, ModelId = "nam_capture", NamModelId = wnProf.Id, Enabled = true, Params = new float[] { 0f, 0f, 100f, 0, 0, 0, 0, 0 } };
+            chain.Slots[1] = new ChainSlotDto { Index = 1, ModelId = "nam_capture", NamModelId = lstmProf.Id, Enabled = true, Params = new float[] { 0f, 0f, 100f, 0, 0, 0, 0, 0 } };
+            chain.Slots[2] = new ChainSlotDto { Index = 2, ModelId = "nam_capture", NamModelId = convProf.Id, Enabled = true, Params = new float[] { 0f, 0f, 100f, 0, 0, 0, 0, 0 } };
+            multiProc.Chain.UpdateChain(chain);
+
+            var l = new float[frames];
+            var r = new float[frames];
+            for (int w = 0; w < 6; w++)
+            {
+                for (int i = 0; i < frames; i++) l[i] = r[i] = 0.2f * MathF.Sin(2f * MathF.PI * 196f * i / sr);
+                multiProc.Process(l, r, frames);
+            }
+
+            long a0 = GC.GetAllocatedBytesForCurrentThread();
+            for (int k = 0; k < 20; k++)
+            {
+                for (int i = 0; i < frames; i++) l[i] = r[i] = 0.2f * MathF.Sin(2f * MathF.PI * 196f * i / sr);
+                multiProc.Process(l, r, frames);
+            }
+            long alloc = GC.GetAllocatedBytesForCurrentThread() - a0;
+            double rms1 = Rms(l);
+
+            // Swap Slot 1 from LSTM -> WaveNet and verify independent output change
+            chain.Slots[1].NamModelId = wnProf.Id;
+            multiProc.Chain.UpdateChain(chain);
+            multiProc.ResetState();
+            for (int w = 0; w < 26; w++)
+            {
+                for (int i = 0; i < frames; i++) l[i] = r[i] = 0.2f * MathF.Sin(2f * MathF.PI * 196f * i / sr);
+                multiProc.Process(l, r, frames);
+            }
+            double rms2 = Rms(l);
+
+            if (alloc != 0 || !double.IsFinite(rms1) || !double.IsFinite(rms2) || Math.Abs(rms1 - rms2) < 1e-4)
+                throw new Exception($"Multi-NAM 3-slot check failed: alloc={alloc}, rms1={rms1}, rms2={rms2}");
+            Console.WriteLine($"[PASS] Multi-NAM 3-Slot Independent Pool (WaveNet + LSTM + ConvNet): rms1={rms1:F4} vs rms2={rms2:F4}, RT alloc: {alloc} B");
+        }
+
+        // 4) Zero-Latency Partitioned FFT Convolver (16,384 taps) exact equivalence & perf bench
+        {
+            const int irLen = 16384;
+            var ir = new float[irLen];
+            ir[0] = 0.7f;
+            for (int i = 1; i < irLen; i++)
+                ir[i] = 0.08f * MathF.Exp(-i * 0.0005f) * MathF.Cos(0.11f * i);
+
+            var partIr = PartitionedIr.Compile(ir);
+            var conv = new StereoPartitionedConvolver();
+            conv.Prepare(256);
+
+            const int totalSamples = 1024;
+            var src = new float[totalSamples];
+            for (int i = 0; i < totalSamples; i++)
+                src[i] = 0.35f * MathF.Sin(2f * MathF.PI * 240f * i / sr) + 0.15f * MathF.Cos(2f * MathF.PI * 1350f * i / sr);
+
+            var outL = new float[totalSamples];
+            var outR = new float[totalSamples];
+            Array.Copy(src, outL, totalSamples);
+            Array.Copy(src, outR, totalSamples);
+
+            // Process across uneven buffer sizes (64, 128, 256, 64, 192, 64, 256)
+            int[] chunkSizes = { 64, 128, 256, 64, 192, 64, 256 };
+            int offset = 0;
+            foreach (int cs in chunkSizes)
+            {
+                conv.ConvolveStereo(outL.AsSpan(offset, cs), outR.AsSpan(offset, cs), cs, partIr);
+                offset += cs;
+            }
+
+            float maxDiff = 0f;
+            for (int n = 0; n < totalSamples; n++)
+            {
+                double exact = 0.0;
+                int kMax = Math.Min(n + 1, irLen);
+                for (int k = 0; k < kMax; k++)
+                    exact += (double)ir[k] * src[n - k];
+                maxDiff = MathF.Max(maxDiff, MathF.Abs(outL[n] - (float)exact));
+            }
+            if (maxDiff > 1e-4f)
+                throw new Exception($"PartitionedConvolver 16k numerical mismatch: maxDiff={maxDiff}");
+
+            // Perf & 0-alloc bench on 256fr stereo
+            var pL = new float[256];
+            var pR = new float[256];
+            for (int w = 0; w < 8; w++)
+            {
+                for (int i = 0; i < 256; i++) { pL[i] = 0.2f * MathF.Sin(0.05f * i); pR[i] = 0.2f * MathF.Cos(0.04f * i); }
+                conv.ConvolveStereo(pL, pR, 256, partIr);
+            }
+            var sw = Stopwatch.StartNew();
+            long a0 = GC.GetAllocatedBytesForCurrentThread();
+            for (int k = 0; k < 200; k++)
+            {
+                for (int i = 0; i < 256; i++) { pL[i] = 0.2f * MathF.Sin(0.05f * i); pR[i] = 0.2f * MathF.Cos(0.04f * i); }
+                conv.ConvolveStereo(pL, pR, 256, partIr);
+            }
+            long alloc = GC.GetAllocatedBytesForCurrentThread() - a0;
+            sw.Stop();
+            double ms = sw.Elapsed.TotalMilliseconds / 200.0;
+            if (alloc != 0 || ms >= 0.5)
+                throw new Exception($"PartitionedConvolver 16k perf/alloc failed: alloc={alloc}, ms={ms:F4}");
+
+            Console.WriteLine($"[PASS] Zero-Latency Partitioned FFT Convolver (16,384 taps, uneven 64/128/256fr): max_diff={maxDiff:E2}, {ms:F4} ms/block, RT alloc: {alloc} B");
+        }
+
+        // 5) Dual Virtual Miking DSP (Cap vs Edge tilt, Phase Cancellation, Stereo Haas Width & 0-Alloc)
+        {
+            var cabProc = new ToneProcessor { Mode = ToneMode.SignalChain };
+            cabProc.Prepare(frames, sr);
+
+            double MeasureCab5k(CabMicConfigDto micCfg)
+            {
+                var c = new SignalChainConfigDto { RoutingMode = (int)ChainRoutingMode.Serial };
+                for (int i = 0; i < SignalChainConfigDto.SlotCount; i++)
+                    c.Slots[i] = new ChainSlotDto { Index = i, ModelId = "", Enabled = false, Params = new float[8] };
+                c.Slots[0] = new ChainSlotDto
+                {
+                    Index = 0,
+                    ModelId = "cab_v30",
+                    Enabled = true,
+                    Params = new float[] { 20f, 16000f, 0f, 0, 0, 0, 0, 0 },
+                    CabMic = micCfg,
+                };
+                cabProc.Chain.UpdateChain(c);
+                cabProc.ResetState();
+                var l = new float[2048];
+                var r = new float[2048];
+                for (int i = 0; i < 2048; i++) l[i] = r[i] = 0.2f * MathF.Sin(2f * MathF.PI * 5000f * i / sr);
+                for (int off = 0; off < 2048; off += frames)
+                    cabProc.Process(l.AsSpan(off, frames), r.AsSpan(off, frames), frames);
+                return 20.0 * Math.Log10(Math.Max(1e-9, Rms(l.AsSpan(512))));
+            }
+
+            double capDb = MeasureCab5k(new CabMicConfigDto { DualEnabled = true, MicAType = 0, MicAX = 0f, MicADist = 0.1f, MicAPan = 0f, Blend = 0f });
+            double edgeDb = MeasureCab5k(new CabMicConfigDto { DualEnabled = true, MicAType = 0, MicAX = 1f, MicADist = 0.1f, MicAPan = 0f, Blend = 0f });
+            if (capDb - edgeDb < 2.0)
+                throw new Exception($"Virtual Cab Room Cap vs Edge 5kHz tilt too small: {capDb - edgeDb:F2} dB");
+
+            // Phase cancellation check (identical Mic A & B, MicBPhaseInv=true, Blend=0.5, Delay=0)
+            var cancelChain = new SignalChainConfigDto { RoutingMode = (int)ChainRoutingMode.Serial };
+            for (int i = 0; i < SignalChainConfigDto.SlotCount; i++)
+                cancelChain.Slots[i] = new ChainSlotDto { Index = i, ModelId = "", Enabled = false, Params = new float[8] };
+            cancelChain.Slots[0] = new ChainSlotDto
+            {
+                Index = 0,
+                ModelId = "cab_v30",
+                Enabled = true,
+                Params = new float[] { 20f, 16000f, 0f, 0, 0, 0, 0, 0 },
+                CabMic = new CabMicConfigDto
+                {
+                    DualEnabled = true,
+                    MicAType = 0, MicAX = 0.2f, MicADist = 0.2f, MicALevelDb = 0f, MicAPan = 0f, MicAPhaseInv = false,
+                    MicBType = 0, MicBX = 0.2f, MicBDist = 0.2f, MicBLevelDb = 0f, MicBPan = 0f, MicBPhaseInv = true,
+                    MicBDelayMs = 0f, Blend = 0.5f,
+                },
+            };
+            cabProc.Chain.UpdateChain(cancelChain);
+            cabProc.ResetState();
+            float cancelPeak = 0f;
+            var cl = new float[frames];
+            var cr = new float[frames];
+            for (int b = 0; b < 8; b++)
+            {
+                for (int i = 0; i < frames; i++) cl[i] = cr[i] = 0.25f * MathF.Sin(2f * MathF.PI * 440f * (b * frames + i) / sr);
+                cabProc.Process(cl, cr, frames);
+                for (int i = 0; i < frames; i++) cancelPeak = MathF.Max(cancelPeak, MathF.Max(MathF.Abs(cl[i]), MathF.Abs(cr[i])));
+            }
+            if (cancelPeak >= 1e-4f)
+                throw new Exception($"Dual Mic phase cancellation failed: peak={cancelPeak}");
+
+            // Haas Stereo Width + 0-alloc check
+            cancelChain.Slots[0].CabMic = new CabMicConfigDto
+            {
+                DualEnabled = true,
+                MicAType = 0, MicAX = 0.2f, MicADist = 0.15f, MicALevelDb = 0f, MicAPan = -1f, MicAPhaseInv = false,
+                MicBType = 1, MicBX = 0.5f, MicBDist = 0.25f, MicBLevelDb = 0f, MicBPan = 1f, MicBPhaseInv = false,
+                MicBDelayMs = 8.0f, Blend = 0.5f,
+            };
+            cabProc.Chain.UpdateChain(cancelChain);
+            cabProc.ResetState();
+            for (int w = 0; w < 6; w++)
+            {
+                for (int i = 0; i < frames; i++) cl[i] = cr[i] = 0.25f * MathF.Sin(2f * MathF.PI * 330f * (w * frames + i) / sr);
+                cabProc.Process(cl, cr, frames);
+            }
+            float haasStereoDiff = 0f;
+            long hAlloc0 = GC.GetAllocatedBytesForCurrentThread();
+            for (int k = 0; k < 20; k++)
+            {
+                for (int i = 0; i < frames; i++) cl[i] = cr[i] = 0.25f * MathF.Sin(2f * MathF.PI * 330f * (k * frames + i) / sr);
+                cabProc.Process(cl, cr, frames);
+                for (int i = 0; i < frames; i++) haasStereoDiff = MathF.Max(haasStereoDiff, MathF.Abs(cl[i] - cr[i]));
+            }
+            long hAlloc = GC.GetAllocatedBytesForCurrentThread() - hAlloc0;
+            if (hAlloc != 0 || haasStereoDiff < 0.05f)
+                throw new Exception($"Dual Mic Haas stereo check failed: alloc={hAlloc}, max|L-R|={haasStereoDiff}");
+
+            Console.WriteLine($"[PASS] Dual Virtual Miking (Cap-Edge 5kHz={capDb - edgeDb:+0.0;-0.0}dB, PhaseCancel={cancelPeak:E1}, Haas max|L-R|={haasStereoDiff:F3}, RT alloc: {hAlloc} B)");
+        }
     }
 }

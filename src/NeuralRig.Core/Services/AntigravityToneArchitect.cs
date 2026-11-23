@@ -152,7 +152,10 @@ public sealed class AntigravityToneArchitect
     // =========================================================================
     // Semantic Korean/English Guitar Circuit Tone Architect + Slot/Scene Ops
     // =========================================================================
-    public ToneDesignResult GenerateViaBuiltinArchitect(string prompt, SignalChainConfigDto? currentChain = null)
+    public ToneDesignResult GenerateViaBuiltinArchitect(
+        string prompt,
+        SignalChainConfigDto? currentChain = null,
+        GuitarProfileDto? guitarProfile = null)
     {
         string low = prompt.ToLowerInvariant();
         bool isRelative = currentChain != null && ContainsAny(low,
@@ -166,12 +169,24 @@ public sealed class AntigravityToneArchitect
             dto = currentChain.Clone();
             dto.PresetId = $"AI{DateTime.Now:HHmm}".Substring(0, 6);
             summary = ApplyRelativeEdits(dto, prompt, low);
+            ApplyTempoModifiers(dto, low);
+            if (guitarProfile != null && ContainsAny(low, "내 기타", "프로필", "보정", "싱글", "험버커"))
+            {
+                string gNote = ApplyGuitarProfileCalibration(dto, guitarProfile);
+                if (!string.IsNullOrEmpty(gNote)) summary += $" · {gNote}";
+            }
         }
         else
         {
             (dto, summary) = BuildArchetypeFromPrompt(prompt, low);
             ApplyExplicitGearOverrides(dto, low);
             ApplyModifierTones(dto, low);
+            ApplyTempoModifiers(dto, low);
+            if (guitarProfile != null)
+            {
+                string gNote = ApplyGuitarProfileCalibration(dto, guitarProfile);
+                if (!string.IsNullOrEmpty(gNote)) summary += $" · {gNote}";
+            }
         }
 
         var normalized = ValidateAndNormalizeChain(dto, InferShortPresetTitle(prompt));
@@ -182,6 +197,65 @@ public sealed class AntigravityToneArchitect
             summary,
             ExtractGearHighlights(normalized),
             normalized);
+    }
+
+    private static void ApplyTempoModifiers(SignalChainConfigDto dto, string low)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(low, @"(\d{2,3}(?:\.\d+)?)\s*bpm");
+        if (m.Success && float.TryParse(m.Groups[1].Value, out float bpm))
+            dto.TempoBpm = Math.Clamp(bpm, 40f, 280f);
+
+        int syncDiv = 0;
+        if (ContainsAny(low, "점8분", "점팔분", "dotted 8", "dotted eighth", "1/8.", "1/8d")) syncDiv = 2;
+        else if (ContainsAny(low, "셋잇단", "트립플렛", "triplet", "1/8t")) syncDiv = 4;
+        else if (ContainsAny(low, "16분", "1/16", "sixteenth")) syncDiv = 5;
+        else if (ContainsAny(low, "8분", "1/8", "eighth")) syncDiv = 3;
+        else if (ContainsAny(low, "4분", "정박", "1/4", "quarter")) syncDiv = 1;
+
+        if (syncDiv > 0)
+        {
+            foreach (var s in dto.Slots)
+            {
+                if (!string.IsNullOrEmpty(s.ModelId) && Catalog.TryGetValue(s.ModelId, out var meta) && meta.Category == "delay")
+                    s.SyncDivision = syncDiv;
+            }
+        }
+    }
+
+    private static string ApplyGuitarProfileCalibration(SignalChainConfigDto dto, GuitarProfileDto g)
+    {
+        dto.InputGainDb = MathF.Round(Math.Clamp(g.SuggestedInputTrimDb, -12f, 12f), 1);
+
+        bool hasHighGain = dto.Slots.Any(s => s.Enabled && s.ModelId is "amp_recto" or "amp_5153" or "amp_slo100" or "dist_mt2" or "dist_hm2");
+        float targetGate = MathF.Round(Math.Clamp(g.SuggestedGateDb + (hasHighGain ? 3.0f : 0f), -78f, -18f), 1);
+
+        foreach (var sl in dto.Slots)
+        {
+            if (string.Equals(sl.ModelId, "gate_adaptive", StringComparison.OrdinalIgnoreCase))
+            {
+                sl.Enabled = true;
+                sl.Params[0] = targetGate;
+            }
+            else if (!string.IsNullOrEmpty(sl.ModelId) && Catalog.TryGetValue(sl.ModelId, out var meta) && meta.Category == "amp" && sl.ModelId != "amp_jc120")
+            {
+                bool isSingleCoil = g.BrightnessScore >= 64 || g.EstimatedPickupType.Contains("Single", StringComparison.OrdinalIgnoreCase);
+                bool isDarkHum = g.BrightnessScore <= 42 || (g.EstimatedPickupType.Contains("Humbucker", StringComparison.OrdinalIgnoreCase) && g.BrightnessScore < 50);
+
+                if (isSingleCoil && hasHighGain)
+                {
+                    sl.Params[3] = Math.Clamp(sl.Params[3] - 0.6f, 0f, 10f); // Treble 완화
+                    sl.Params[1] = Math.Clamp(sl.Params[1] + 0.4f, 0f, 10f); // Bass 보강
+                }
+                else if (isDarkHum && !hasHighGain)
+                {
+                    sl.Params[3] = Math.Clamp(sl.Params[3] + 0.6f, 0f, 10f); // Treble 보강
+                    sl.Params[1] = Math.Clamp(sl.Params[1] - 0.4f, 0f, 10f); // Low-end 타이트닝
+                    sl.Params[7] = 1f;                                        // Bright 활성화
+                }
+            }
+        }
+
+        return $"기타 맞춤 보정({g.Name}: Trim {dto.InputGainDb:+0.0;-0.0;0.0}dB, Gate {targetGate:F0}dB)";
     }
 
     private static (SignalChainConfigDto dto, string summary) BuildArchetypeFromPrompt(string prompt, string low)
@@ -541,15 +615,18 @@ public sealed class AntigravityToneArchitect
         norm.SplitCol = Math.Clamp(norm.SplitCol, 0, 7);
         norm.MergeCol = Math.Clamp(norm.MergeCol, norm.SplitCol, 7);
         norm.ParallelMix = Math.Clamp(norm.ParallelMix, 0f, 1f);
+        norm.TempoBpm = Math.Clamp(norm.TempoBpm > 1f ? norm.TempoBpm : 120f, 40f, 280f);
 
         for (int i = 0; i < norm.Slots.Count; i++)
         {
             var sl = norm.Slots[i];
             sl.Index = i;
+            sl.SyncDivision = Math.Clamp(sl.SyncDivision, 0, 5);
             string mid = (sl.ModelId ?? "").Trim().ToLowerInvariant();
             if (string.IsNullOrEmpty(mid) || !Catalog.TryGetValue(mid, out var meta))
             {
                 sl.ModelId = "";
+                sl.SyncDivision = 0;
                 Array.Clear(sl.Params);
                 continue;
             }
@@ -575,7 +652,7 @@ public sealed class AntigravityToneArchitect
                 bool en = scIdx == norm.ActiveScene ? s.Enabled : GetSceneDefaultEnabled(s.ModelId, s.Enabled, scIdx);
                 var pCopy = new float[8];
                 Array.Copy(s.Params, pCopy, 8);
-                sc.Slots.Add(new SceneSlotStateDto { Enabled = en, Params = pCopy });
+                sc.Slots.Add(new SceneSlotStateDto { Enabled = en, SyncDivision = s.SyncDivision, Params = pCopy });
             }
             norm.Scenes.Add(sc);
         }
@@ -664,6 +741,8 @@ public sealed class AntigravityToneArchitect
             dto.PresetId = pidEl.GetString()!;
         if (root.TryGetProperty("activeScene", out var asEl) && asEl.TryGetInt32(out int asi))
             dto.ActiveScene = Math.Clamp(asi, 0, 7);
+        if (root.TryGetProperty("tempoBpm", out var tbEl) && tbEl.TryGetSingle(out float tbf))
+            dto.TempoBpm = Math.Clamp(tbf, 40f, 280f);
         if (root.TryGetProperty("inputGainDb", out var igEl) && igEl.TryGetSingle(out float igf))
             dto.InputGainDb = Math.Clamp(igf, -18f, 18f);
         if (root.TryGetProperty("outputGainDb", out var ogEl) && ogEl.TryGetSingle(out float ogf))
@@ -688,6 +767,7 @@ public sealed class AntigravityToneArchitect
                 }
 
                 bool enabled = !item.TryGetProperty("enabled", out var enEl) || enEl.ValueKind != JsonValueKind.False;
+                int syncDiv = item.TryGetProperty("syncDivision", out var sdEl) && sdEl.TryGetInt32(out int sdi) ? Math.Clamp(sdi, 0, 5) : 0;
                 var parms = new float[8];
                 Array.Copy(meta.Defaults, parms, Math.Min(8, meta.Defaults.Length));
 
@@ -702,7 +782,7 @@ public sealed class AntigravityToneArchitect
                         k++;
                     }
                 }
-                dto.Slots[targetIdx] = new ChainSlotDto { Index = targetIdx, ModelId = meta.Id, Enabled = enabled, Params = parms };
+                dto.Slots[targetIdx] = new ChainSlotDto { Index = targetIdx, ModelId = meta.Id, Enabled = enabled, SyncDivision = syncDiv, Params = parms };
             }
         }
 
@@ -714,7 +794,8 @@ public sealed class AntigravityToneArchitect
         int slotIndex,
         string? modelId,
         bool? enabled,
-        JsonElement paramsEl)
+        JsonElement paramsEl,
+        int? syncDivision = null)
     {
         int idx = Math.Clamp(slotIndex, 0, SignalChainConfigDto.SlotCount - 1);
         var dto = EnsureScenes(current);
@@ -727,6 +808,7 @@ public sealed class AntigravityToneArchitect
             if (string.IsNullOrEmpty(normId))
             {
                 slot.ModelId = "";
+                slot.SyncDivision = 0;
                 Array.Clear(slot.Params);
                 modelChanged = true;
             }
@@ -735,6 +817,7 @@ public sealed class AntigravityToneArchitect
                 if (!string.Equals(slot.ModelId, meta.Id, StringComparison.OrdinalIgnoreCase))
                 {
                     slot.ModelId = meta.Id;
+                    slot.SyncDivision = 0;
                     Array.Clear(slot.Params);
                     Array.Copy(meta.Defaults, slot.Params, Math.Min(8, meta.Defaults.Length));
                     modelChanged = true;
@@ -748,6 +831,8 @@ public sealed class AntigravityToneArchitect
 
         if (enabled.HasValue)
             slot.Enabled = enabled.Value;
+        if (syncDivision.HasValue)
+            slot.SyncDivision = Math.Clamp(syncDivision.Value, 0, 5);
 
         if (paramsEl.ValueKind == JsonValueKind.Array)
         {
@@ -788,11 +873,13 @@ public sealed class AntigravityToneArchitect
                 if (scIdx == dto.ActiveScene)
                 {
                     scSlot.Enabled = slot.Enabled;
+                    scSlot.SyncDivision = slot.SyncDivision;
                     Array.Copy(slot.Params, scSlot.Params, 8);
                 }
                 else if (modelChanged)
                 {
                     scSlot.Enabled = string.IsNullOrEmpty(slot.ModelId) ? true : GetSceneDefaultEnabled(slot.ModelId, true, scIdx);
+                    scSlot.SyncDivision = slot.SyncDivision;
                     Array.Copy(slot.Params, scSlot.Params, 8);
                 }
             }
@@ -805,7 +892,8 @@ public sealed class AntigravityToneArchitect
         SignalChainConfigDto current,
         int? targetSceneIdx,
         int? routingMode = null,
-        float? parallelMix = null)
+        float? parallelMix = null,
+        float? tempoBpm = null)
     {
         var dto = EnsureScenes(current);
         int curScene = Math.Clamp(dto.ActiveScene, 0, 7);
@@ -818,6 +906,7 @@ public sealed class AntigravityToneArchitect
             for (int i = 0; i < Math.Min(dto.Slots.Count, curSnap.Slots.Count); i++)
             {
                 curSnap.Slots[i].Enabled = dto.Slots[i].Enabled;
+                curSnap.Slots[i].SyncDivision = dto.Slots[i].SyncDivision;
                 Array.Copy(dto.Slots[i].Params, curSnap.Slots[i].Params, 8);
             }
 
@@ -832,6 +921,7 @@ public sealed class AntigravityToneArchitect
                     if (!string.IsNullOrEmpty(dto.Slots[i].ModelId))
                     {
                         dto.Slots[i].Enabled = nextSnap.Slots[i].Enabled;
+                        dto.Slots[i].SyncDivision = nextSnap.Slots[i].SyncDivision;
                         Array.Copy(nextSnap.Slots[i].Params, dto.Slots[i].Params, 8);
                     }
                 }
@@ -840,6 +930,8 @@ public sealed class AntigravityToneArchitect
 
         if (routingMode.HasValue)
             dto.RoutingMode = Math.Clamp(routingMode.Value, 0, 1);
+        if (tempoBpm.HasValue)
+            dto.TempoBpm = Math.Clamp(tempoBpm.Value, 40f, 280f);
         if (parallelMix.HasValue)
         {
             dto.ParallelMix = Math.Clamp(parallelMix.Value, 0f, 1f);

@@ -149,6 +149,80 @@ public sealed class WaveNetConfigDto
     public float HeadScale { get; set; } = 0.02f;
 }
 
+public sealed class LstmConfigDto
+{
+    [JsonPropertyName("num_layers")]
+    public int NumLayers { get; set; } = 1;
+
+    [JsonPropertyName("input_size")]
+    public int InputSize { get; set; } = 1;
+
+    [JsonPropertyName("hidden_size")]
+    public int HiddenSize { get; set; } = 16;
+}
+
+public sealed class ConvNetConfigDto
+{
+    [JsonPropertyName("channels")]
+    public int Channels { get; set; } = 8;
+
+    [JsonPropertyName("dilations")]
+    public int[] Dilations { get; set; } = Array.Empty<int>();
+
+    [JsonPropertyName("batchnorm")]
+    public bool BatchNorm { get; set; }
+
+    [JsonPropertyName("activation")]
+    public JsonElement Activation { get; set; } = JsonSerializer.SerializeToElement("Tanh");
+
+    [JsonPropertyName("kernel_size")]
+    public int KernelSize { get; set; } = 2;
+}
+
+public sealed class CompiledLstm
+{
+    public sealed class Layer
+    {
+        public int InputSize;
+        public int HiddenSize;
+        public int Pad4H;
+        // Packed [col, row] where col in 0..(InputSize+HiddenSize-1), row in 0..Pad4H-1 (gate order i,f,g,o)
+        public float[] W = Array.Empty<float>();
+        public float[] B = Array.Empty<float>();
+        public float[] InitH = Array.Empty<float>();
+        public float[] InitC = Array.Empty<float>();
+    }
+
+    public Layer[] Layers { get; init; } = Array.Empty<Layer>();
+    public float[] HeadW { get; init; } = Array.Empty<float>();
+    public float HeadB { get; init; }
+    public int MaxStateSize { get; init; }
+}
+
+public sealed class CompiledConvNet
+{
+    public sealed class Layer
+    {
+        public int InChannels;
+        public int PadInChannels;
+        public int OutChannels;
+        public int PadOutChannels;
+        public int KernelSize;
+        public int Dilation;
+        public int RingCapacity;
+        public int RingMask;
+        public WaveNetActKind Act;
+        // Packed [k, ic, oc] -> KernelSize * InChannels * PadOutChannels
+        public float[] ConvW = Array.Empty<float>();
+        public float[] ConvB = Array.Empty<float>();
+    }
+
+    public Layer[] Layers { get; init; } = Array.Empty<Layer>();
+    public float[] HeadW { get; init; } = Array.Empty<float>();
+    public float HeadB { get; init; }
+    public int MaxChannelsPadded { get; init; }
+}
+
 /// <summary>
 /// Runtime-ready SIMD-packed WaveNet topology compiled off the real-time audio thread.
 /// </summary>
@@ -240,8 +314,10 @@ public sealed class ToneProfile
     public string CreatedAt { get; set; } = "";
     public string SourceUrl { get; set; } = "";
 
-    // v3 Official NAM WaveNet representation
+    // v3 Official NAM WaveNet / LSTM / ConvNet representation
     public WaveNetConfigDto? WaveNetConfig { get; set; }
+    public LstmConfigDto? LstmConfig { get; set; }
+    public ConvNetConfigDto? ConvNetConfig { get; set; }
     public float[] Weights { get; set; } = Array.Empty<float>();
 
     // Optional deconvolved / extracted Cab IR (also drives CabIrOnly & Visualizer curve)
@@ -281,6 +357,12 @@ public sealed class ToneProfile
     public CompiledWaveNet? CompiledNet { get; private set; }
 
     [JsonIgnore]
+    public CompiledLstm? CompiledLstm { get; private set; }
+
+    [JsonIgnore]
+    public CompiledConvNet? CompiledConvNet { get; private set; }
+
+    [JsonIgnore]
     public int Dilation1 { get; private set; } = 1;
     [JsonIgnore]
     public int Dilation2 { get; private set; } = 4;
@@ -289,6 +371,12 @@ public sealed class ToneProfile
 
     [JsonIgnore]
     public bool IsWaveNet => CompiledNet != null;
+
+    [JsonIgnore]
+    public bool IsLstm => CompiledLstm != null;
+
+    [JsonIgnore]
+    public bool IsConvNet => CompiledConvNet != null;
 
     [JsonIgnore]
     public bool HasLegacyNeuralNet =>
@@ -300,7 +388,7 @@ public sealed class ToneProfile
         Conv3B is { Length: 1 };
 
     [JsonIgnore]
-    public bool HasNeuralNet => IsWaveNet || HasLegacyNeuralNet;
+    public bool HasNeuralNet => IsWaveNet || IsLstm || IsConvNet || HasLegacyNeuralNet;
 
     [JsonIgnore]
     public bool HasPreEq => PreEq is { Length: > 0 and <= 64 };
@@ -323,7 +411,7 @@ public sealed class ToneProfile
 
         if (CabIr is { Length: > 0 })
         {
-            int n = Math.Min(CabIr.Length, 2048);
+            int n = Math.Min(CabIr.Length, 16384);
             CabIrRev = new float[n];
             for (int i = 0; i < n; i++)
                 CabIrRev[i] = CabIr[n - 1 - i];
@@ -338,9 +426,16 @@ public sealed class ToneProfile
         Dilation3 = ConvDilations is { Length: >= 3 } && ConvDilations[2] > 0 ? ConvDilations[2] : 16;
 
         CompiledNet = null;
-        if (WaveNetConfig != null && WaveNetConfig.Layers is { Count: > 0 } && Weights is { Length: > 0 })
+        CompiledLstm = null;
+        CompiledConvNet = null;
+        if (Weights is { Length: > 0 })
         {
-            CompiledNet = CompileWaveNet(WaveNetConfig, Weights);
+            if (WaveNetConfig != null && WaveNetConfig.Layers is { Count: > 0 })
+                CompiledNet = CompileWaveNet(WaveNetConfig, Weights);
+            else if (LstmConfig != null)
+                CompiledLstm = CompileLstm(LstmConfig, Weights);
+            else if (ConvNetConfig != null && ConvNetConfig.Dilations is { Length: > 0 })
+                CompiledConvNet = CompileConvNet(ConvNetConfig, Weights);
         }
     }
 
@@ -579,6 +674,180 @@ public sealed class ToneProfile
             return null;
         }
     }
+
+    public static CompiledLstm? CompileLstm(LstmConfigDto cfg, float[] weights)
+    {
+        if (cfg.NumLayers <= 0 || cfg.HiddenSize <= 0 || cfg.InputSize <= 0 || weights.Length == 0)
+            return null;
+
+        try
+        {
+            int idx = 0;
+            float Take() => weights[idx++];
+
+            int nLayers = cfg.NumLayers;
+            int h = cfg.HiddenSize;
+            int pad4H = Pad8(4 * h);
+            int maxState = Math.Max(16, Math.Max(cfg.InputSize, h));
+            var layers = new CompiledLstm.Layer[nLayers];
+
+            for (int li = 0; li < nLayers; li++)
+            {
+                int inDim = li == 0 ? cfg.InputSize : h;
+                int totalIn = inDim + h;
+
+                // PyTorch / NAM LSTMCell: w is [4*H, inDim + H] row-major -> pack [col, row]
+                var w = new float[totalIn * pad4H];
+                for (int row = 0; row < 4 * h; row++)
+                {
+                    for (int col = 0; col < totalIn; col++)
+                        w[col * pad4H + row] = Take();
+                }
+
+                var b = new float[pad4H];
+                for (int row = 0; row < 4 * h; row++)
+                    b[row] = Take();
+
+                var initH = new float[h];
+                for (int i = 0; i < h; i++)
+                    initH[i] = Take();
+
+                var initC = new float[h];
+                for (int i = 0; i < h; i++)
+                    initC[i] = Take();
+
+                layers[li] = new CompiledLstm.Layer
+                {
+                    InputSize = inDim,
+                    HiddenSize = h,
+                    Pad4H = pad4H,
+                    W = w,
+                    B = b,
+                    InitH = initH,
+                    InitC = initC,
+                };
+            }
+
+            var headW = new float[h];
+            for (int i = 0; i < h; i++)
+                headW[i] = Take();
+            float headB = Take();
+
+            return new CompiledLstm
+            {
+                Layers = layers,
+                HeadW = headW,
+                HeadB = headB,
+                MaxStateSize = maxState,
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public static CompiledConvNet? CompileConvNet(ConvNetConfigDto cfg, float[] weights)
+    {
+        if (cfg.Channels <= 0 || cfg.Dilations == null || cfg.Dilations.Length == 0 || weights.Length == 0)
+            return null;
+
+        try
+        {
+            int idx = 0;
+            float Take() => weights[idx++];
+
+            int ch = cfg.Channels;
+            int kSize = Math.Max(1, cfg.KernelSize > 0 ? cfg.KernelSize : 2);
+            int padCh = Pad8(ch);
+            int nLayers = cfg.Dilations.Length;
+            var layers = new CompiledConvNet.Layer[nLayers];
+
+            for (int li = 0; li < nLayers; li++)
+            {
+                int inCh = li == 0 ? 1 : ch;
+                int padIn = Pad8(inCh);
+                int outCh = ch;
+                int padOut = padCh;
+                int dil = Math.Max(1, cfg.Dilations[li]);
+
+                // Conv1d [outCh, inCh, kSize] -> pack [k, ic, oc]
+                var convW = new float[kSize * inCh * padOut];
+                for (int oc = 0; oc < outCh; oc++)
+                {
+                    for (int ic = 0; ic < inCh; ic++)
+                    {
+                        for (int k = 0; k < kSize; k++)
+                            convW[(k * inCh + ic) * padOut + oc] = Take();
+                    }
+                }
+
+                var convB = new float[padOut];
+                if (!cfg.BatchNorm)
+                {
+                    for (int oc = 0; oc < outCh; oc++)
+                        convB[oc] = Take();
+                }
+                else
+                {
+                    // Fold PyTorch BatchNorm1d into Conv1d weights & biases at compile time
+                    var mean = new float[outCh];
+                    var var = new float[outCh];
+                    var gamma = new float[outCh];
+                    var beta = new float[outCh];
+                    for (int oc = 0; oc < outCh; oc++) mean[oc] = Take();
+                    for (int oc = 0; oc < outCh; oc++) var[oc] = Take();
+                    for (int oc = 0; oc < outCh; oc++) gamma[oc] = Take();
+                    for (int oc = 0; oc < outCh; oc++) beta[oc] = Take();
+                    float eps = MathF.Max(1e-12f, Take());
+
+                    for (int oc = 0; oc < outCh; oc++)
+                    {
+                        float scale = gamma[oc] / MathF.Sqrt(MathF.Max(0f, var[oc]) + eps);
+                        convB[oc] = beta[oc] - mean[oc] * scale;
+                        for (int k = 0; k < kSize; k++)
+                        {
+                            for (int ic = 0; ic < inCh; ic++)
+                                convW[(k * inCh + ic) * padOut + oc] *= scale;
+                        }
+                    }
+                }
+
+                int ringCap = NextPow2((kSize - 1) * dil + 4);
+                layers[li] = new CompiledConvNet.Layer
+                {
+                    InChannels = inCh,
+                    PadInChannels = padIn,
+                    OutChannels = outCh,
+                    PadOutChannels = padOut,
+                    KernelSize = kSize,
+                    Dilation = dil,
+                    RingCapacity = ringCap,
+                    RingMask = ringCap - 1,
+                    Act = ParseActivation(cfg.Activation, li),
+                    ConvW = convW,
+                    ConvB = convB,
+                };
+            }
+
+            var headW = new float[ch];
+            for (int i = 0; i < ch; i++)
+                headW[i] = Take();
+            float headB = Take();
+
+            return new CompiledConvNet
+            {
+                Layers = layers,
+                HeadW = headW,
+                HeadB = headB,
+                MaxChannelsPadded = padCh,
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
 }
 
 public static class ToneProfileStore
@@ -639,7 +908,7 @@ public static class ToneProfileStore
 
     /// <summary>
     /// 순수 C# 네이티브 .nam (Neural Amp Modeler v0.5+) 파서/임포터.
-    /// Python 없이 즉시 WaveNet 가중치를 검증·컴파일하고 NeuralRigStudio 라이브러리로 저장한다.
+    /// Python 없이 WaveNet / LSTM / ConvNet 가중치를 검증·컴파일하고 NeuralRigStudio 라이브러리로 저장한다.
     /// </summary>
     public static ToneProfile ImportNamFile(string namPath, string? customName = null)
     {
@@ -650,19 +919,11 @@ public static class ToneProfileStore
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
 
-        string arch = root.TryGetProperty("architecture", out var archEl) ? (archEl.GetString() ?? "") : "";
-        if (!string.Equals(arch, "WaveNet", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException($"현재 WaveNet 아키텍처의 .nam 모델만 지원합니다. (감지된 형식: '{(string.IsNullOrEmpty(arch) ? "unknown" : arch)}')");
-
+        string rawArch = root.TryGetProperty("architecture", out var archEl) ? (archEl.GetString() ?? "") : "";
         if (!root.TryGetProperty("config", out var cfgEl))
             throw new InvalidOperationException(".nam 파일에 'config' 정의가 없습니다.");
         if (!root.TryGetProperty("weights", out var wEl) || wEl.ValueKind != JsonValueKind.Array)
             throw new InvalidOperationException(".nam 파일에 'weights' 배열이 없습니다.");
-
-        var cfg = JsonSerializer.Deserialize<WaveNetConfigDto>(cfgEl.GetRawText(), ReadOpts)
-            ?? throw new InvalidOperationException("WaveNet config 역직렬화에 실패했습니다.");
-        if (cfg.Head != null)
-            throw new InvalidOperationException("현재 post-head 블록이 없는 표준 NAM WaveNet(.nam v0.5+)만 지원합니다.");
 
         var weights = new float[wEl.GetArrayLength()];
         int wi = 0;
@@ -683,8 +944,45 @@ public static class ToneProfileStore
                 esr = Math.Max(0.0, parsedEsr);
         }
 
-        if (ToneProfile.CompileWaveNet(cfg, weights) is null)
-            throw new InvalidOperationException("WaveNet 가중치 구조 검증 또는 컴파일에 실패했습니다.");
+        string normArch;
+        string archPreset;
+        WaveNetConfigDto? wnCfg = null;
+        LstmConfigDto? lstmCfg = null;
+        ConvNetConfigDto? convCfg = null;
+
+        if (string.Equals(rawArch, "WaveNet", StringComparison.OrdinalIgnoreCase))
+        {
+            normArch = "WaveNet";
+            wnCfg = JsonSerializer.Deserialize<WaveNetConfigDto>(cfgEl.GetRawText(), ReadOpts)
+                ?? throw new InvalidOperationException("WaveNet config 역직렬화에 실패했습니다.");
+            if (wnCfg.Head != null)
+                throw new InvalidOperationException("현재 post-head 블록이 없는 표준 NAM WaveNet(.nam v0.5+)만 지원합니다.");
+            if (ToneProfile.CompileWaveNet(wnCfg, weights) is null)
+                throw new InvalidOperationException("WaveNet 가중치 구조 검증 또는 컴파일에 실패했습니다.");
+            archPreset = ClassifyWaveNetPreset(wnCfg);
+        }
+        else if (string.Equals(rawArch, "LSTM", StringComparison.OrdinalIgnoreCase))
+        {
+            normArch = "LSTM";
+            lstmCfg = JsonSerializer.Deserialize<LstmConfigDto>(cfgEl.GetRawText(), ReadOpts)
+                ?? throw new InvalidOperationException("LSTM config 역직렬화에 실패했습니다.");
+            if (ToneProfile.CompileLstm(lstmCfg, weights) is null)
+                throw new InvalidOperationException("LSTM 가중치 구조 검증 또는 컴파일에 실패했습니다.");
+            archPreset = $"lstm-{lstmCfg.NumLayers}x{lstmCfg.HiddenSize}";
+        }
+        else if (string.Equals(rawArch, "ConvNet", StringComparison.OrdinalIgnoreCase))
+        {
+            normArch = "ConvNet";
+            convCfg = JsonSerializer.Deserialize<ConvNetConfigDto>(cfgEl.GetRawText(), ReadOpts)
+                ?? throw new InvalidOperationException("ConvNet config 역직렬화에 실패했습니다.");
+            if (ToneProfile.CompileConvNet(convCfg, weights) is null)
+                throw new InvalidOperationException("ConvNet 가중치 구조 검증 또는 컴파일에 실패했습니다.");
+            archPreset = $"convnet-{convCfg.Channels}ch";
+        }
+        else
+        {
+            throw new InvalidOperationException($"지원되지 않는 .nam 아키텍처입니다: '{(string.IsNullOrEmpty(rawArch) ? "unknown" : rawArch)}' (WaveNet / LSTM / ConvNet 지원)");
+        }
 
         string displayName = !string.IsNullOrWhiteSpace(customName)
             ? customName.Trim()
@@ -692,7 +990,6 @@ public static class ToneProfileStore
         string safeFile = string.Concat(displayName.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
         if (string.IsNullOrWhiteSpace(safeFile)) safeFile = "ImportedModel";
 
-        string archPreset = ClassifyWaveNetPreset(cfg);
         double esrDb = esr > 0.0 ? Math.Round(10.0 * Math.Log10(Math.Max(esr, 1e-12)), 2) : 0.0;
         double similarityPct = esr > 0.0 ? Math.Round(Math.Clamp((1.0 - Math.Sqrt(esr)) * 100.0, 0.0, 100.0), 2) : 0.0;
 
@@ -708,12 +1005,12 @@ public static class ToneProfileStore
             Id = id,
             Name = displayName,
             Version = 3,
-            Architecture = "WaveNet",
+            Architecture = normArch,
             CaptureKind = "nam_import",
             ArchPreset = archPreset,
             DefaultToneMode = (int)ToneMode.FullRig,
             SampleRate = sampleRate,
-            ToneClass = "NAM Model",
+            ToneClass = $"NAM {normArch}",
             GpuDevice = "Native C# Import",
             Loss = esr,
             Esr = esr,
@@ -721,7 +1018,9 @@ public static class ToneProfileStore
             SimilarityPct = similarityPct,
             CreatedAt = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"),
             SourceUrl = namPath,
-            WaveNetConfig = cfg,
+            WaveNetConfig = wnCfg,
+            LstmConfig = lstmCfg,
+            ConvNetConfig = convCfg,
             Weights = weights,
             NamFilePath = destNam,
         };
@@ -771,8 +1070,21 @@ public static class ToneProfileStore
             File.Copy(prof.NamFilePath, destinationPath, overwrite: true);
             return;
         }
-        if (prof.WaveNetConfig is null || prof.Weights.Length == 0)
-            throw new InvalidOperationException("WaveNet 가중치가 없는 프로파일은 .nam으로 내보낼 수 없습니다.");
+        if (prof.Weights.Length == 0)
+            throw new InvalidOperationException("신경망 가중치가 없는 프로파일은 .nam으로 내보낼 수 없습니다.");
+
+        object? cfgObj = prof.WaveNetConfig is not null
+            ? prof.WaveNetConfig
+            : prof.LstmConfig is not null
+                ? prof.LstmConfig
+                : prof.ConvNetConfig;
+        string arch = prof.WaveNetConfig is not null
+            ? "WaveNet"
+            : prof.LstmConfig is not null
+                ? "LSTM"
+                : prof.ConvNetConfig is not null
+                    ? "ConvNet"
+                    : throw new InvalidOperationException("유효한 NAM 아키텍처 구성이 없습니다.");
 
         var namObj = new
         {
@@ -783,9 +1095,9 @@ public static class ToneProfileStore
                 modeled_by = "NeuralRig Studio",
                 esr = prof.Esr > 0 ? prof.Esr : (double?)null,
             },
-            architecture = "WaveNet",
+            architecture = arch,
             sample_rate = prof.SampleRate > 0 ? prof.SampleRate : 44100,
-            config = prof.WaveNetConfig,
+            config = cfgObj,
             weights = prof.Weights,
         };
         File.WriteAllText(destinationPath, JsonSerializer.Serialize(namObj, WriteOpts));

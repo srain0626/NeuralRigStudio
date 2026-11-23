@@ -2,161 +2,6 @@ using System.Runtime.CompilerServices;
 
 namespace NeuralRigStudio.Audio;
 
-public enum ChainBlockCategory
-{
-    Empty = 0,
-    Dynamics = 1,
-    Drive = 2,
-    Amp = 3,
-    Nam = 4,
-    Cab = 5,
-    Eq = 6,
-    Modulation = 7,
-    Delay = 8,
-    Reverb = 9,
-}
-
-public enum ChainRoutingMode
-{
-    Serial = 0,        // Row 1 (0..7) -> Row 2 (8..15) -> Out
-    ParallelSplit = 1, // Row 1 splits at SplitCol into Row 2, merges at MergeCol
-}
-
-/// <summary>
-/// 직렬화 가능한 시그널 체인 단일 슬롯 DTO (UI <-> C# 브리지 <-> settings.json).
-/// </summary>
-public sealed class ChainSlotDto
-{
-    public int Index { get; set; }
-    public string ModelId { get; set; } = "";
-    public bool Enabled { get; set; } = true;
-    public float[] Params { get; set; } = new float[8];
-
-    public ChainSlotDto Clone()
-    {
-        var p = new float[8];
-        if (Params != null)
-            Array.Copy(Params, p, Math.Min(8, Params.Length));
-        return new ChainSlotDto
-        {
-            Index = Index,
-            ModelId = ModelId ?? "",
-            Enabled = Enabled,
-            Params = p,
-        };
-    }
-}
-
-/// <summary>
-/// 개별 씬(A..H)의 슬롯 ON/OFF 및 파라미터 스냅샷 DTO.
-/// </summary>
-public sealed class SceneSlotStateDto
-{
-    public bool Enabled { get; set; } = true;
-    public float[] Params { get; set; } = new float[8];
-
-    public SceneSlotStateDto Clone()
-    {
-        var p = new float[8];
-        if (Params != null) Array.Copy(Params, p, Math.Min(8, Params.Length));
-        return new SceneSlotStateDto { Enabled = Enabled, Params = p };
-    }
-}
-
-public sealed class SceneSnapshotDto
-{
-    public float ParallelMix { get; set; } = 0.5f;
-    public List<SceneSlotStateDto> Slots { get; set; } = new();
-
-    public SceneSnapshotDto Clone()
-    {
-        var copy = new SceneSnapshotDto
-        {
-            ParallelMix = Math.Clamp(ParallelMix, 0f, 1f),
-            Slots = new List<SceneSlotStateDto>(Slots?.Count ?? 0),
-        };
-        if (Slots != null)
-        {
-            for (int i = 0; i < Slots.Count; i++)
-                copy.Slots.Add(Slots[i]?.Clone() ?? new SceneSlotStateDto());
-        }
-        return copy;
-    }
-}
-
-/// <summary>
-/// 직렬화 가능한 전체 시그널 체인 구성 DTO (2행 × 8슬롯 = 16슬롯 + 8개 씬 스냅샷).
-/// </summary>
-public sealed class SignalChainConfigDto
-{
-    public const int SlotCount = 16;
-
-    public string PresetId { get; set; } = "1A";
-    public string PresetName { get; set; } = "Beast Lead";
-    public int ActiveScene { get; set; } = 3; // 0..7 (A..H)
-    public int RoutingMode { get; set; } = (int)ChainRoutingMode.ParallelSplit;
-    public int SplitCol { get; set; } = 1;    // 0..7 (Row 1에서 Row 2로 분기하는 컬럼)
-    public int MergeCol { get; set; } = 5;    // 0..7 (Row 2가 Row 1로 합류하는 컬럼)
-    public float ParallelMix { get; set; } = 0.42f; // 0..1 (Row 2 합류 비율)
-    public float InputGainDb { get; set; } = 0f;
-    public float OutputGainDb { get; set; } = 0f;
-    public List<ChainSlotDto> Slots { get; set; } = CreateDefaultSlots();
-    public List<SceneSnapshotDto>? Scenes { get; set; }
-
-    public SignalChainConfigDto Clone()
-    {
-        var copy = new SignalChainConfigDto
-        {
-            PresetId = PresetId ?? "1A",
-            PresetName = PresetName ?? "Custom",
-            ActiveScene = Math.Clamp(ActiveScene, 0, 7),
-            RoutingMode = Math.Clamp(RoutingMode, 0, 1),
-            SplitCol = Math.Clamp(SplitCol, 0, 7),
-            MergeCol = Math.Clamp(MergeCol, 0, 7),
-            ParallelMix = Math.Clamp(ParallelMix, 0f, 1f),
-            InputGainDb = Math.Clamp(InputGainDb, -18f, 18f),
-            OutputGainDb = Math.Clamp(OutputGainDb, -18f, 18f),
-            Slots = new List<ChainSlotDto>(SlotCount),
-        };
-
-        for (int i = 0; i < SlotCount; i++)
-        {
-            var src = Slots != null && i < Slots.Count ? Slots[i] : null;
-            var slot = src != null ? src.Clone() : new ChainSlotDto { Index = i, ModelId = "", Enabled = true };
-            slot.Index = i;
-            copy.Slots.Add(slot);
-        }
-
-        if (Scenes != null && Scenes.Count > 0)
-        {
-            copy.Scenes = new List<SceneSnapshotDto>(Scenes.Count);
-            for (int i = 0; i < Math.Min(8, Scenes.Count); i++)
-                copy.Scenes.Add(Scenes[i]?.Clone() ?? new SceneSnapshotDto());
-        }
-        return copy;
-    }
-
-    public static List<ChainSlotDto> CreateDefaultSlots()
-    {
-        var list = new List<ChainSlotDto>(SlotCount);
-        for (int i = 0; i < SlotCount; i++)
-            list.Add(new ChainSlotDto { Index = i, ModelId = "", Enabled = true, Params = new float[8] });
-
-        // 기본 1A Beast Lead: Gate -> Green 808 -> Brit Plexi 100 Bright -> 4x12 V30 -> Digital Delay -> Hall Reverb
-        // Row 2 Parallel: Graphic EQ -> CE-2 Chorus
-        list[0] = new ChainSlotDto { Index = 0, ModelId = "gate_adaptive", Enabled = true, Params = new float[] { -56f, 120f, 80f, 0, 0, 0, 0, 0 } };
-        list[1] = new ChainSlotDto { Index = 1, ModelId = "od_ts808", Enabled = true, Params = new float[] { 3.5f, 5.8f, 6.2f, 0, 0, 0, 0, 0 } };
-        list[2] = new ChainSlotDto { Index = 2, ModelId = "amp_plexi", Enabled = true, Params = new float[] { 6.2f, 5.2f, 5.8f, 6.0f, 5.5f, 3.5f, 5.5f, 1.0f } };
-        list[3] = new ChainSlotDto { Index = 3, ModelId = "cab_v30", Enabled = true, Params = new float[] { 80f, 9500f, 0f, 0, 0, 0, 0, 0 } };
-        list[5] = new ChainSlotDto { Index = 5, ModelId = "dly_digital", Enabled = true, Params = new float[] { 380f, 32f, 18f, 24f, 0, 0, 0, 0 } };
-        list[6] = new ChainSlotDto { Index = 6, ModelId = "rev_hall", Enabled = true, Params = new float[] { 55f, 45f, 25f, 26f, 0, 0, 0, 0 } };
-
-        list[8] = new ChainSlotDto { Index = 8, ModelId = "eq_graphic5", Enabled = false, Params = new float[] { 1.5f, -1.0f, 2.0f, 1.5f, 0.5f, 0f, 0, 0 } };
-        list[9] = new ChainSlotDto { Index = 9, ModelId = "mod_ce2", Enabled = false, Params = new float[] { 1.1f, 48f, 45f, 0, 0, 0, 0, 0 } };
-        return list;
-    }
-}
-
 /// <summary>
 /// 실시간 Zero-Allocation 2행 × 8슬롯 모듈러 기타 시그널 체인 DSP 엔진.
 /// - 유명 스톰프박스(TS808, Klon Centaur, ProCo RAT, Big Muff Pi, Boss SD-1, EP Boost, Dyna Comp, 1176)
@@ -168,7 +13,7 @@ public sealed class SignalChainConfigDto
 /// - 스테레오 Spring / Hall / Plate Reverb
 /// - 직렬(Serial) 및 병렬 분기/합류(Parallel Split/Merge) 라우팅
 /// </summary>
-public sealed class SignalChainEngine
+public sealed partial class SignalChainEngine
 {
     public const int SlotCount = SignalChainConfigDto.SlotCount;
 
@@ -233,21 +78,46 @@ public sealed class SignalChainEngine
         RevBossRv6,
     }
 
+    internal struct CabMicParams
+    {
+        public bool DualEnabled;
+        public byte MicAType;
+        public float MicAX;
+        public float MicADist;
+        public float MicALevelGain;
+        public float MicAPan;
+        public bool MicAPhaseInv;
+
+        public byte MicBType;
+        public float MicBX;
+        public float MicBDist;
+        public float MicBLevelGain;
+        public float MicBPan;
+        public bool MicBPhaseInv;
+        public float MicBDelayMs;
+        public float Blend;
+    }
+
     private struct CompiledSlot
     {
         public BlockOp Op;
         public byte SubModel; // Amp channel/voicing or Cab kind
+        public byte SyncDiv;  // 0=Free, 1=1/4, 2=1/8., 3=1/8, 4=1/8T, 5=1/16
+        public sbyte NamPoolIdx; // 0..2 for independent Multi-NAM, -1 if unassigned
         public bool Enabled;
         public float P0, P1, P2, P3, P4, P5, P6, P7;
+        public CabMicParams CabMic;
     }
 
     private sealed class CompiledSnapshot
     {
         public readonly CompiledSlot[] Slots = new CompiledSlot[SlotCount];
+        public readonly NamWorkspace?[] NamWorkspaces = new NamWorkspace?[3];
         public ChainRoutingMode Routing;
         public int SplitCol;
         public int MergeCol;
         public float ParallelMix;
+        public float TempoBpm = 120f;
         public float InputGain;
         public float OutputGain;
     }
@@ -312,6 +182,29 @@ public sealed class SignalChainEngine
             _b2 = (1.0 - alpha * A) * inv;
             _a1 = _b1;
             _a2 = (1.0 - alpha / A) * inv;
+        }
+
+        public void SetLowShelf(int fs, double fc, double gainDb, double slope = 0.75)
+        {
+            if (Math.Abs(gainDb) < 0.02)
+            {
+                SetBypass();
+                return;
+            }
+            fc = Math.Clamp(fc, 25.0, fs * 0.45);
+            double A = Math.Pow(10.0, gainDb / 40.0);
+            double w0 = 2.0 * Math.PI * fc / fs;
+            double cosW = Math.Cos(w0);
+            double sinW = Math.Sin(w0);
+            double alpha = sinW * 0.5 * Math.Sqrt((A + 1.0 / A) * (1.0 / slope - 1.0) + 2.0);
+            double twoSqrtA = 2.0 * Math.Sqrt(A) * alpha;
+            double a0 = (A + 1.0) + (A - 1.0) * cosW + twoSqrtA;
+            double inv = 1.0 / a0;
+            _b0 = A * ((A + 1.0) - (A - 1.0) * cosW + twoSqrtA) * inv;
+            _b1 = 2.0 * A * ((A - 1.0) - (A + 1.0) * cosW) * inv;
+            _b2 = A * ((A + 1.0) - (A - 1.0) * cosW - twoSqrtA) * inv;
+            _a1 = -2.0 * ((A - 1.0) + (A + 1.0) * cosW) * inv;
+            _a2 = ((A + 1.0) + (A - 1.0) * cosW - twoSqrtA) * inv;
         }
 
         public void SetHighShelf(int fs, double fc, double gainDb, double slope = 0.75)
@@ -441,6 +334,9 @@ public sealed class SignalChainEngine
         public int WritePos;
         public float LpL, LpR;
         public float ModPhase;
+        public float SmoothDelayL;
+        public float SmoothDelayR;
+        public bool DelayReady;
 
         public void Prepare(int sampleRate)
         {
@@ -457,6 +353,8 @@ public sealed class SignalChainEngine
             WritePos = 0;
             LpL = LpR = 0f;
             ModPhase = 0f;
+            SmoothDelayL = SmoothDelayR = 0f;
+            DelayReady = false;
         }
     }
 
@@ -652,17 +550,56 @@ public sealed class SignalChainEngine
         }
     }
 
+    private sealed class CabSlotUnit
+    {
+        public readonly StereoPartitionedConvolver Convolver = new();
+        public Biquad A0L, A1L, A2L, A0R, A1R, A2R;
+        public Biquad B0L, B1L, B2L, B0R, B1R, B2R;
+        public float[] HaasBufL = Array.Empty<float>();
+        public float[] HaasBufR = Array.Empty<float>();
+        public int HaasWrite;
+        public float[] MicAL = Array.Empty<float>();
+        public float[] MicAR = Array.Empty<float>();
+        public float[] MicBL = Array.Empty<float>();
+        public float[] MicBR = Array.Empty<float>();
+
+        public void Prepare(int maxFrames)
+        {
+            Convolver.Prepare(maxFrames);
+            HaasBufL = new float[2048];
+            HaasBufR = new float[2048];
+            MicAL = new float[maxFrames];
+            MicAR = new float[maxFrames];
+            MicBL = new float[maxFrames];
+            MicBR = new float[maxFrames];
+            Reset();
+        }
+
+        public void Reset()
+        {
+            Convolver.Reset();
+            A0L.Reset(); A1L.Reset(); A2L.Reset(); A0R.Reset(); A1R.Reset(); A2R.Reset();
+            B0L.Reset(); B1L.Reset(); B2L.Reset(); B0R.Reset(); B1R.Reset(); B2R.Reset();
+            if (HaasBufL.Length > 0) Array.Clear(HaasBufL);
+            if (HaasBufR.Length > 0) Array.Clear(HaasBufR);
+            HaasWrite = 0;
+        }
+    }
+
     // ── 엔진 필드 (모든 풀 사전 할당, RT 할당 0) ──
     private readonly SlotDspState[] _states = new SlotDspState[SlotCount];
     private readonly WhiteBoxAmpEngine[] _ampPool = { new(), new() };
     private readonly CabinetIrBank _cabBank = new();
-    private readonly CabinetIrBank.StereoCabConvolver[] _cabPool = { new(), new() };
+    private readonly CabSlotUnit[] _cabPool = { new(), new() };
     private readonly StereoDelayLine[] _delayPool = { new(), new() };
     private readonly StereoReverbTank[] _reverbPool = { new(), new() };
 
     private CompiledSnapshot _pendingSnapshot = new();
     private CompiledSnapshot _activeSnapshot = new();
     private SignalChainConfigDto _lastDto = new();
+    private Func<string?, ToneProfile?>? _namResolver;
+    private readonly (string? modelId, ToneProfile? profile, NamWorkspace? ws)[] _uiNamPool = new (string?, ToneProfile?, NamWorkspace?)[3];
+    private readonly object _chainCompileLock = new();
     private int _version = 1;
     private int _appliedVersion;
 
@@ -748,42 +685,119 @@ public sealed class SignalChainEngine
         }
         for (int i = 0; i < _delayPool.Length; i++) _delayPool[i].Reset();
         for (int i = 0; i < _reverbPool.Length; i++) _reverbPool[i].Reset();
+        var act = _activeSnapshot;
+        for (int i = 0; i < act.NamWorkspaces.Length; i++) act.NamWorkspaces[i]?.Reset();
         _smoothReady = false;
         _appliedVersion = 0;
     }
 
-    /// <summary>UI 스레드에서 호출: 체인 구성을 컴파일하여 RT 스레드에 원자적으로 전달한다.</summary>
-    public void UpdateChain(SignalChainConfigDto dto)
+    public void SetNamModelResolver(Func<string?, ToneProfile?>? resolver)
     {
-        var clean = (dto ?? new SignalChainConfigDto()).Clone();
-        var snap = new CompiledSnapshot
-        {
-            Routing = (ChainRoutingMode)Math.Clamp(clean.RoutingMode, 0, 1),
-            SplitCol = Math.Clamp(clean.SplitCol, 0, 7),
-            MergeCol = Math.Clamp(clean.MergeCol, 0, 7),
-            ParallelMix = Math.Clamp(clean.ParallelMix, 0f, 1f),
-            InputGain = MathF.Pow(10f, Math.Clamp(clean.InputGainDb, -18f, 18f) / 20f),
-            OutputGain = MathF.Pow(10f, Math.Clamp(clean.OutputGainDb, -18f, 18f) / 20f),
-        };
+        _namResolver = resolver;
+    }
 
-        for (int i = 0; i < SlotCount; i++)
+    public void RefreshNamBindings()
+    {
+        var dto = Volatile.Read(ref _lastDto);
+        if (dto != null)
+            UpdateChain(dto);
+    }
+
+    /// <summary>UI 스레드에서 호출: 체인 구성을 컴파일하여 RT 스레드에 원자적으로 전달한다.</summary>
+    public void UpdateChain(SignalChainConfigDto dto, Func<string?, ToneProfile?>? namResolver = null)
+    {
+        lock (_chainCompileLock)
         {
-            var s = clean.Slots[i];
-            var (op, sub) = ParseModelId(s.ModelId);
-            var p = s.Params;
-            snap.Slots[i] = new CompiledSlot
+            var resolver = namResolver ?? _namResolver;
+            var clean = (dto ?? new SignalChainConfigDto()).Clone();
+            var snap = new CompiledSnapshot
             {
-                Op = op,
-                SubModel = sub,
-                Enabled = s.Enabled,
-                P0 = p[0], P1 = p[1], P2 = p[2], P3 = p[3],
-                P4 = p[4], P5 = p[5], P6 = p[6], P7 = p[7],
+                Routing = (ChainRoutingMode)Math.Clamp(clean.RoutingMode, 0, 1),
+                SplitCol = Math.Clamp(clean.SplitCol, 0, 7),
+                MergeCol = Math.Clamp(clean.MergeCol, 0, 7),
+                ParallelMix = Math.Clamp(clean.ParallelMix, 0f, 1f),
+                TempoBpm = Math.Clamp(clean.TempoBpm > 1f ? clean.TempoBpm : 120f, 40f, 280f),
+                InputGain = MathF.Pow(10f, Math.Clamp(clean.InputGainDb, -18f, 18f) / 20f),
+                OutputGain = MathF.Pow(10f, Math.Clamp(clean.OutputGainDb, -18f, 18f) / 20f),
             };
-        }
 
-        Volatile.Write(ref _lastDto, clean);
-        Volatile.Write(ref _pendingSnapshot, snap);
-        Interlocked.Increment(ref _version);
+            int namIdx = 0;
+            for (int i = 0; i < SlotCount; i++)
+            {
+                var s = clean.Slots[i];
+                var (op, sub) = ParseModelId(s.ModelId);
+                sbyte assignedNam = -1;
+                if (op == BlockOp.NamCapture && namIdx < snap.NamWorkspaces.Length)
+                {
+                    assignedNam = (sbyte)namIdx;
+                    var prof = resolver?.Invoke(s.NamModelId);
+                    if (prof != null && !prof.HasNeuralNet && prof.Weights.Length > 0 &&
+                        (prof.WaveNetConfig != null || prof.LstmConfig != null || prof.ConvNetConfig != null))
+                    {
+                        prof.PrepareForRt();
+                    }
+
+                    if (prof != null && (prof.IsWaveNet || prof.IsLstm || prof.IsConvNet))
+                    {
+                        var cached = _uiNamPool[namIdx];
+                        if (ReferenceEquals(cached.profile, prof) && cached.ws != null)
+                        {
+                            snap.NamWorkspaces[namIdx] = cached.ws;
+                        }
+                        else
+                        {
+                            var ws = new NamWorkspace(prof);
+                            _uiNamPool[namIdx] = (s.NamModelId, prof, ws);
+                            snap.NamWorkspaces[namIdx] = ws;
+                        }
+                    }
+                    else
+                    {
+                        _uiNamPool[namIdx] = (s.NamModelId, null, null);
+                    }
+                    namIdx++;
+                }
+
+                var p = s.Params;
+                var cm = s.CabMic;
+                var micParams = cm != null && cm.DualEnabled
+                    ? new CabMicParams
+                    {
+                        DualEnabled = true,
+                        MicAType = (byte)Math.Clamp(cm.MicAType, 0, 5),
+                        MicAX = Math.Clamp(cm.MicAX, 0f, 1f),
+                        MicADist = Math.Clamp(cm.MicADist, 0f, 1f),
+                        MicALevelGain = MathF.Pow(10f, Math.Clamp(cm.MicALevelDb, -18f, 6f) / 20f),
+                        MicAPan = Math.Clamp(cm.MicAPan, -1f, 1f),
+                        MicAPhaseInv = cm.MicAPhaseInv,
+                        MicBType = (byte)Math.Clamp(cm.MicBType, 0, 5),
+                        MicBX = Math.Clamp(cm.MicBX, 0f, 1f),
+                        MicBDist = Math.Clamp(cm.MicBDist, 0f, 1f),
+                        MicBLevelGain = MathF.Pow(10f, Math.Clamp(cm.MicBLevelDb, -18f, 6f) / 20f),
+                        MicBPan = Math.Clamp(cm.MicBPan, -1f, 1f),
+                        MicBPhaseInv = cm.MicBPhaseInv,
+                        MicBDelayMs = Math.Clamp(cm.MicBDelayMs, 0f, 15f),
+                        Blend = Math.Clamp(cm.Blend, 0f, 1f),
+                    }
+                    : default;
+
+                snap.Slots[i] = new CompiledSlot
+                {
+                    Op = op,
+                    SubModel = sub,
+                    SyncDiv = (byte)Math.Clamp(s.SyncDivision, 0, 5),
+                    NamPoolIdx = assignedNam,
+                    Enabled = s.Enabled,
+                    P0 = p[0], P1 = p[1], P2 = p[2], P3 = p[3],
+                    P4 = p[4], P5 = p[5], P6 = p[6], P7 = p[7],
+                    CabMic = micParams,
+                };
+            }
+
+            Volatile.Write(ref _lastDto, clean);
+            Volatile.Write(ref _pendingSnapshot, snap);
+            Interlocked.Increment(ref _version);
+        }
     }
 
     private static (BlockOp op, byte sub) ParseModelId(string? id)
@@ -1125,8 +1139,7 @@ public sealed class SignalChainEngine
                     break;
                 }
                 case BlockOp.CabIr:
-                    // 독립 듀얼-캐비넷 스테레오 컨볼버 풀 배정 + L/R 사용자 LowCut/HighCut
-                    // (각 캐비넷 모델의 음향 특성은 CabinetIrBank의 7종 고유 512-tap Minimum-Phase IR에 직접 내장)
+                    // 독립 듀얼-캐비넷 Partitioned FFT 컨볼버 풀 배정 + 듀얼 가상 마이킹 + LowCut/HighCut
                     st.CabPoolIdx = (cabIdx++) % _cabPool.Length;
                     if (modelChanged || st.CabPoolIdx != prevCabIdx)
                         _cabPool[st.CabPoolIdx].Reset();
@@ -1134,6 +1147,14 @@ public sealed class SignalChainEngine
                     st.F1L.SetLowPass(sr, Math.Clamp(sl.P1 > 500f ? sl.P1 : 9500f, 1500f, 18000f), 0.707);
                     st.F0R.SetHighPass(sr, Math.Clamp(sl.P0 > 10f ? sl.P0 : 80f, 20f, 400f), 0.707);
                     st.F1R.SetLowPass(sr, Math.Clamp(sl.P1 > 500f ? sl.P1 : 9500f, 1500f, 18000f), 0.707);
+                    if (sl.CabMic.DualEnabled)
+                    {
+                        var cu = _cabPool[st.CabPoolIdx];
+                        ConfigureMicVoicing(sr, sl.CabMic.MicAType, sl.CabMic.MicAX, sl.CabMic.MicADist,
+                            ref cu.A0L, ref cu.A1L, ref cu.A2L, ref cu.A0R, ref cu.A1R, ref cu.A2R);
+                        ConfigureMicVoicing(sr, sl.CabMic.MicBType, sl.CabMic.MicBX, sl.CabMic.MicBDist,
+                            ref cu.B0L, ref cu.B1L, ref cu.B2L, ref cu.B0R, ref cu.B1R, ref cu.B2R);
+                    }
                     break;
                 case BlockOp.EqGraphic5:
                     st.F0L.SetPeaking(sr, 100.0, 1.1, Math.Clamp(sl.P0, -12f, 12f));
@@ -1383,11 +1404,11 @@ public sealed class SignalChainEngine
                 break;
 
             case BlockOp.NamCapture:
-                ProcessNamBlock(bufL, bufR, n, host, sl.P0, sl.P1, sl.P2);
+                ProcessNamBlock(bufL, bufR, n, host, ref sl);
                 break;
 
             case BlockOp.CabIr:
-                ProcessCabBlock(st, bufL, bufR, n, host, sl.SubModel, sl.P2);
+                ProcessCabBlock(st, bufL, bufR, n, host, ref sl);
                 break;
 
             case BlockOp.EqGraphic5:
@@ -1407,7 +1428,7 @@ public sealed class SignalChainEngine
                 break;
 
             case BlockOp.ModCe2:
-                ProcessChorus(st, bufL, bufR, n, sr, sl.P0, sl.P1, sl.P2);
+                ProcessChorus(st, bufL, bufR, n, sr, ResolveSyncedRateHz(sl.P0, sl.SyncDiv, _activeSnapshot.TempoBpm, 0.1f, 6.0f), sl.P1, sl.P2);
                 break;
 
             case BlockOp.ModBossDc2w:
@@ -1415,52 +1436,54 @@ public sealed class SignalChainEngine
                 break;
 
             case BlockOp.ModBossBf2:
-                ProcessBossBf2(st, bufL, bufR, n, sr, sl.P0, sl.P1, sl.P2, sl.P3);
+                ProcessBossBf2(st, bufL, bufR, n, sr, sl.P0, sl.P1, ResolveSyncedRateHz(sl.P2, sl.SyncDiv, _activeSnapshot.TempoBpm, 0.08f, 6.0f), sl.P3);
                 break;
 
             case BlockOp.ModSmallClone:
-                ProcessSmallClone(st, bufL, bufR, n, sr, sl.P0, sl.P1, sl.P2);
+                ProcessSmallClone(st, bufL, bufR, n, sr, ResolveSyncedRateHz(sl.P0, sl.SyncDiv, _activeSnapshot.TempoBpm, 0.1f, 5.5f), sl.P1, sl.P2);
                 break;
 
             case BlockOp.ModUniVibe:
-                ProcessUniVibe(st, bufL, bufR, n, sr, sl.P0, sl.P1, sl.P2);
+                ProcessUniVibe(st, bufL, bufR, n, sr, ResolveSyncedRateHz(sl.P0, sl.SyncDiv, _activeSnapshot.TempoBpm, 0.2f, 8.0f), sl.P1, sl.P2);
                 break;
 
             case BlockOp.ModPhase90:
-                ProcessPhaser(st, bufL, bufR, n, sr, sl.P0, sl.P1, sl.P2, sl.P3);
+                ProcessPhaser(st, bufL, bufR, n, sr, ResolveSyncedRateHz(sl.P0, sl.SyncDiv, _activeSnapshot.TempoBpm, 0.1f, 6.0f), sl.P1, sl.P2, sl.P3);
                 break;
 
             case BlockOp.ModTremolo:
-                ProcessTremolo(st, bufL, bufR, n, sr, sl.P0, sl.P1, sl.P2);
+                ProcessTremolo(st, bufL, bufR, n, sr, ResolveSyncedRateHz(sl.P0, sl.SyncDiv, _activeSnapshot.TempoBpm, 0.5f, 12.0f), sl.P1, sl.P2);
                 break;
 
             case BlockOp.DlyAnalog:
                 if (st.DelayPoolIdx >= 0)
-                    ProcessDelay(_delayPool[st.DelayPoolIdx], bufL, bufR, n, sr, sl.P0, sl.P1, sl.P2, sl.P3, isAnalog: true);
+                    ProcessDelay(_delayPool[st.DelayPoolIdx], bufL, bufR, n, sr, ResolveSyncedDelayMs(sl.P0, sl.SyncDiv, _activeSnapshot.TempoBpm, 40f, 1200f), sl.P1, sl.P2, sl.P3, isAnalog: true);
                 break;
 
             case BlockOp.DlyBossDm2w:
                 if (st.DelayPoolIdx >= 0)
                 {
                     bool custom = sl.P3 > 0.5f;
-                    float timeMs = custom ? Math.Clamp(sl.P0, 40f, 800f) : Math.Clamp(sl.P0, 20f, 300f);
+                    float maxMs = custom ? 800f : 300f;
+                    float minMs = custom ? 40f : 20f;
+                    float timeMs = ResolveSyncedDelayMs(sl.P0, sl.SyncDiv, _activeSnapshot.TempoBpm, minMs, maxMs);
                     ProcessDelay(_delayPool[st.DelayPoolIdx], bufL, bufR, n, sr, timeMs, sl.P1, custom ? 68f : 38f, sl.P2, isAnalog: true);
                 }
                 break;
 
             case BlockOp.DlyDigital:
                 if (st.DelayPoolIdx >= 0)
-                    ProcessDelay(_delayPool[st.DelayPoolIdx], bufL, bufR, n, sr, sl.P0, sl.P1, sl.P2, sl.P3, isAnalog: false);
+                    ProcessDelay(_delayPool[st.DelayPoolIdx], bufL, bufR, n, sr, ResolveSyncedDelayMs(sl.P0, sl.SyncDiv, _activeSnapshot.TempoBpm, 40f, 1350f), sl.P1, sl.P2, sl.P3, isAnalog: false);
                 break;
 
             case BlockOp.DlyBossDd3t:
                 if (st.DelayPoolIdx >= 0)
-                    ProcessDelay(_delayPool[st.DelayPoolIdx], bufL, bufR, n, sr, Math.Clamp(sl.P0, 20f, 800f), sl.P1, 0f, sl.P2, isAnalog: false);
+                    ProcessDelay(_delayPool[st.DelayPoolIdx], bufL, bufR, n, sr, ResolveSyncedDelayMs(sl.P0, sl.SyncDiv, _activeSnapshot.TempoBpm, 20f, 800f), sl.P1, 0f, sl.P2, isAnalog: false);
                 break;
 
             case BlockOp.DlyTimeLine:
                 if (st.DelayPoolIdx >= 0)
-                    ProcessDelay(_delayPool[st.DelayPoolIdx], bufL, bufR, n, sr, Math.Clamp(sl.P0, 30f, 1400f), sl.P1, sl.P2, sl.P3, isAnalog: sl.P4 > 0.5f);
+                    ProcessDelay(_delayPool[st.DelayPoolIdx], bufL, bufR, n, sr, ResolveSyncedDelayMs(sl.P0, sl.SyncDiv, _activeSnapshot.TempoBpm, 30f, 1400f), sl.P1, sl.P2, sl.P3, isAnalog: sl.P4 > 0.5f);
                 break;
 
             case BlockOp.RevSpring:
@@ -1507,908 +1530,80 @@ public sealed class SignalChainEngine
         }
     }
 
-    /// <summary>
-    /// 모든 비선형 드라이브/디스토션/퍼즈/부스트 페달의 4x HIIR 오버샘플링 실제 회로도 실행 엔진 (RT 할당 0).
-    /// </summary>
-    private void ProcessNonlinearPedal4x(SlotDspState st, Span<float> bufL, Span<float> bufR, int n, ref CompiledSlot sl)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static float ResolveSyncedDelayMs(float rawMs, byte syncDiv, float bpm, float minMs, float maxMs)
     {
-        for (int i = 0; i < n; i++)
-            _monoTmp[i] = 0.5f * (bufL[i] + bufR[i]);
-
-        int fs4 = _sampleRate * 4;
-        var buf4 = st.Os4x.Upsample(_monoTmp.AsSpan(0, n), n, _os2x, _os4x);
-
-        switch (sl.Op)
+        if (syncDiv == 0) return Math.Clamp(rawMs, minMs, maxMs);
+        float beatMs = 60000f / Math.Clamp(bpm, 40f, 280f);
+        float mult = syncDiv switch
         {
-            case BlockOp.OdTs808:
-                SchematicPedalDsp.ProcessTubeScreamer4x(ref st.Circuit, buf4, fs4, sl.P0, isTs9: false);
-                break;
-            case BlockOp.OdTs9:
-                SchematicPedalDsp.ProcessTubeScreamer4x(ref st.Circuit, buf4, fs4, sl.P0, isTs9: true);
-                break;
-            case BlockOp.OdKlon:
-                SchematicPedalDsp.ProcessKlonCentaur4x(ref st.Circuit, buf4, fs4, sl.P0);
-                break;
-            case BlockOp.DistRat:
-                SchematicPedalDsp.ProcessRat4x(ref st.Circuit, buf4, fs4, sl.P0, isRat2: false);
-                break;
-            case BlockOp.DistRat2:
-                SchematicPedalDsp.ProcessRat4x(ref st.Circuit, buf4, fs4, sl.P0, isRat2: true);
-                break;
-            case BlockOp.FuzzBigMuff:
-                SchematicPedalDsp.ProcessBigMuff4x(ref st.Circuit, buf4, fs4, sl.P0);
-                break;
-            case BlockOp.OdSd1:
-                SchematicPedalDsp.ProcessBossSd14x(ref st.Circuit, buf4, fs4, sl.P0);
-                break;
-            case BlockOp.DistBossDs1:
-                SchematicPedalDsp.ProcessBossDs14x(ref st.Circuit, buf4, fs4, sl.P0);
-                break;
-            case BlockOp.OdBossBd2:
-                SchematicPedalDsp.ProcessBossBd24x(ref st.Circuit, buf4, fs4, sl.P0);
-                break;
-            case BlockOp.DistBossMt2:
-                SchematicPedalDsp.ProcessBossHighGain4x(ref st.Circuit, buf4, fs4, sl.P0, isHm2: false);
-                break;
-            case BlockOp.DistBossHm2:
-                SchematicPedalDsp.ProcessBossHighGain4x(ref st.Circuit, buf4, fs4, sl.P0, isHm2: true);
-                break;
-            case BlockOp.OdPureSky:
-                SchematicPedalDsp.ProcessTimmyJanRay4x(ref st.Circuit, buf4, fs4, sl.P0, sl.P1, 0f, isJanRay: false);
-                break;
-            case BlockOp.OdJanRay:
-                SchematicPedalDsp.ProcessTimmyJanRay4x(ref st.Circuit, buf4, fs4, sl.P0, sl.P1, sl.P3, isJanRay: true);
-                break;
-            case BlockOp.OdOcd:
-                SchematicPedalDsp.ProcessFulltoneOcd4x(ref st.Circuit, buf4, fs4, sl.P0, highPeak: sl.P3 > 0.5f);
-                break;
-            case BlockOp.OdBbPreamp:
-                SchematicPedalDsp.ProcessBbPreamp4x(ref st.Circuit, buf4, fs4, sl.P0);
-                break;
-            case BlockOp.DistEcstasy:
-                SchematicPedalDsp.ProcessBognerEcstasy4x(ref st.Circuit, buf4, fs4, sl.P0);
-                break;
-            case BlockOp.BoostEp:
-                SchematicPedalDsp.ProcessCleanBoost4x(ref st.Circuit, buf4, fs4, sl.P0, kind: 0);
-                break;
-            case BlockOp.BoostRc:
-                SchematicPedalDsp.ProcessCleanBoost4x(ref st.Circuit, buf4, fs4, sl.P0, kind: 1);
-                break;
-            case BlockOp.BoostMicroAmp:
-                SchematicPedalDsp.ProcessCleanBoost4x(ref st.Circuit, buf4, fs4, sl.P0, kind: 2);
-                break;
-            case BlockOp.OdBluesbreaker:
-                SchematicPedalDsp.ProcessBluesbreaker4x(ref st.Circuit, buf4, fs4, sl.P0);
-                break;
-            case BlockOp.DistGuvnor:
-                SchematicPedalDsp.ProcessGuvnor4x(ref st.Circuit, buf4, fs4, sl.P0);
-                break;
-            case BlockOp.FuzzFace:
-                SchematicPedalDsp.ProcessFuzzFace4x(ref st.Circuit, buf4, fs4, sl.P0, sl.P1, isSilicon: sl.P3 > 0.5f);
-                break;
-            case BlockOp.BoostRangemaster:
-                SchematicPedalDsp.ProcessRangemaster4x(ref st.Circuit, buf4, fs4, sl.P0, fullRangeCap: sl.P1 > 0.5f);
-                break;
-            case BlockOp.DistPlus:
-                SchematicPedalDsp.ProcessDistortionPlus4x(ref st.Circuit, buf4, fs4, sl.P0);
-                break;
-            case BlockOp.OdBoxOfRock:
-                SchematicPedalDsp.ProcessBoxOfRock4x(ref st.Circuit, buf4, fs4, sl.P0);
-                break;
-        }
-
-        st.Os4x.Downsample(_monoTmp.AsSpan(0, n), n, _os2x, _os4x);
-
-        // 1x 도메인 각 페달 고유 회로도 출력 톤스택 + 스무딩 아웃풋 레벨 (지퍼 노이즈 차단)
-        float alpha = 1f - MathF.Exp(-1f / MathF.Max(1f, 0.005f * _sampleRate));
-        float targetOutG = sl.Op switch
-        {
-            BlockOp.OdTs808 or BlockOp.OdSd1 => 0.25f + 1.65f * (Math.Clamp(sl.P2, 0f, 10f) / 10f),
-            BlockOp.OdTs9 => 0.25f + 1.75f * (Math.Clamp(sl.P2, 0f, 10f) / 10f),
-            BlockOp.OdKlon => 0.35f + 1.90f * (Math.Clamp(sl.P2, 0f, 10f) / 10f),
-            BlockOp.DistRat => 0.22f + 1.50f * (Math.Clamp(sl.P2, 0f, 10f) / 10f),
-            BlockOp.DistRat2 => 0.22f + 1.55f * (Math.Clamp(sl.P2, 0f, 10f) / 10f),
-            BlockOp.FuzzBigMuff => 0.28f + 1.85f * (Math.Clamp(sl.P2, 0f, 10f) / 10f),
-            BlockOp.DistBossDs1 => 0.30f + 1.95f * (Math.Clamp(sl.P2, 0f, 10f) / 10f),
-            BlockOp.OdBossBd2 => 0.28f + 1.75f * (Math.Clamp(sl.P2, 0f, 10f) / 10f),
-            BlockOp.DistBossMt2 => 0.20f + 1.45f * (Math.Clamp(sl.P5, 0f, 10f) / 10f),
-            BlockOp.DistBossHm2 => 0.20f + 1.40f * (Math.Clamp(sl.P3, 0f, 10f) / 10f),
-            BlockOp.OdPureSky => 0.30f + 1.85f * (Math.Clamp(sl.P3, 0f, 10f) / 10f),
-            BlockOp.OdJanRay => 0.30f + 1.85f * (Math.Clamp(sl.P4, 0f, 10f) / 10f),
-            BlockOp.OdOcd => 0.26f + 1.75f * (Math.Clamp(sl.P2, 0f, 10f) / 10f),
-            BlockOp.OdBbPreamp => 0.28f + 1.75f * (Math.Clamp(sl.P3, 0f, 10f) / 10f),
-            BlockOp.DistEcstasy => 0.22f + 1.55f * (Math.Clamp(sl.P4, 0f, 10f) / 10f),
-            BlockOp.BoostRc => 0.45f + 2.40f * (Math.Clamp(sl.P1, 0f, 10f) / 10f),
-            BlockOp.OdBluesbreaker => 0.32f + 1.90f * (Math.Clamp(sl.P2, 0f, 10f) / 10f),
-            BlockOp.DistGuvnor => 0.24f + 1.65f * (Math.Clamp(sl.P4, 0f, 10f) / 10f),
-            BlockOp.FuzzFace => 0.26f + 1.60f * (Math.Clamp(sl.P2, 0f, 10f) / 10f),
-            BlockOp.BoostRangemaster => 0.90f,
-            BlockOp.DistPlus => 0.26f + 1.65f * (Math.Clamp(sl.P1, 0f, 10f) / 10f),
-            BlockOp.OdBoxOfRock => 0.28f + 1.80f * (Math.Clamp(sl.P2, 0f, 10f) / 10f),
+            1 => 1.0f,        // 1/4
+            2 => 0.75f,       // 1/8. (Dotted Eighth)
+            3 => 0.5f,        // 1/8
+            4 => 0.33333334f, // 1/8T (Triplet)
+            5 => 0.25f,       // 1/16
             _ => 1.0f,
         };
-        if (!st.SmoothReady)
-        {
-            st.SmoothOutGain = targetOutG;
-            st.SmoothReady = true;
-        }
-
-        switch (sl.Op)
-        {
-            case BlockOp.OdTs808:
-            case BlockOp.OdTs9:
-            {
-                // 액티브 TS 톤스택: 패시브 LPF(F1L) + 액티브 하이셸프(F2L)
-                for (int i = 0; i < n; i++)
-                {
-                    st.SmoothOutGain += alpha * (targetOutG - st.SmoothOutGain);
-                    float y = st.F2L.Process(st.F1L.Process(_monoTmp[i])) * st.SmoothOutGain;
-                    bufL[i] = y; bufR[i] = y;
-                }
-                break;
-            }
-            case BlockOp.OdSd1:
-            case BlockOp.DistRat:
-            case BlockOp.OdBluesbreaker:
-            case BlockOp.FuzzFace:
-            case BlockOp.BoostRangemaster:
-            case BlockOp.DistPlus:
-            case BlockOp.OdBoxOfRock:
-            {
-                for (int i = 0; i < n; i++)
-                {
-                    st.SmoothOutGain += alpha * (targetOutG - st.SmoothOutGain);
-                    float y = st.F1L.Process(_monoTmp[i]) * st.SmoothOutGain;
-                    bufL[i] = y; bufR[i] = y;
-                }
-                break;
-            }
-            case BlockOp.OdKlon:
-            case BlockOp.DistRat2:
-            case BlockOp.OdBossBd2:
-            case BlockOp.OdPureSky:
-            case BlockOp.OdOcd:
-            {
-                for (int i = 0; i < n; i++)
-                {
-                    st.SmoothOutGain += alpha * (targetOutG - st.SmoothOutGain);
-                    float y = st.F2L.Process(st.F1L.Process(_monoTmp[i])) * st.SmoothOutGain;
-                    bufL[i] = y; bufR[i] = y;
-                }
-                break;
-            }
-            case BlockOp.FuzzBigMuff:
-            case BlockOp.DistBossDs1:
-            {
-                // 실제 회로도 병렬 RC 크로스페이드 패시브 톤스택:
-                // y = (1 - t) * LPF(x) + t * HPF(x)  -> 중앙(t=0.5)에서 자연 미드 스쿱, 양 끝(0/1)에서 스쿱 소멸!
-                float t = Math.Clamp(sl.P1, 0f, 10f) / 10f;
-                float lpW = 1f - t;
-                float hpW = t;
-                for (int i = 0; i < n; i++)
-                {
-                    st.SmoothOutGain += alpha * (targetOutG - st.SmoothOutGain);
-                    float x = _monoTmp[i];
-                    float lp = st.F0L.Process(x);
-                    float hp = st.F1L.Process(x);
-                    float mixed = lp * lpW + hp * hpW;
-                    float y = st.F2L.Process(mixed) * st.SmoothOutGain;
-                    bufL[i] = y; bufR[i] = y;
-                }
-                break;
-            }
-            case BlockOp.DistBossMt2:
-            case BlockOp.DistBossHm2:
-            case BlockOp.DistEcstasy:
-            case BlockOp.DistGuvnor:
-            {
-                for (int i = 0; i < n; i++)
-                {
-                    st.SmoothOutGain += alpha * (targetOutG - st.SmoothOutGain);
-                    float y = st.F4L.Process(st.F3L.Process(st.F2L.Process(st.F1L.Process(_monoTmp[i])))) * st.SmoothOutGain;
-                    bufL[i] = y; bufR[i] = y;
-                }
-                break;
-            }
-            case BlockOp.OdJanRay:
-            case BlockOp.OdBbPreamp:
-            {
-                for (int i = 0; i < n; i++)
-                {
-                    st.SmoothOutGain += alpha * (targetOutG - st.SmoothOutGain);
-                    float y = st.F3L.Process(st.F2L.Process(st.F1L.Process(_monoTmp[i]))) * st.SmoothOutGain;
-                    bufL[i] = y; bufR[i] = y;
-                }
-                break;
-            }
-            case BlockOp.BoostEp:
-            case BlockOp.BoostMicroAmp:
-            {
-                for (int i = 0; i < n; i++)
-                {
-                    st.SmoothOutGain += alpha * (targetOutG - st.SmoothOutGain);
-                    float y = st.F0L.Process(_monoTmp[i]) * st.SmoothOutGain;
-                    bufL[i] = y; bufR[i] = y;
-                }
-                break;
-            }
-            case BlockOp.BoostRc:
-            {
-                for (int i = 0; i < n; i++)
-                {
-                    st.SmoothOutGain += alpha * (targetOutG - st.SmoothOutGain);
-                    float y = st.F1L.Process(st.F0L.Process(_monoTmp[i])) * st.SmoothOutGain;
-                    bufL[i] = y; bufR[i] = y;
-                }
-                break;
-            }
-        }
+        return Math.Clamp(beatMs * mult, minMs, maxMs);
     }
 
-    // ── DSP Implementations (All Zero-Allocation) ──
-
-    private static void ProcessGate(SlotDspState st, Span<float> bufL, Span<float> bufR, int n, int sr, float threshDb, float decayMs, float holdMs)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static float ResolveSyncedRateHz(float rawHz, byte syncDiv, float bpm, float minHz, float maxHz)
     {
-        if (threshDb <= -78f) return;
-        float threshOpen = MathF.Pow(10f, Math.Clamp(threshDb, -80f, -15f) / 20f);
-        float threshClose = threshOpen * 0.5623413f;
-        int holdMax = Math.Max(32, (int)(Math.Clamp(holdMs, 10f, 400f) * 0.001f * sr));
-        float envAtk = 1f - MathF.Exp(-1f / MathF.Max(1f, 0.0005f * sr));
-        float envRel = 1f - MathF.Exp(-1f / MathF.Max(1f, 0.050f * sr));
-        float gainAtk = 1f - MathF.Exp(-1f / MathF.Max(1f, 0.0012f * sr));
-        float gainRel = 1f - MathF.Exp(-1f / MathF.Max(1f, Math.Clamp(decayMs, 20f, 500f) * 0.001f * sr));
-
-        for (int i = 0; i < n; i++)
+        if (syncDiv == 0) return Math.Clamp(rawHz, minHz, maxHz);
+        float beatHz = Math.Clamp(bpm, 40f, 280f) / 60f;
+        float mult = syncDiv switch
         {
-            float a = MathF.Max(MathF.Abs(bufL[i]), MathF.Abs(bufR[i]));
-            st.Env += (a > st.Env ? envAtk : envRel) * (a - st.Env);
-            if (st.Env >= threshOpen)
-            {
-                st.GateOpen = true;
-                st.HoldCount = holdMax;
-            }
-            else if (st.GateOpen)
-            {
-                if (st.Env >= threshClose) st.HoldCount = holdMax;
-                else if (st.HoldCount > 0) st.HoldCount--;
-                else st.GateOpen = false;
-            }
-            float target = st.GateOpen ? 1f : 0.006f;
-            st.Gain += (target > st.Gain ? gainAtk : gainRel) * (target - st.Gain);
-            bufL[i] *= st.Gain;
-            bufR[i] *= st.Gain;
-        }
-    }
-
-    private static void ProcessCompressor(SlotDspState st, Span<float> bufL, Span<float> bufR, int n, int sr, float sens, float outLvl, float atkMs, float mixPct, bool is1176, float ratio = 4f)
-    {
-        float sNorm = Math.Clamp(sens, 0f, 10f) / 10f;
-        float thresh = MathF.Pow(10f, (-6f - 26f * sNorm) / 20f);
-        float compRatio = is1176 ? ratio : (2.5f + 5.5f * sNorm);
-        float slope = 1f - 1f / compRatio;
-        float makeup = (0.5f + 2.2f * (Math.Clamp(outLvl, 0f, 10f) / 10f)) * (1f + sNorm * 0.75f);
-        float mix = Math.Clamp(mixPct, 0f, 100f) / 100f;
-        float atk = 1f - MathF.Exp(-1f / MathF.Max(1f, atkMs * 0.001f * sr));
-        float rel = 1f - MathF.Exp(-1f / MathF.Max(1f, (is1176 ? 0.065f : 0.140f) * sr));
-
-        for (int i = 0; i < n; i++)
-        {
-            float dL = bufL[i], dR = bufR[i];
-            float peak = MathF.Max(MathF.Abs(dL), MathF.Abs(dR));
-            st.Env += (peak > st.Env ? atk : rel) * (peak - st.Env);
-            float gr = st.Env > thresh ? MathF.Pow(st.Env / MathF.Max(1e-6f, thresh), -slope) : 1f;
-            float g = gr * makeup;
-            bufL[i] = dL * (1f - mix) + dL * g * mix;
-            bufR[i] = dR * (1f - mix) + dR * g * mix;
-        }
-    }
-
-    private void ProcessWhiteBoxAmp(SlotDspState st, Span<float> bufL, Span<float> bufR, int n, ToneProcessor host, ref CompiledSlot sl)
-    {
-        // 독립 듀얼-앰프 풀에서 슬롯 전용 엔진 선택 (듀얼 앰프 병렬 시 상태 충돌 0)
-        var amp = (st.AmpPoolIdx >= 0 && st.AmpPoolIdx < _ampPool.Length) ? _ampPool[st.AmpPoolIdx] : host.WhiteBox;
-
-        WhiteBoxChannel ch = sl.SubModel switch
-        {
-            0 or 1 => WhiteBoxChannel.Clean,
-            2 or 3 or 6 or 7 => WhiteBoxChannel.Plexi, // Plexi, 2203, AC30, JCM2000 DSL
-            _ => WhiteBoxChannel.HighGain,             // SLO-100, 5153, Recto, BE-100
+            1 => 1.0f,        // 1/4
+            2 => 1.3333334f,  // 1/8.
+            3 => 2.0f,        // 1/8
+            4 => 3.0f,        // 1/8T
+            5 => 4.0f,        // 1/16
+            _ => 1.0f,
         };
-        bool bright = sl.P7 > 0.5f;
-        float depth = sl.SubModel is 4 or 5 or 8 or 9 ? 6.2f : 5.0f;
+        return Math.Clamp(beatHz * mult, minHz, maxHz);
+    }
 
-        amp.ApplyChainAmpParams(
-            ch,
-            bright,
-            preGain: sl.P0,
-            bass: sl.P1,
-            mid: sl.P2,
-            treble: sl.P3,
-            master: sl.P4,
-            sag: sl.P5,
-            presence: sl.P6,
-            depth: depth);
+    private static void ConfigureMicVoicing(
+        int sr,
+        byte micType,
+        float xPos,
+        float dist,
+        ref Biquad f0L,
+        ref Biquad f1L,
+        ref Biquad f2L,
+        ref Biquad f0R,
+        ref Biquad f1R,
+        ref Biquad f2R)
+    {
+        float x = Math.Clamp(xPos, 0f, 1f);
+        float d = Math.Clamp(dist, 0f, 1f);
 
-        for (int i = 0; i < n; i++)
-            _monoTmp[i] = 0.5f * (bufL[i] + bufR[i]);
+        // Proximity low-shelf (stronger on figure-8/hypercardioid ribbons R121 & M160)
+        bool isRibbon = micType == 1 || micType == 4;
+        double proxMax = isRibbon ? 4.8 : 3.2;
+        double proxDb = (1.0 - d) * proxMax - d * 2.2;
+        f0L.SetLowShelf(sr, 125.0, proxDb, 0.72);
+        f0R.CopyCoeffsFrom(in f0L);
 
-        amp.ProcessFullAmp(_monoTmp.AsSpan(0, n), n, includePowerAmp: true);
-
-        bool hasContour = sl.SubModel >= 6;
-        for (int i = 0; i < n; i++)
+        // Capsule frequency contour
+        (double midHz, double midQ, double midDb) = micType switch
         {
-            float v = hasContour ? st.F1L.Process(st.F0L.Process(_monoTmp[i])) : _monoTmp[i];
-            bufL[i] = v;
-            bufR[i] = v;
-        }
-    }
-
-    private void ProcessNamBlock(Span<float> bufL, Span<float> bufR, int n, ToneProcessor host, float inputDb, float outputDb, float mixPct)
-    {
-        float inGain = MathF.Pow(10f, Math.Clamp(inputDb, -12f, 12f) / 20f);
-        float outGain = MathF.Pow(10f, Math.Clamp(outputDb, -12f, 12f) / 20f);
-        float mix = Math.Clamp(mixPct, 0f, 100f) / 100f;
-
-        for (int i = 0; i < n; i++)
-            _monoTmp[i] = 0.5f * (bufL[i] + bufR[i]) * inGain;
-
-        if (!host.ProcessWaveNetRaw(_monoTmp.AsSpan(0, n), _monoTmp.AsSpan(0, n)))
-            return;
-
-        for (int i = 0; i < n; i++)
-        {
-            float w = _monoTmp[i] * outGain;
-            bufL[i] = bufL[i] * (1f - mix) + w * mix;
-            bufR[i] = bufR[i] * (1f - mix) + w * mix;
-        }
-    }
-
-    private void ProcessCabBlock(SlotDspState st, Span<float> bufL, Span<float> bufR, int n, ToneProcessor host, byte subModel, float levelDb)
-    {
-        float targetGain = MathF.Pow(10f, Math.Clamp(levelDb, -12f, 12f) / 20f);
-        float alpha = 1f - MathF.Exp(-1f / MathF.Max(1f, 0.005f * _sampleRate));
-        if (!st.SmoothReady) { st.SmoothOutGain = targetGain; st.SmoothReady = true; }
-
-        // 7종 고유 512-tap Minimum-Phase IR 또는 외부 Custom WAV IR 선택
-        float[]? cabRev = subModel == 1
-            ? (host.GetCustomOrProfileCabIrRev() ?? _cabBank.GetIrRev(0))
-            : _cabBank.GetIrRev(subModel);
-
-        if (cabRev is { Length: > 0 } && st.CabPoolIdx >= 0 && st.CabPoolIdx < _cabPool.Length)
-        {
-            // 독립 슬롯 스테레오 SIMD 컨볼루션 (듀얼 캐비넷 충돌 0 + 전단 스테레오 코러스 100% 보존)
-            _cabPool[st.CabPoolIdx].ConvolveStereo(bufL, bufR, n, cabRev);
-        }
-
-        for (int i = 0; i < n; i++)
-        {
-            st.SmoothOutGain += alpha * (targetGain - st.SmoothOutGain);
-            bufL[i] = st.F1L.Process(st.F0L.Process(bufL[i])) * st.SmoothOutGain;
-            bufR[i] = st.F1R.Process(st.F0R.Process(bufR[i])) * st.SmoothOutGain;
-        }
-    }
-
-    private static void ProcessEq5(SlotDspState st, Span<float> bufL, Span<float> bufR, int n, float levelDb)
-    {
-        float gain = MathF.Pow(10f, Math.Clamp(levelDb, -12f, 12f) / 20f);
-        for (int i = 0; i < n; i++)
-        {
-            float l = st.F4L.Process(st.F3L.Process(st.F2L.Process(st.F1L.Process(st.F0L.Process(bufL[i]))))) * gain;
-            float r = st.F4R.Process(st.F3R.Process(st.F2R.Process(st.F1R.Process(st.F0R.Process(bufR[i]))))) * gain;
-            bufL[i] = l;
-            bufR[i] = r;
-        }
-    }
-
-    private static void ProcessEqParam(SlotDspState st, Span<float> bufL, Span<float> bufR, int n)
-    {
-        for (int i = 0; i < n; i++)
-        {
-            bufL[i] = st.F2L.Process(st.F1L.Process(st.F0L.Process(bufL[i])));
-            bufR[i] = st.F2R.Process(st.F1R.Process(st.F0R.Process(bufR[i])));
-        }
-    }
-
-    private static void ProcessChorus(SlotDspState st, Span<float> bufL, Span<float> bufR, int n, int sr, float rateHz, float depthPct, float mixPct)
-    {
-        var cL = st.ChorusBufL;
-        var cR = st.ChorusBufR;
-        if (cL.Length == 0) return;
-        int mask = cL.Length - 1;
-
-        float rate = Math.Clamp(rateHz, 0.1f, 6.0f);
-        float depthMs = 0.8f + 4.5f * Math.Clamp(depthPct / 100f, 0f, 1f);
-        float baseDelayMs = 6.5f;
-        float mix = Math.Clamp(mixPct, 0f, 100f) / 100f;
-        float phaseInc = 2f * MathF.PI * rate / sr;
-        // BOSS CE-2 MN3007 BBD 프리엠퍼시스/디엠퍼시스 + 3.6kHz 안티앨리어싱 LPF
-        float bbdLpA = 1f - MathF.Exp(-2f * MathF.PI * 3600f / sr);
-
-        for (int i = 0; i < n; i++)
-        {
-            float inL = bufL[i], inR = bufR[i];
-            int w = st.ChorusWrite;
-
-            // BBD Pre-emphasis (고역 부스트 후 BBD 입력)
-            st.Circuit.PreEmpL += bbdLpA * (inL - st.Circuit.PreEmpL);
-            st.Circuit.PreEmpR += bbdLpA * (inR - st.Circuit.PreEmpR);
-            cL[w] = inL + (inL - st.Circuit.PreEmpL) * 0.45f;
-            cR[w] = inR + (inR - st.Circuit.PreEmpR) * 0.45f;
-
-            // CE-2 트라이앵글 LFO 근사 (부드러운 아날로그 코러스 스윕)
-            float lfoL = (2f / MathF.PI) * MathF.Asin(MathF.Sin(st.LfoPhase));
-            float lfoR = (2f / MathF.PI) * MathF.Asin(MathF.Sin(st.LfoPhase + MathF.PI * 0.5f));
-            st.LfoPhase += phaseInc;
-            if (st.LfoPhase > 2f * MathF.PI) st.LfoPhase -= 2f * MathF.PI;
-
-            float dL = (baseDelayMs + depthMs * lfoL) * 0.001f * sr;
-            float dR = (baseDelayMs + depthMs * lfoR) * 0.001f * sr;
-
-            float rawL = ReadFrac(cL, w, dL, mask);
-            float rawR = ReadFrac(cR, w, dR, mask);
-
-            // BBD De-emphasis + Reconstruction LPF (따뜻한 MN3007 톤)
-            st.Circuit.DeEmpL += bbdLpA * (rawL - st.Circuit.DeEmpL);
-            st.Circuit.DeEmpR += bbdLpA * (rawR - st.Circuit.DeEmpR);
-
-            bufL[i] = inL * (1f - mix * 0.5f) + st.Circuit.DeEmpL * mix;
-            bufR[i] = inR * (1f - mix * 0.5f) + st.Circuit.DeEmpR * mix;
-
-            st.ChorusWrite = (w + 1) & mask;
-        }
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static float ReadFrac(float[] buf, int writePos, float delaySamps, int mask)
-    {
-        float rd = writePos - delaySamps;
-        int i0 = (int)MathF.Floor(rd);
-        float frac = rd - i0;
-        float s0 = buf[i0 & mask];
-        float s1 = buf[(i0 + 1) & mask];
-        return s0 + (s1 - s0) * frac;
-    }
-
-    private static void ProcessPhaser(SlotDspState st, Span<float> bufL, Span<float> bufR, int n, int sr, float rateHz, float depthPct, float fbPct, float mixPct)
-    {
-        float rate = Math.Clamp(rateHz, 0.1f, 6.0f);
-        float depth = Math.Clamp(depthPct, 0f, 100f) / 100f;
-        float fb = Math.Clamp(fbPct, 0f, 80f) / 100f * 0.72f;
-        float mix = Math.Clamp(mixPct, 0f, 100f) / 100f;
-        float phaseInc = 2f * MathF.PI * rate / sr;
-
-        for (int i = 0; i < n; i++)
-        {
-            float lfo = 0.5f + 0.5f * MathF.Sin(st.LfoPhase);
-            st.LfoPhase += phaseInc;
-            if (st.LfoPhase > 2f * MathF.PI) st.LfoPhase -= 2f * MathF.PI;
-
-            float fHz = 240f + depth * 2200f * lfo;
-            float t = MathF.Tan(MathF.PI * MathF.Min(fHz, sr * 0.4f) / sr);
-            float a = (1f - t) / (1f + t);
-
-            float inL = bufL[i];
-            float yL = inL + st.PhaserFbL * fb;
-            yL = Allpass1(yL, a, ref st.Ap0L);
-            yL = Allpass1(yL, a, ref st.Ap1L);
-            yL = Allpass1(yL, a, ref st.Ap2L);
-            yL = Allpass1(yL, a, ref st.Ap3L);
-            st.PhaserFbL = yL;
-            bufL[i] = inL * (1f - mix * 0.5f) + yL * mix;
-
-            float inR = bufR[i];
-            float yR = inR + st.PhaserFbR * fb;
-            yR = Allpass1(yR, a, ref st.Ap0R);
-            yR = Allpass1(yR, a, ref st.Ap1R);
-            yR = Allpass1(yR, a, ref st.Ap2R);
-            yR = Allpass1(yR, a, ref st.Ap3R);
-            st.PhaserFbR = yR;
-            bufR[i] = inR * (1f - mix * 0.5f) + yR * mix;
-        }
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static float Allpass1(float x, float a, ref float z)
-    {
-        float y = -a * x + z;
-        z = x + a * y;
-        return y;
-    }
-
-    private static void ProcessTremolo(SlotDspState st, Span<float> bufL, Span<float> bufR, int n, int sr, float rateHz, float depthPct, float wave)
-    {
-        float rate = Math.Clamp(rateHz, 0.5f, 12.0f);
-        float depth = Math.Clamp(depthPct, 0f, 100f) / 100f;
-        float phaseInc = 2f * MathF.PI * rate / sr;
-        bool square = wave > 0.5f;
-        // Fender Blackface CdS 옵토커플러: 빠른 점등(attack 4ms), 느린 잔광(release 28ms)
-        float optoAtk = 1f - MathF.Exp(-1f / MathF.Max(1f, 0.004f * sr));
-        float optoRel = 1f - MathF.Exp(-1f / MathF.Max(1f, 0.028f * sr));
-
-        for (int i = 0; i < n; i++)
-        {
-            float s = MathF.Sin(st.LfoPhase);
-            st.LfoPhase += phaseInc;
-            if (st.LfoPhase > 2f * MathF.PI) st.LfoPhase -= 2f * MathF.PI;
-            float lamp = square ? (s >= 0f ? 1f : 0f) : (0.5f + 0.5f * s);
-            st.Circuit.OptoEnv += (lamp > st.Circuit.OptoEnv ? optoAtk : optoRel) * (lamp - st.Circuit.OptoEnv);
-            float g = 1f - depth + depth * st.Circuit.OptoEnv;
-            bufL[i] *= g;
-            bufR[i] *= g;
-        }
-    }
-
-    private static void ProcessDelay(StereoDelayLine dl, Span<float> bufL, Span<float> bufR, int n, int sr, float timeMs, float fbPct, float toneOrMod, float mixPct, bool isAnalog)
-    {
-        var bL = dl.BufL;
-        var bR = dl.BufR;
-        int len = bL.Length;
-        if (len == 0) return;
-
-        float delaySampsL = Math.Clamp(timeMs, 30f, 1400f) * 0.001f * sr;
-        float delaySampsR = isAnalog ? delaySampsL : Math.Clamp(delaySampsL * 0.75f, 30f * 0.001f * sr, len - 4);
-        float fb = Math.Clamp(fbPct, 0f, 88f) / 100f;
-        float mix = Math.Clamp(mixPct, 0f, 100f) / 100f;
-        float lpAlpha = isAnalog
-            ? 1f - MathF.Exp(-2f * MathF.PI * (900f + 3800f * Math.Clamp(toneOrMod / 100f, 0f, 1f)) / sr)
-            : 1f - MathF.Exp(-2f * MathF.PI * 8500f / sr);
-        float modDepth = isAnalog ? 0f : Math.Clamp(toneOrMod / 100f, 0f, 1f) * 0.0018f * sr;
-        float modInc = 2f * MathF.PI * 0.8f / sr;
-
-        for (int i = 0; i < n; i++)
-        {
-            float inL = bufL[i], inR = bufR[i];
-            int w = dl.WritePos;
-
-            float mod = modDepth > 0f ? MathF.Sin(dl.ModPhase) * modDepth : 0f;
-            dl.ModPhase += modInc;
-            if (dl.ModPhase > 2f * MathF.PI) dl.ModPhase -= 2f * MathF.PI;
-
-            float rL = ReadLinear(bL, w, delaySampsL + mod, len);
-            float rR = ReadLinear(bR, w, delaySampsR - mod, len);
-
-            dl.LpL += lpAlpha * (rL - dl.LpL);
-            dl.LpR += lpAlpha * (rR - dl.LpR);
-
-            float fbL = isAnalog ? FastTanh(dl.LpL * 1.15f) * fb : dl.LpR * fb; // Ping-pong for digital!
-            float fbR = isAnalog ? FastTanh(dl.LpR * 1.15f) * fb : dl.LpL * fb;
-
-            bL[w] = inL + fbL;
-            bR[w] = inR + fbR;
-
-            bufL[i] = inL + dl.LpL * mix;
-            bufR[i] = inR + dl.LpR * mix;
-
-            if (++w >= len) w = 0;
-            dl.WritePos = w;
-        }
-    }
-
-    // ── BOSS Pedals DSP Implementations (All Zero-Allocation) ──
-
-    private static void ProcessBossCs3(SlotDspState st, Span<float> bufL, Span<float> bufR, int n, int sr, float level, float attack, float sustain)
-    {
-        float susNorm = Math.Clamp(sustain, 0f, 10f) / 10f;
-        float thresh = MathF.Pow(10f, (-10f - 28f * susNorm) / 20f);
-        float ratio = 3.0f + 7.0f * susNorm;
-        float slope = 1f - 1f / ratio;
-        float atkMs = 1.5f + (10f - Math.Clamp(attack, 0f, 10f)) * 4.5f;
-        float atk = 1f - MathF.Exp(-1f / MathF.Max(1f, atkMs * 0.001f * sr));
-        float rel = 1f - MathF.Exp(-1f / MathF.Max(1f, (0.12f + 0.25f * susNorm) * sr));
-        float makeup = (0.45f + 2.0f * (Math.Clamp(level, 0f, 10f) / 10f)) * (1f + susNorm * 0.9f);
-
-        for (int i = 0; i < n; i++)
-        {
-            float l = bufL[i], r = bufR[i];
-            float peak = MathF.Max(MathF.Abs(l), MathF.Abs(r));
-            st.Env += (peak > st.Env ? atk : rel) * (peak - st.Env);
-            float gr = st.Env > thresh ? MathF.Pow(st.Env / MathF.Max(1e-6f, thresh), -slope) : 1f;
-            float g = gr * makeup;
-            bufL[i] = st.F0L.Process(l * g);
-            bufR[i] = st.F0R.Process(r * g);
-        }
-    }
-
-    private static void ProcessEq7(SlotDspState st, Span<float> bufL, Span<float> bufR, int n, float levelDb)
-    {
-        float gain = MathF.Pow(10f, Math.Clamp(levelDb, -15f, 15f) / 20f);
-        for (int i = 0; i < n; i++)
-        {
-            float l = st.F6L.Process(st.F5L.Process(st.F4L.Process(st.F3L.Process(st.F2L.Process(st.F1L.Process(st.F0L.Process(bufL[i]))))))) * gain;
-            float r = st.F6R.Process(st.F5R.Process(st.F4R.Process(st.F3R.Process(st.F2R.Process(st.F1R.Process(st.F0R.Process(bufR[i]))))))) * gain;
-            bufL[i] = l;
-            bufR[i] = r;
-        }
-    }
-
-    private static void ProcessBossDc2w(SlotDspState st, Span<float> bufL, Span<float> bufR, int n, int sr, float mode1to4, float mixPct)
-    {
-        // BOSS DC-2W Dimension C: 역위상 듀얼 MN3007 BBD + 컴팬더 프리/디엠퍼시스 + 모노 합산 위상 안전 설계
-        var cL = st.ChorusBufL;
-        var cR = st.ChorusBufR;
-        if (cL.Length == 0) return;
-        int mask = cL.Length - 1;
-
-        int mode = Math.Clamp((int)MathF.Round(mode1to4), 1, 4);
-        float rateHz = mode switch { 1 => 0.45f, 2 => 0.65f, 3 => 0.90f, _ => 1.25f };
-        float depthMs = mode switch { 1 => 1.1f, 2 => 1.8f, 3 => 2.6f, _ => 3.5f };
-        float baseMs = 5.2f;
-        float mix = Math.Clamp(mixPct, 0f, 100f) / 100f;
-        float inc = 2f * MathF.PI * rateHz / sr;
-        float bbdLpA = 1f - MathF.Exp(-2f * MathF.PI * 4200f / sr);
-
-        for (int i = 0; i < n; i++)
-        {
-            float inL = bufL[i], inR = bufR[i];
-            int w = st.ChorusWrite;
-
-            st.Circuit.PreEmpL += bbdLpA * (inL - st.Circuit.PreEmpL);
-            st.Circuit.PreEmpR += bbdLpA * (inR - st.Circuit.PreEmpR);
-            cL[w] = inL + (inL - st.Circuit.PreEmpL) * 0.35f;
-            cR[w] = inR + (inR - st.Circuit.PreEmpR) * 0.35f;
-
-            float tri = (2f / MathF.PI) * MathF.Asin(MathF.Sin(st.LfoPhase));
-            st.LfoPhase += inc;
-            if (st.LfoPhase > 2f * MathF.PI) st.LfoPhase -= 2f * MathF.PI;
-
-            float d1 = (baseMs + depthMs * tri) * 0.001f * sr;
-            float d2 = (baseMs - depthMs * tri) * 0.001f * sr;
-
-            float raw1 = ReadFrac(cL, w, d1, mask);
-            float raw2 = ReadFrac(cR, w, d2, mask);
-
-            st.Circuit.DeEmpL += bbdLpA * (raw1 - st.Circuit.DeEmpL);
-            st.Circuit.DeEmpR += bbdLpA * (raw2 - st.Circuit.DeEmpR);
-
-            // 동위상 크로스-믹스(w1 + 0.25*w2 / w2 + 0.25*w1) + 역방향 LFO:
-            // 스테레오에서는 풍성한 3D 공간감, 모노 합산 시에도 위상 상쇄 없음!
-            bufL[i] = inL * (1f - mix * 0.35f) + (st.Circuit.DeEmpL * 0.85f + st.Circuit.DeEmpR * 0.15f) * mix;
-            bufR[i] = inR * (1f - mix * 0.35f) + (st.Circuit.DeEmpR * 0.85f + st.Circuit.DeEmpL * 0.15f) * mix;
-
-            st.ChorusWrite = (w + 1) & mask;
-        }
-    }
-
-    private static void ProcessBossBf2(SlotDspState st, Span<float> bufL, Span<float> bufR, int n, int sr, float manual, float depthPct, float rateHz, float resPct)
-    {
-        // BOSS BF-2 Flanger: short BBD sweep (0.6ms .. 9ms) with resonant feedback
-        var cL = st.ChorusBufL;
-        var cR = st.ChorusBufR;
-        if (cL.Length == 0) return;
-        int mask = cL.Length - 1;
-
-        float baseMs = 0.7f + (Math.Clamp(manual, 0f, 10f) / 10f) * 4.5f;
-        float depthMs = 0.3f + (Math.Clamp(depthPct, 0f, 100f) / 100f) * 3.8f;
-        float rate = Math.Clamp(rateHz, 0.08f, 6.0f);
-        float res = (Math.Clamp(resPct, 0f, 90f) / 100f) * 0.78f;
-        float inc = 2f * MathF.PI * rate / sr;
-
-        for (int i = 0; i < n; i++)
-        {
-            float inL = bufL[i], inR = bufR[i];
-            int w = st.ChorusWrite;
-
-            float lfo = 0.5f + 0.5f * MathF.Sin(st.LfoPhase);
-            st.LfoPhase += inc;
-            if (st.LfoPhase > 2f * MathF.PI) st.LfoPhase -= 2f * MathF.PI;
-
-            float dSamps = (baseMs + depthMs * lfo) * 0.001f * sr;
-            float flL = ReadFrac(cL, w, dSamps, mask);
-            float flR = ReadFrac(cR, w, dSamps * 1.06f, mask);
-
-            cL[w] = inL + FastTanh(flL * 1.1f) * res;
-            cR[w] = inR + FastTanh(flR * 1.1f) * res;
-
-            bufL[i] = inL * 0.65f + flL * 0.65f;
-            bufR[i] = inR * 0.65f + flR * 0.65f;
-
-            st.ChorusWrite = (w + 1) & mask;
-        }
-    }
-
-    private static void ProcessJc120(SlotDspState st, Span<float> bufL, Span<float> bufR, int n, float volKnob, float masterKnob)
-    {
-        // Roland JC-120 Jazz Chorus: 진정한 스테레오 L/R 솔리드스테이트 하이-헤드룸 스튜디오 앰프
-        float v = 0.55f + 2.2f * (Math.Clamp(volKnob, 0f, 10f) / 10f);
-        float m = 0.35f + 1.45f * (Math.Clamp(masterKnob, 0f, 10f) / 10f);
-        for (int i = 0; i < n; i++)
-        {
-            float xL = st.F3L.Process(bufL[i]) * v;
-            float eqL = st.F2L.Process(st.F1L.Process(st.F0L.Process(xL)));
-            bufL[i] = FastTanh(eqL * 0.55f) / 0.55f * m;
-
-            float xR = st.F3R.Process(bufR[i]) * v;
-            float eqR = st.F2R.Process(st.F1R.Process(st.F0R.Process(xR)));
-            bufR[i] = FastTanh(eqR * 0.55f) / 0.55f * m;
-        }
-    }
-
-    // ── Public Schematic Modulation / Wah / Compressor DSP (Zero-Allocation) ──
-
-    private static void ProcessOrangeSqueezer(SlotDspState st, Span<float> bufL, Span<float> bufR, int n, int sr, float outputKnob, float biasOrSquash, float mixPct)
-    {
-        // Dan Armstrong Orange Squeezer: 2N5457 JFET + 4558 반파 Ge 정류 전압더블러 컴프레서
-        float squash = 0.3f + 0.7f * (Math.Clamp(biasOrSquash, 0f, 10f) / 10f);
-        float thresh = MathF.Pow(10f, (-12f - 22f * squash) / 20f);
-        float compSlope = 1f - 1f / (4.5f + 5.5f * squash);
-        float outG = 0.50f + 2.15f * (Math.Clamp(outputKnob, 0f, 10f) / 10f);
-        float mix = Math.Clamp(mixPct, 0f, 100f) / 100f;
-
-        float atk = 1f - MathF.Exp(-1f / MathF.Max(1f, 0.0025f * sr)); // 빠른 어택 (2.5ms)
-        float rel = 1f - MathF.Exp(-1f / MathF.Max(1f, 0.095f * sr));  // 펀치감 있는 릴리즈
-
-        for (int i = 0; i < n; i++)
-        {
-            float inL = bufL[i], inR = bufR[i];
-            // 반파 정류 엔벨로프 검출 (Orange Squeezer 특유의 비대칭 펌핑)
-            float halfRect = MathF.Max(0f, MathF.Max(inL, inR));
-            st.Env += (halfRect > st.Env ? atk : rel) * (halfRect - st.Env);
-            float gr = st.Env > thresh ? MathF.Pow(st.Env / MathF.Max(1e-6f, thresh), -compSlope) : 1f;
-
-            // 2N5457 JFET 미세 2차 고조파 온기
-            float sL = inL * gr * 1.35f;
-            float sR = inR * gr * 1.35f;
-            float jL = (sL >= 0f ? FastTanh(sL * 0.75f) / 0.75f : FastTanh(sL * 0.92f) / 0.92f);
-            float jR = (sR >= 0f ? FastTanh(sR * 0.75f) / 0.75f : FastTanh(sR * 0.92f) / 0.92f);
-
-            float wL = st.F0L.Process(jL) * outG;
-            float wR = st.F0R.Process(jR) * outG;
-            bufL[i] = inL * (1f - mix) + wL * mix;
-            bufR[i] = inR * (1f - mix) + wR * mix;
-        }
-    }
-
-    private static void ProcessCryBabyWah(SlotDspState st, Span<float> bufL, Span<float> bufR, int n, int sr, float pedalPct, float envPct, float qKnob, float mixPct)
-    {
-        // Dunlop Cry Baby GCB-95: 500mH Fasel/Halo 인덕터 자이레이터 공진 피크 (350Hz..2200Hz)
-        float pedal = Math.Clamp(pedalPct, 0f, 100f) / 100f;
-        float autoSens = Math.Clamp(envPct, 0f, 100f) / 100f;
-        float q = 2.2f + 2.8f * (Math.Clamp(qKnob, 0f, 10f) / 10f);
-        float mix = Math.Clamp(mixPct, 0f, 100f) / 100f;
-
-        float atk = 1f - MathF.Exp(-1f / MathF.Max(1f, 0.006f * sr));
-        float rel = 1f - MathF.Exp(-1f / MathF.Max(1f, 0.140f * sr));
-
-        for (int i = 0; i < n; i++)
-        {
-            float inL = bufL[i], inR = bufR[i];
-            float absIn = MathF.Max(MathF.Abs(inL), MathF.Abs(inR));
-            st.Env += (absIn > st.Env ? atk : rel) * (absIn - st.Env);
-
-            if ((i & 15) == 0)
-            {
-                float sweep = Math.Clamp(pedal + autoSens * MathF.Min(1f, st.Env * 4.5f), 0f, 1f);
-                if (i == 0 || MathF.Abs(sweep - st.Circuit.DynBias1) > 1e-4f)
-                {
-                    st.Circuit.DynBias1 = sweep;
-                    // 지수 주파수 매핑: 360Hz * (2160 / 360)^sweep
-                    double fc = 360.0 * Math.Pow(6.0, sweep);
-                    st.F0L.SetPeaking(sr, fc, q, 13.5);
-                    st.F0R.CopyCoeffsFrom(in st.F0L);
-                }
-            }
-
-            float wL = st.F0L.Process(inL) * 0.62f;
-            float wR = st.F0R.Process(inR) * 0.62f;
-            bufL[i] = inL * (1f - mix) + wL * mix;
-            bufR[i] = inR * (1f - mix) + wR * mix;
-        }
-    }
-
-    private static void ProcessSmallClone(SlotDspState st, Span<float> bufL, Span<float> bufR, int n, int sr, float rateHz, float deepSwitch, float mixPct)
-    {
-        // EHX Small Clone (4600): MN3007 BBD 코러스 + 3.2kHz Sallen-Key 안티앨리어싱 LPF + Deep 스위치
-        var cL = st.ChorusBufL;
-        var cR = st.ChorusBufR;
-        if (cL.Length == 0) return;
-        int mask = cL.Length - 1;
-
-        float rate = Math.Clamp(rateHz, 0.1f, 5.5f);
-        bool deep = deepSwitch > 0.5f;
-        float baseMs = deep ? 6.8f : 4.6f;
-        float depthMs = deep ? 4.8f : 2.3f;
-        float mix = Math.Clamp(mixPct, 0f, 100f) / 100f;
-        float phaseInc = 2f * MathF.PI * rate / sr;
-        float bbdLpA = 1f - MathF.Exp(-2f * MathF.PI * 3200f / sr);
-
-        for (int i = 0; i < n; i++)
-        {
-            float inL = bufL[i], inR = bufR[i];
-            int w = st.ChorusWrite;
-
-            st.Circuit.PreEmpL += bbdLpA * (inL - st.Circuit.PreEmpL);
-            st.Circuit.PreEmpR += bbdLpA * (inR - st.Circuit.PreEmpR);
-            cL[w] = inL + (inL - st.Circuit.PreEmpL) * 0.42f;
-            cR[w] = inR + (inR - st.Circuit.PreEmpR) * 0.42f;
-
-            float triL = (2f / MathF.PI) * MathF.Asin(MathF.Sin(st.LfoPhase));
-            float triR = (2f / MathF.PI) * MathF.Asin(MathF.Sin(st.LfoPhase + MathF.PI * 0.45f));
-            st.LfoPhase += phaseInc;
-            if (st.LfoPhase > 2f * MathF.PI) st.LfoPhase -= 2f * MathF.PI;
-
-            float rawL = ReadFrac(cL, w, (baseMs + depthMs * triL) * 0.001f * sr, mask);
-            float rawR = ReadFrac(cR, w, (baseMs + depthMs * triR) * 0.001f * sr, mask);
-
-            st.Circuit.DeEmpL += bbdLpA * (rawL - st.Circuit.DeEmpL);
-            st.Circuit.DeEmpR += bbdLpA * (rawR - st.Circuit.DeEmpR);
-
-            bufL[i] = inL * (1f - mix * 0.45f) + st.Circuit.DeEmpL * mix;
-            bufR[i] = inR * (1f - mix * 0.45f) + st.Circuit.DeEmpR * mix;
-            st.ChorusWrite = (w + 1) & mask;
-        }
-    }
-
-    private static void ProcessUniVibe(SlotDspState st, Span<float> bufL, Span<float> bufR, int n, int sr, float speedHz, float intensityPct, float vibratoMode)
-    {
-        // Shin-ei Uni-Vibe (1968): 4단 비대칭 스태거드 커패시터 페이즈 시프터 + CdS 램프/포토셀 열관성 스로브
-        float rate = Math.Clamp(speedHz, 0.2f, 8.0f);
-        float intensity = Math.Clamp(intensityPct, 0f, 100f) / 100f;
-        bool isVibrato = vibratoMode > 0.5f;
-        float phaseInc = 2f * MathF.PI * rate / sr;
-
-        // CdS 램프 열관성 비대칭 응답 (점등 10ms, 잔광 42ms -> Uni-Vibe 특유의 맥박 치는 '스롭' 파형)
-        float lampAtk = 1f - MathF.Exp(-1f / MathF.Max(1f, 0.010f * sr));
-        float lampRel = 1f - MathF.Exp(-1f / MathF.Max(1f, 0.042f * sr));
-
-        for (int i = 0; i < n; i++)
-        {
-            float sine = 0.5f + 0.5f * MathF.Sin(st.LfoPhase);
-            st.LfoPhase += phaseInc;
-            if (st.LfoPhase > 2f * MathF.PI) st.LfoPhase -= 2f * MathF.PI;
-
-            st.Circuit.OptoEnv += (sine > st.Circuit.OptoEnv ? lampAtk : lampRel) * (sine - st.Circuit.OptoEnv);
-            float fBase = 160f + intensity * 1450f * st.Circuit.OptoEnv;
-
-            // 4단 스태거드(비균등) 주파수 비율: 0.45x, 0.88x, 1.45x, 2.25x (Phase 90과 다른 보컬형 노치 간격)
-            float a0 = CalcAp1(fBase * 0.45f, sr);
-            float a1 = CalcAp1(fBase * 0.88f, sr);
-            float a2 = CalcAp1(fBase * 1.45f, sr);
-            float a3 = CalcAp1(fBase * 2.25f, sr);
-
-            float inL = bufL[i];
-            float yL = Allpass1(inL + st.PhaserFbL * 0.25f, a0, ref st.Ap0L);
-            yL = Allpass1(yL, a1, ref st.Ap1L);
-            yL = Allpass1(yL, a2, ref st.Ap2L);
-            yL = Allpass1(yL, a3, ref st.Ap3L);
-            st.PhaserFbL = yL;
-            bufL[i] = isVibrato ? yL : (inL * 0.52f + yL * 0.52f);
-
-            float inR = bufR[i];
-            float yR = Allpass1(inR + st.PhaserFbR * 0.25f, a0, ref st.Ap0R);
-            yR = Allpass1(yR, a1, ref st.Ap1R);
-            yR = Allpass1(yR, a2, ref st.Ap2R);
-            yR = Allpass1(yR, a3, ref st.Ap3R);
-            st.PhaserFbR = yR;
-            bufR[i] = isVibrato ? yR : (inR * 0.52f + yR * 0.52f);
-        }
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static float CalcAp1(float fHz, int sr)
-    {
-        float t = MathF.Tan(MathF.PI * MathF.Min(fHz, sr * 0.4f) / sr);
-        return (1f - t) / (1f + t);
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static float ReadLinear(float[] buf, int writePos, float delaySamps, int len)
-    {
-        float rd = writePos - delaySamps;
-        while (rd < 0f) rd += len;
-        int i0 = (int)rd;
-        if (i0 >= len) i0 -= len;
-        int i1 = i0 + 1;
-        if (i1 >= len) i1 = 0;
-        float frac = rd - (int)rd;
-        return buf[i0] + (buf[i1] - buf[i0]) * frac;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static float FastTanh(float x)
-    {
-        if (x < -4.5f) return -1f;
-        if (x > 4.5f) return 1f;
-        float x2 = x * x;
-        return x * (27f + x2) / (27f + 9f * x2);
+            0 => (3200.0, 1.10, 3.6),   // SM57: aggressive upper-mid bite
+            1 => (4100.0, 0.90, -2.6),  // R121: warm smooth ribbon
+            2 => (6200.0, 0.85, 2.8),   // C414: airy condenser top
+            3 => (2300.0, 1.00, 2.4),   // MD421: tight mid punch
+            4 => (3600.0, 0.95, -1.5),  // M160: focused ribbon
+            5 => (1950.0, 0.85, 2.0),   // SM7B: smooth midrange presence
+            _ => (3200.0, 1.00, 0.0),
+        };
+        f1L.SetPeaking(sr, midHz, midQ, midDb);
+        f1R.CopyCoeffsFrom(in f1L);
+
+        // Cap Center (11 kHz) -> Cone Edge (2.8 kHz) + distance air damping
+        double offAxisHz = 11000.0 - x * 8200.0 - d * 1400.0;
+        if (isRibbon) offAxisHz *= 0.84;
+        f2L.SetLowPass(sr, Math.Clamp(offAxisHz, 1800.0, 14000.0), 0.707);
+        f2R.CopyCoeffsFrom(in f2L);
     }
 }

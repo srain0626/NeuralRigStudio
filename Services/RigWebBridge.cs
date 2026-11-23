@@ -50,8 +50,10 @@ public sealed class RigWebBridge : IDisposable
     private readonly Action<string> _sendJson;
     private readonly AntigravityToneArchitect _toneArchitect = new();
     private readonly GuitarAnalyzer _guitarAnalyzer = new();
+    private readonly MidiRouter _midi = new();
     private readonly float[] _guitarChunk = new float[4096];
     private long _guitarDryCursor = -1;
+    private long _lastMidiUiBroadcastTick;
     private readonly CancellationTokenSource _mcpCts = new();
 
     private AppSettings _settings;
@@ -76,6 +78,9 @@ public sealed class RigWebBridge : IDisposable
         _sendJson = sendJson;
 
         _router.Log += msg => EmitLog($"[오디오] {msg}");
+        _midi.Log += msg => EmitLog(msg);
+        _midi.BindingLearned += OnMidiBindingLearned;
+        _midi.MidiReceived += OnMidiEventReceived;
         _router.StateChanged += s => EmitEvent("audioState", new { isRunning = _router.IsRunning, busy = _audioBusy, state = s });
         _router.StoppedUnexpectedly += reason =>
         {
@@ -131,6 +136,7 @@ public sealed class RigWebBridge : IDisposable
     private void LoadInitialState()
     {
         _models = ToneProfileStore.LoadAll();
+        _router.Tone.SetModelLibrary(_models);
         ToneProfile? selected = null;
         if (!string.IsNullOrEmpty(_settings.SelectedToneId))
             selected = _models.FirstOrDefault(t => t.Id == _settings.SelectedToneId);
@@ -155,7 +161,17 @@ public sealed class RigWebBridge : IDisposable
         _settings.SignalChain ??= new SignalChainConfigDto();
         _settings.SavedPresets ??= new List<SignalChainConfigDto>();
         _settings.GuitarProfiles ??= new List<GuitarProfileDto>();
+        _settings.MidiBindings ??= new List<MidiBindingDto>();
         _router.Tone.Chain.UpdateChain(_settings.SignalChain);
+
+        if (!string.IsNullOrWhiteSpace(_settings.MidiInputName))
+            _midi.Connect(_settings.MidiInputName);
+        else
+        {
+            var firstMidi = MidiRouter.GetDeviceNames().FirstOrDefault();
+            if (!string.IsNullOrWhiteSpace(firstMidi) && _midi.Connect(firstMidi))
+                _settings.MidiInputName = firstMidi;
+        }
 
         int initMode = Math.Clamp(_settings.ToneMode, 0, 6);
         if (selected is null && (initMode == (int)ToneMode.FullRig || initMode == (int)ToneMode.AmpHeadOnly))
@@ -173,11 +189,20 @@ public sealed class RigWebBridge : IDisposable
         {
             try
             {
-                var gp100 = AudioRouter.GetDriverNames().FirstOrDefault(IsValetonGp100Driver);
-                if (gp100 != null)
+                var drivers = AudioRouter.GetDriverNames();
+                var preferred = drivers.FirstOrDefault(IsValetonGp100Driver)
+                             ?? drivers.FirstOrDefault(IsGuitarInterfaceDriver);
+                if (preferred != null)
                 {
-                    _settings.InputDriver = gp100;
-                    if (_settings.ChannelMode == 0) _settings.ChannelMode = 1;
+                    _settings.InputKind = "ASIO";
+                    _settings.InputDriver = preferred;
+                    if (_settings.ChannelMode == 0 && IsValetonGp100Driver(preferred))
+                        _settings.ChannelMode = 1;
+                    _settings.Save();
+                }
+                else if (drivers.Length == 0)
+                {
+                    _settings.InputKind = "WASAPI";
                     _settings.Save();
                 }
             }
@@ -195,15 +220,20 @@ public sealed class RigWebBridge : IDisposable
     {
         if (string.IsNullOrWhiteSpace(name)) return false;
         if (IsValetonGp100Driver(name)) return true;
-        return name.Contains("Focusrite", StringComparison.OrdinalIgnoreCase)
-            || name.Contains("Steinberg", StringComparison.OrdinalIgnoreCase)
-            || name.Contains("Universal Audio", StringComparison.OrdinalIgnoreCase)
-            || name.Contains("Audient", StringComparison.OrdinalIgnoreCase)
-            || name.Contains("MOTU", StringComparison.OrdinalIgnoreCase)
-            || name.Contains("Roland", StringComparison.OrdinalIgnoreCase)
-            || name.Contains("BOSS", StringComparison.OrdinalIgnoreCase)
-            || name.Contains("Line 6", StringComparison.OrdinalIgnoreCase)
-            || name.Contains("Neural", StringComparison.OrdinalIgnoreCase);
+        string[] keywords =
+        {
+            "Focusrite", "Scarlett", "Steinberg", "Yamaha", "Universal Audio", "Volt",
+            "Audient", "MOTU", "Roland", "BOSS", "Line 6", "Helix", "Neural",
+            "PreSonus", "Behringer", "M-Audio", "SSL", "RME", "Arturia", "IK Multimedia",
+            "Zoom", "Mooer", "NUX", "Hotone", "Ampero", "Rocksmith", "Guitar",
+            "ASIO4ALL", "FlexASIO", "USB Audio"
+        };
+        for (int i = 0; i < keywords.Length; i++)
+        {
+            if (name.Contains(keywords[i], StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 
     public void EmitTelemetryTick()
@@ -317,6 +347,12 @@ public sealed class RigWebBridge : IDisposable
                 "deleteGuitarProfile" => DeleteGuitarProfile(GetStr(payload, "id")),
                 "applyGuitarCalibration" => ApplyGuitarCalibration(GetStr(payload, "id")),
                 "setTunerConfig" => SetTunerConfig(payload),
+                "generateAiTone" => GenerateAiToneFromUi(payload),
+                "refreshMidiDevices" => BuildMidiSnapshot(),
+                "selectMidiDevice" => SelectMidiDevice(GetStr(payload, "deviceName")),
+                "startMidiLearn" => StartMidiLearn(payload),
+                "cancelMidiLearn" => CancelMidiLearn(),
+                "clearMidiBinding" => ClearMidiBinding(payload),
                 _ => throw new InvalidOperationException($"알 수 없는 액션: {action}"),
             };
 
@@ -352,6 +388,7 @@ public sealed class RigWebBridge : IDisposable
             tunerMute = _router.TunerMute,
             tunerRefA4Hz = _visualizer.TunerRefA4Hz,
             backing = _router.GetBackingState(),
+            midi = BuildMidiSnapshot(),
             isAudioRunning = _router.IsRunning,
         };
     }
@@ -366,15 +403,39 @@ public sealed class RigWebBridge : IDisposable
             .ToArray();
 
         var wasapi = new List<object> { new { id = "", label = "시스템 기본 출력 장치" } };
+        var wasapiInputs = new List<object> { new { id = "", label = "시스템 기본 입력 장치 (자동)" } };
         try
         {
             var en = new MMDeviceEnumerator();
-            string defaultId = "";
-            try { defaultId = en.GetDefaultAudioEndpoint(DataFlow.Render, Role.Console).ID; } catch { }
+            string defaultRenderId = "";
+            try { defaultRenderId = en.GetDefaultAudioEndpoint(DataFlow.Render, Role.Console).ID; } catch { }
             foreach (var d in en.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active))
             {
-                string label = d.FriendlyName + (d.ID == defaultId ? " (기본)" : "");
+                string label = d.FriendlyName + (d.ID == defaultRenderId ? " (기본)" : "");
                 wasapi.Add(new { id = d.ID, label });
+            }
+
+            string defaultCapId = "";
+            try { defaultCapId = en.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Console).ID; } catch { }
+            var capEndpoints = en.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active)
+                .OrderByDescending(d => IsValetonGp100Driver(d.FriendlyName))
+                .ThenByDescending(d => IsGuitarInterfaceDriver(d.FriendlyName))
+                .ThenByDescending(d => d.ID == defaultCapId)
+                .ThenBy(d => d.FriendlyName, StringComparer.OrdinalIgnoreCase);
+            foreach (var d in capEndpoints)
+            {
+                int ch = 2;
+                int sr = 48000;
+                try
+                {
+                    using var ac = d.CreateAudioClient();
+                    var mix = ac.MixFormat;
+                    ch = mix.Channels;
+                    sr = mix.SampleRate;
+                }
+                catch { }
+                string suffix = d.ID == defaultCapId ? $" (기본 · {ch}ch {sr / 1000.0:0.#}kHz)" : $" ({ch}ch {sr / 1000.0:0.#}kHz)";
+                wasapiInputs.Add(new { id = d.ID, label = d.FriendlyName + suffix, channels = ch, sampleRate = sr });
             }
         }
         catch (Exception ex)
@@ -383,8 +444,8 @@ public sealed class RigWebBridge : IDisposable
         }
 
         string? initialDriver = !string.IsNullOrEmpty(_settings.InputDriver) && sortedDrivers.Contains(_settings.InputDriver)
-            ? (_settings.InputDriver.Contains("Realtek", StringComparison.OrdinalIgnoreCase) && sortedDrivers.Any(IsValetonGp100Driver)
-                ? sortedDrivers.First(IsValetonGp100Driver)
+            ? (_settings.InputDriver.Contains("Realtek", StringComparison.OrdinalIgnoreCase) && sortedDrivers.Any(IsGuitarInterfaceDriver)
+                ? sortedDrivers.First(IsGuitarInterfaceDriver)
                 : _settings.InputDriver)
             : sortedDrivers.FirstOrDefault();
 
@@ -396,6 +457,7 @@ public sealed class RigWebBridge : IDisposable
         {
             asioDrivers = sortedDrivers,
             wasapiDevices = wasapi,
+            wasapiInputDevices = wasapiInputs,
             initialDriver,
             initialCaps,
         };
@@ -464,35 +526,64 @@ public sealed class RigWebBridge : IDisposable
         _panelDev?.Dispose();
         _panelDev = null;
 
-        string? inputDriver = GetStr(payload, "inputDriver");
-        if (string.IsNullOrWhiteSpace(inputDriver)
-            || inputDriver.Contains("Realtek", StringComparison.OrdinalIgnoreCase))
+        string reqInputKind = (GetStr(payload, "inputKind") ?? _settings.InputKind ?? "ASIO").Trim().ToUpperInvariant();
+        bool useWasapiIn = reqInputKind == "WASAPI";
+
+        string? inputDriver = GetStr(payload, "inputDriver") ?? _settings.InputDriver;
+        string? wasapiInId = GetStr(payload, "wasapiInputDeviceId") ?? _settings.WasapiInputDeviceId;
+        if (string.IsNullOrWhiteSpace(wasapiInId)) wasapiInId = null;
+        bool wasapiInExcl = GetBool(payload, "wasapiInputExclusive", _settings.WasapiInputExclusive);
+        bool wasapiInRaw = GetBool(payload, "wasapiInputRaw", _settings.WasapiInputRaw);
+
+        if (!useWasapiIn)
         {
-            var gp100 = AudioRouter.GetDriverNames().FirstOrDefault(IsValetonGp100Driver);
-            if (gp100 != null)
+            var allAsio = AudioRouter.GetDriverNames();
+            if (string.IsNullOrWhiteSpace(inputDriver)
+                || inputDriver.Contains("Realtek", StringComparison.OrdinalIgnoreCase))
             {
-                if (string.IsNullOrWhiteSpace(inputDriver))
-                    EmitLog($"[GP-100] 자동 감지됨: '{gp100}' 우선 연결");
-                else
-                    EmitLog($"[GP-100] '{inputDriver}' 대신 연결된 '{gp100}' 우선 선택");
-                inputDriver = gp100;
+                var preferred = allAsio.FirstOrDefault(IsValetonGp100Driver)
+                             ?? allAsio.FirstOrDefault(IsGuitarInterfaceDriver);
+                if (preferred != null)
+                {
+                    if (!string.Equals(inputDriver, preferred, StringComparison.OrdinalIgnoreCase))
+                        EmitLog($"[오디오] 외부 인터페이스 감지됨: '{preferred}' 자동 선택");
+                    inputDriver = preferred;
+                }
+                else if (string.IsNullOrWhiteSpace(inputDriver))
+                {
+                    inputDriver = allAsio.FirstOrDefault();
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(inputDriver))
+            {
+                EmitLog("[범용 입력] 설치된 ASIO 드라이버가 없어 범용 Windows 입력(WASAPI) 모드로 전환합니다.");
+                useWasapiIn = true;
+                reqInputKind = "WASAPI";
             }
         }
-        if (string.IsNullOrWhiteSpace(inputDriver))
-            throw new InvalidOperationException("ASIO 입력 드라이버를 선택하세요.");
 
-        int channelMode = GetInt(payload, "channelMode", 1);
-        int bufSize = GetInt(payload, "asioInBufferSize", 0);
-        string outputKind = GetStr(payload, "outputKind") ?? "WASAPI";
-        bool exclusive = GetBool(payload, "wasapiExclusive", false);
-        string? wasapiId = GetStr(payload, "wasapiDeviceId");
+        int channelMode = GetInt(payload, "channelMode", _settings.ChannelMode);
+        int channelOffset = Math.Max(0, GetInt(payload, "inputChannelOffset", _settings.InputChannelOffset));
+        int bufSize = GetInt(payload, "asioInBufferSize", _settings.AsioInBufferSize);
+        string outputKind = GetStr(payload, "outputKind") ?? _settings.OutputKind ?? "WASAPI";
+        if (useWasapiIn && string.Equals(outputKind, "ASIO_DUPLEX", StringComparison.OrdinalIgnoreCase))
+            outputKind = "WASAPI";
+
+        bool exclusive = GetBool(payload, "wasapiExclusive", _settings.WasapiExclusive);
+        string? wasapiId = GetStr(payload, "wasapiDeviceId") ?? _settings.WasapiDeviceId;
         if (string.IsNullOrWhiteSpace(wasapiId)) wasapiId = null;
-        string? asioOutDriver = GetStr(payload, "asioOutDriver");
-        int presetIdx = Math.Clamp(GetInt(payload, "presetIndex", 1), 0, Presets.Length - 1);
+        string? asioOutDriver = GetStr(payload, "asioOutDriver") ?? _settings.AsioOutDriver;
+        int presetIdx = Math.Clamp(GetInt(payload, "presetIndex", _settings.PresetIndex), 0, Presets.Length - 1);
         var preset = Presets[presetIdx];
 
-        _settings.InputDriver = inputDriver;
+        _settings.InputKind = useWasapiIn ? "WASAPI" : "ASIO";
+        if (!string.IsNullOrWhiteSpace(inputDriver)) _settings.InputDriver = inputDriver;
+        _settings.WasapiInputDeviceId = wasapiInId;
+        _settings.WasapiInputExclusive = wasapiInExcl;
+        _settings.WasapiInputRaw = wasapiInRaw;
         _settings.ChannelMode = channelMode;
+        _settings.InputChannelOffset = channelOffset;
         _settings.AsioInBufferSize = bufSize;
         _settings.OutputKind = outputKind;
         _settings.WasapiExclusive = exclusive;
@@ -505,19 +596,24 @@ public sealed class RigWebBridge : IDisposable
             : string.Equals(outputKind, "ASIO", StringComparison.OrdinalIgnoreCase)
                 ? OutputKind.AsioOut
                 : OutputKind.Wasapi;
-        bool isAnyAsio = kind != OutputKind.Wasapi;
+        bool isAnyAsioOut = kind != OutputKind.Wasapi;
 
         var cfg = new RouterConfig
         {
-            InputDriver = inputDriver,
+            InputKind = useWasapiIn ? InputBackendKind.Wasapi : InputBackendKind.Asio,
+            InputDriver = inputDriver ?? "",
+            WasapiInDeviceId = wasapiInId,
+            WasapiInExclusive = wasapiInExcl,
+            WasapiInRaw = wasapiInRaw,
             ChannelMode = channelMode,
+            InputChannelOffset = channelOffset,
             AsioInBufferSize = bufSize,
             Kind = kind,
             Exclusive = exclusive,
             WasapiDeviceId = wasapiId,
             AsioOutDriver = asioOutDriver,
             RingTargetMs = kind == OutputKind.AsioDirectDuplex ? 0 : preset.RingMs,
-            WasapiLatencyMs = isAnyAsio ? 0 : (exclusive ? preset.ExclMs : preset.SharedMs),
+            WasapiLatencyMs = isAnyAsioOut && !useWasapiIn ? 0 : (exclusive ? preset.ExclMs : preset.SharedMs),
         };
 
         _audioBusy = true;
@@ -528,30 +624,53 @@ public sealed class RigWebBridge : IDisposable
             {
                 await _router.StartAsync(cfg);
             }
-            catch (Exception ex) when (!IsValetonGp100Driver(inputDriver) && inputDriver.Contains("Realtek", StringComparison.OrdinalIgnoreCase))
+            catch (Exception ex) when (!useWasapiIn && !IsValetonGp100Driver(inputDriver) && (inputDriver ?? "").Contains("Realtek", StringComparison.OrdinalIgnoreCase))
             {
-                var gp100 = AudioRouter.GetDriverNames().FirstOrDefault(IsValetonGp100Driver);
-                if (gp100 is null) throw;
-                EmitLog($"[GP-100] '{inputDriver}' 시작 실패({ex.Message}) → '{gp100}'로 자동 전환 시도");
-                inputDriver = gp100;
-                cfg.InputDriver = gp100;
-                _settings.InputDriver = gp100;
-                await _router.StartAsync(cfg);
+                var altAsio = AudioRouter.GetDriverNames().FirstOrDefault(IsValetonGp100Driver)
+                           ?? AudioRouter.GetDriverNames().FirstOrDefault(d => !d.Contains("Realtek", StringComparison.OrdinalIgnoreCase));
+                if (altAsio != null)
+                {
+                    EmitLog($"[자동 전환] '{inputDriver}' 실패({ex.Message}) → '{altAsio}' ASIO 드라이버로 재시도");
+                    inputDriver = altAsio;
+                    cfg.InputDriver = altAsio;
+                    _settings.InputDriver = altAsio;
+                    await _router.StartAsync(cfg);
+                }
+                else
+                {
+                    EmitLog($"[범용 폴백] '{inputDriver}' ASIO 시작 실패({ex.Message}) → 범용 Windows 입력(WASAPI) 모드로 자동 전환");
+                    useWasapiIn = true;
+                    cfg.InputKind = InputBackendKind.Wasapi;
+                    cfg.Kind = kind == OutputKind.AsioDirectDuplex ? OutputKind.Wasapi : kind;
+                    cfg.RingTargetMs = preset.RingMs;
+                    cfg.WasapiLatencyMs = exclusive ? preset.ExclMs : preset.SharedMs;
+                    _settings.InputKind = "WASAPI";
+                    if (cfg.Kind == OutputKind.Wasapi) _settings.OutputKind = "WASAPI";
+                    await _router.StartAsync(cfg);
+                }
             }
 
             _settings.Save();
             SyncVisualizerCabIr();
-            string okText = kind == OutputKind.AsioDirectDuplex
-                ? "ASIO 직결 풀듀플렉스 초저지연 모니터링 중"
-                : "실시간 저지연 모니터링 중";
+            string okText = useWasapiIn
+                ? "실시간 범용 입력(WASAPI) 모니터링 중"
+                : cfg.Kind == OutputKind.AsioDirectDuplex
+                    ? "ASIO 직결 풀듀플렉스 초저지연 모니터링 중"
+                    : "실시간 ASIO 저지연 모니터링 중";
             EmitEvent("audioState", new { isRunning = true, busy = false, state = okText });
-            return new { isRunning = true, inputDriver };
+            return new
+            {
+                isRunning = true,
+                inputKind = useWasapiIn ? "WASAPI" : "ASIO",
+                inputDriver = inputDriver ?? "",
+                outputKind = _settings.OutputKind,
+            };
         }
         catch (Exception ex)
         {
             EmitEvent("audioState", new { isRunning = false, busy = false, state = "시작 실패" });
-            if (IsValetonGp100Driver(inputDriver))
-                throw new InvalidOperationException($"Valeton GP-100 ({inputDriver}) 연결 실패: GP-100 전원이 켜져 있고 USB 케이블이 PC에 연결되어 있는지 확인하세요. ({ex.Message})", ex);
+            if (!useWasapiIn && IsValetonGp100Driver(inputDriver))
+                throw new InvalidOperationException($"Valeton GP-100 ({inputDriver}) 연결 실패: GP-100 전원이 켜져 있고 USB 케이블이 연결되어 있는지 확인하거나, '범용 Windows 입력(WASAPI)' 탭으로 전환해 보세요. ({ex.Message})", ex);
             throw;
         }
         finally
@@ -761,7 +880,8 @@ public sealed class RigWebBridge : IDisposable
         bool autoSave = GetBool(args, "autoSave", true);
 
         var curChain = _router.Tone.Chain.GetConfigSnapshot();
-        var res = _toneArchitect.GenerateViaBuiltinArchitect(prompt, curChain);
+        var activeGuitar = GetActiveGuitarProfile();
+        var res = _toneArchitect.GenerateViaBuiltinArchitect(prompt, curChain, activeGuitar);
         ApplyAndBroadcastMcpChain(res.Chain, autoSave, $"{res.PresetName} — {res.Summary}");
         return new { result = res, savedPresets = _settings.SavedPresets ?? new List<SignalChainConfigDto>() };
     }
@@ -789,10 +909,13 @@ public sealed class RigWebBridge : IDisposable
         bool? enabled = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("enabled", out var eEl) && (eEl.ValueKind == JsonValueKind.True || eEl.ValueKind == JsonValueKind.False)
             ? eEl.GetBoolean()
             : null;
+        int? syncDiv = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("syncDivision", out var sdEl) && sdEl.TryGetInt32(out int sdi)
+            ? sdi
+            : null;
         JsonElement paramsEl = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("params", out var pEl) ? pEl : default;
 
         var cur = _router.Tone.Chain.GetConfigSnapshot();
-        var updated = AntigravityToneArchitect.ApplySlotEdit(cur, slotIndex, modelId, enabled, paramsEl);
+        var updated = AntigravityToneArchitect.ApplySlotEdit(cur, slotIndex, modelId, enabled, paramsEl, syncDiv);
         ApplyAndBroadcastMcpChain(updated, autoSave: false, $"슬롯 #{slotIndex + 1} 실시간 수정 완료");
         return new { slotIndex, signalChain = updated };
     }
@@ -808,11 +931,14 @@ public sealed class RigWebBridge : IDisposable
         float? parallelMix = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("parallelMix", out var pEl) && pEl.TryGetSingle(out float pm)
             ? pm
             : null;
+        float? tempoBpm = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("tempoBpm", out var tEl) && tEl.TryGetSingle(out float tb)
+            ? tb
+            : null;
 
         var cur = _router.Tone.Chain.GetConfigSnapshot();
-        var updated = AntigravityToneArchitect.SwitchScene(cur, sceneIdx, routingMode, parallelMix);
-        ApplyAndBroadcastMcpChain(updated, autoSave: false, $"Scene {((char)('A' + updated.ActiveScene))} / {(updated.RoutingMode == 1 ? "Parallel" : "Serial")} 전환");
-        return new { activeScene = updated.ActiveScene, routingMode = updated.RoutingMode, parallelMix = updated.ParallelMix, signalChain = updated };
+        var updated = AntigravityToneArchitect.SwitchScene(cur, sceneIdx, routingMode, parallelMix, tempoBpm);
+        ApplyAndBroadcastMcpChain(updated, autoSave: false, $"Scene {((char)('A' + updated.ActiveScene))} / {updated.TempoBpm:F0} BPM 전환");
+        return new { activeScene = updated.ActiveScene, routingMode = updated.RoutingMode, parallelMix = updated.ParallelMix, tempoBpm = updated.TempoBpm, signalChain = updated };
     }
 
     private async Task<object> ExecuteMcpControlAudioAsync(JsonElement args)
@@ -820,22 +946,29 @@ public sealed class RigWebBridge : IDisposable
         string action = (GetStr(args, "action") ?? "status").Trim().ToLowerInvariant();
         if (action == "stop")
             return StopMonitoring();
-        if (action is "start" or "start_gp100_wasapi" or "start_gp100_duplex")
+        if (action is "start" or "start_wasapi" or "start_gp100_wasapi" or "start_gp100_duplex")
         {
             if (_router.IsRunning)
-                return new { isRunning = true, inputDriver = _settings.InputDriver ?? "" };
+                return new { isRunning = true, inputKind = _settings.InputKind, inputDriver = _settings.InputDriver ?? "" };
 
+            bool forceGp100 = action.StartsWith("start_gp100");
+            bool forceWasapiIn = action == "start_wasapi";
             var gpDriver = AudioRouter.GetDriverNames().FirstOrDefault(IsValetonGp100Driver);
             var payloadObj = new
             {
-                inputDriver = gpDriver ?? _settings.InputDriver ?? "",
-                channelMode = gpDriver != null || action.StartsWith("start_gp100") ? 1 : _settings.ChannelMode,
+                inputKind = forceWasapiIn ? "WASAPI" : forceGp100 ? "ASIO" : _settings.InputKind,
+                inputDriver = forceGp100 ? (gpDriver ?? "Valeton USB Audio Device") : (_settings.InputDriver ?? gpDriver ?? ""),
+                wasapiInputDeviceId = _settings.WasapiInputDeviceId ?? "",
+                wasapiInputExclusive = _settings.WasapiInputExclusive,
+                wasapiInputRaw = _settings.WasapiInputRaw,
+                channelMode = forceGp100 ? 1 : _settings.ChannelMode,
+                inputChannelOffset = forceGp100 ? 0 : _settings.InputChannelOffset,
                 asioInBufferSize = _settings.AsioInBufferSize,
-                outputKind = action == "start_gp100_duplex" ? "ASIO_DUPLEX" : action == "start_gp100_wasapi" ? "WASAPI" : _settings.OutputKind,
+                outputKind = action == "start_gp100_duplex" ? "ASIO_DUPLEX" : action == "start_gp100_wasapi" || forceWasapiIn ? "WASAPI" : _settings.OutputKind,
                 wasapiExclusive = _settings.WasapiExclusive,
                 wasapiDeviceId = _settings.WasapiDeviceId ?? "",
                 asioOutDriver = _settings.AsioOutDriver ?? "",
-                presetIndex = gpDriver != null ? 1 : _settings.PresetIndex,
+                presetIndex = forceGp100 ? 1 : _settings.PresetIndex,
             };
             using var pDoc = JsonDocument.Parse(JsonSerializer.Serialize(payloadObj, JsonOpts));
             return await StartMonitoringAsync(pDoc.RootElement);
@@ -924,6 +1057,7 @@ public sealed class RigWebBridge : IDisposable
 
         ToneProfileStore.Delete(prof);
         _models = ToneProfileStore.LoadAll();
+        _router.Tone.SetModelLibrary(_models);
         var next = _models.FirstOrDefault();
         _router.Tone.ActiveProfile = next;
 
@@ -965,7 +1099,22 @@ public sealed class RigWebBridge : IDisposable
         _models = ToneProfileStore.LoadAll();
         loaded = _models.FirstOrDefault(t => t.Id == loaded.Id) ?? loaded;
 
+        _router.Tone.SetModelLibrary(_models);
         _router.Tone.ActiveProfile = loaded;
+
+        int slotIndex = GetInt(payload, "slotIndex", -1);
+        SignalChainConfigDto? updatedChain = null;
+        if (slotIndex >= 0 && slotIndex < SignalChainConfigDto.SlotCount && _settings.SignalChain?.Slots != null && slotIndex < _settings.SignalChain.Slots.Count)
+        {
+            var slot = _settings.SignalChain.Slots[slotIndex];
+            if (string.Equals(slot.ModelId, "nam_capture", StringComparison.OrdinalIgnoreCase))
+            {
+                slot.NamModelId = loaded.Id;
+                _router.Tone.Chain.UpdateChain(_settings.SignalChain);
+                updatedChain = _router.Tone.Chain.GetConfigSnapshot();
+            }
+        }
+
         int nextMode = _settings.ToneMode == (int)ToneMode.SignalChain
             ? (int)ToneMode.SignalChain
             : _settings.ToneMode == (int)ToneMode.HybridPreampNam
@@ -981,7 +1130,16 @@ public sealed class RigWebBridge : IDisposable
 
         var dtos = ToModelDtos(_models);
         EmitEvent("tonesChanged", new { tones = dtos, selectedToneId = loaded.Id, toneMode = nextMode });
-        EmitLog($"[모델] .nam 로드 완료: {loaded.Name} ({loaded.SampleRate} Hz)");
+        if (updatedChain != null)
+        {
+            EmitEvent("signalChainChanged", new
+            {
+                signalChain = updatedChain,
+                savedPresets = _settings.SavedPresets ?? new List<SignalChainConfigDto>(),
+                summary = $"슬롯 #{slotIndex + 1} NAM 할당: {loaded.Name}",
+            });
+        }
+        EmitLog($"[모델] .nam 로드 완료 ({loaded.Architecture}): {loaded.Name} ({loaded.SampleRate} Hz)");
         return new
         {
             cancelled = false,
@@ -989,6 +1147,7 @@ public sealed class RigWebBridge : IDisposable
             tones = dtos,
             selectedToneId = loaded.Id,
             toneMode = nextMode,
+            signalChain = updatedChain,
         };
     }
 
@@ -1327,10 +1486,263 @@ public sealed class RigWebBridge : IDisposable
             ? v.GetBoolean()
             : def;
 
+    private object GenerateAiToneFromUi(JsonElement payload)
+    {
+        string prompt = GetStr(payload, "prompt") ?? "";
+        if (string.IsNullOrWhiteSpace(prompt))
+            throw new InvalidOperationException("원하는 톤 설명을 입력하세요.");
+        bool autoSave = GetBool(payload, "autoSave", false);
+
+        var curChain = _router.Tone.Chain.GetConfigSnapshot();
+        var activeGuitar = GetActiveGuitarProfile();
+        var res = _toneArchitect.GenerateViaBuiltinArchitect(prompt, curChain, activeGuitar);
+        ApplyAndBroadcastMcpChain(res.Chain, autoSave, $"{res.PresetName} — {res.Summary}", logTag: "AI 아키텍트");
+        return new
+        {
+            ok = true,
+            presetName = res.PresetName,
+            summary = res.Summary,
+            highlights = res.GearHighlights,
+            signalChain = res.Chain,
+            savedPresets = _settings.SavedPresets ?? new List<SignalChainConfigDto>(),
+        };
+    }
+
+    private object BuildMidiSnapshot()
+    {
+        var learn = _midi.CurrentLearnTarget;
+        return new
+        {
+            devices = MidiRouter.GetDeviceNames(),
+            activeDevice = _midi.ActiveDeviceName,
+            connected = _midi.IsConnected,
+            bindings = _settings.MidiBindings ?? new List<MidiBindingDto>(),
+            learning = learn is null ? null : new
+            {
+                targetKind = learn.TargetKind,
+                slotIndex = learn.SlotIndex,
+                paramIndex = learn.ParamIndex,
+                sceneIndex = learn.SceneIndex,
+            },
+        };
+    }
+
+    private object SelectMidiDevice(string? deviceName)
+    {
+        if (string.IsNullOrWhiteSpace(deviceName) || deviceName == "__none__")
+        {
+            _midi.Disconnect();
+            _settings.MidiInputName = "";
+            _settings.Save();
+        }
+        else
+        {
+            bool ok = _midi.Connect(deviceName);
+            _settings.MidiInputName = ok ? _midi.ActiveDeviceName : "";
+            _settings.Save();
+        }
+        var snap = BuildMidiSnapshot();
+        EmitEvent("midiStateChanged", snap);
+        return snap;
+    }
+
+    private object StartMidiLearn(JsonElement payload)
+    {
+        string kind = GetStr(payload, "targetKind") ?? "param";
+        int slotIdx = Math.Clamp(GetInt(payload, "slotIndex", 0), 0, 15);
+        int paramIdx = Math.Clamp(GetInt(payload, "paramIndex", 0), 0, 7);
+        int sceneIdx = Math.Clamp(GetInt(payload, "sceneIndex", 0), 0, 7);
+
+        _midi.StartLearn(new MidiLearnTarget(kind, slotIdx, paramIdx, sceneIdx));
+        EmitLog($"[MIDI Learn] 외부 MIDI 컨트롤러의 노브/페달/스위치를 움직이세요 ({kind})…");
+        var snap = BuildMidiSnapshot();
+        EmitEvent("midiStateChanged", snap);
+        return snap;
+    }
+
+    private object CancelMidiLearn()
+    {
+        _midi.CancelLearn();
+        var snap = BuildMidiSnapshot();
+        EmitEvent("midiStateChanged", snap);
+        return snap;
+    }
+
+    private object ClearMidiBinding(JsonElement payload)
+    {
+        string kind = GetStr(payload, "targetKind") ?? "param";
+        int slotIdx = GetInt(payload, "slotIndex", -1);
+        int paramIdx = GetInt(payload, "paramIndex", -1);
+        int sceneIdx = GetInt(payload, "sceneIndex", -1);
+
+        _settings.MidiBindings ??= new List<MidiBindingDto>();
+        _settings.MidiBindings.RemoveAll(b =>
+            string.Equals(b.TargetKind, kind, StringComparison.OrdinalIgnoreCase) &&
+            (kind != "param" || (b.SlotIndex == slotIdx && b.ParamIndex == paramIdx)) &&
+            (kind != "bypass" || b.SlotIndex == slotIdx) &&
+            (kind != "scene" || b.SceneIndex == sceneIdx));
+        _settings.Save();
+
+        var snap = BuildMidiSnapshot();
+        EmitEvent("midiStateChanged", snap);
+        return snap;
+    }
+
+    private void OnMidiBindingLearned(MidiBindingDto binding)
+    {
+        RunOnUi(() =>
+        {
+            _settings.MidiBindings ??= new List<MidiBindingDto>();
+            _settings.MidiBindings.RemoveAll(b =>
+                b.Cc == binding.Cc ||
+                (string.Equals(b.TargetKind, binding.TargetKind, StringComparison.OrdinalIgnoreCase) &&
+                 b.SlotIndex == binding.SlotIndex &&
+                 b.ParamIndex == binding.ParamIndex &&
+                 b.SceneIndex == binding.SceneIndex));
+            _settings.MidiBindings.Add(binding.Clone());
+            _settings.Save();
+
+            EmitLog($"[MIDI Learn] CC #{binding.Cc} 바인딩 완료 ({binding.TargetKind})");
+            EmitEvent("midiStateChanged", BuildMidiSnapshot());
+        });
+    }
+
+    private void OnMidiEventReceived(MidiEventMessage ev)
+    {
+        if (ev.IsProgramChange)
+        {
+            RunOnUi(() =>
+            {
+                var saved = _settings.SavedPresets ?? new List<SignalChainConfigDto>();
+                if (ev.Number >= 0 && ev.Number < saved.Count)
+                {
+                    var target = saved[ev.Number].Clone();
+                    ApplyAndBroadcastMcpChain(target, autoSave: false, $"MIDI PC #{ev.Number} → {target.PresetName}", logTag: "MIDI");
+                }
+                else if (ev.Number >= 0 && ev.Number < 8)
+                {
+                    var cur = _router.Tone.Chain.GetConfigSnapshot();
+                    var switched = AntigravityToneArchitect.SwitchScene(cur, ev.Number);
+                    ApplyAndBroadcastMcpChain(switched, autoSave: false, $"MIDI PC #{ev.Number} → Scene {(char)('A' + ev.Number)}", logTag: "MIDI");
+                }
+            });
+            return;
+        }
+
+        var bindings = _settings.MidiBindings;
+        if (bindings is null || bindings.Count == 0) return;
+
+        var matched = bindings.FirstOrDefault(b => b.Cc == ev.Number && (b.Channel == 0 || b.Channel == ev.Channel));
+        if (matched is null) return;
+
+        if (matched.TargetKind == "tunerMute")
+        {
+            if (_midi.ShouldFireSwitchEdge(ev.Number, ev.Value))
+            {
+                bool nextMute = !_router.TunerMute;
+                _router.TunerMute = nextMute;
+                RunOnUi(() => EmitEvent("tunerMuteChanged", new { mute = nextMute }));
+            }
+            return;
+        }
+
+        if (matched.TargetKind == "tapTempo")
+        {
+            if (_midi.ShouldFireSwitchEdge(ev.Number, ev.Value))
+            {
+                var bpm = _midi.RegisterTapAndComputeBpm();
+                if (bpm.HasValue)
+                {
+                    RunOnUi(() =>
+                    {
+                        var cur = _router.Tone.Chain.GetConfigSnapshot();
+                        cur.TempoBpm = bpm.Value;
+                        _settings.SignalChain = cur;
+                        _router.Tone.Chain.UpdateChain(cur);
+                        EmitEvent("signalChainChanged", new { signalChain = cur });
+                    });
+                }
+            }
+            return;
+        }
+
+        if (matched.TargetKind == "scene")
+        {
+            if (_midi.ShouldFireSwitchEdge(ev.Number, ev.Value))
+            {
+                RunOnUi(() =>
+                {
+                    var cur = _router.Tone.Chain.GetConfigSnapshot();
+                    var next = AntigravityToneArchitect.SwitchScene(cur, matched.SceneIndex);
+                    _settings.SignalChain = next;
+                    _router.Tone.Chain.UpdateChain(next);
+                    EmitEvent("signalChainChanged", new { signalChain = next, summary = $"MIDI CC #{ev.Number} → Scene {(char)('A' + matched.SceneIndex)}" });
+                });
+            }
+            return;
+        }
+
+        if (matched.TargetKind == "bypass")
+        {
+            if (_midi.ShouldFireSwitchEdge(ev.Number, ev.Value))
+            {
+                RunOnUi(() =>
+                {
+                    var cur = AntigravityToneArchitect.EnsureScenes(_router.Tone.Chain.GetConfigSnapshot());
+                    int sIdx = Math.Clamp(matched.SlotIndex, 0, 15);
+                    if (!string.IsNullOrEmpty(cur.Slots[sIdx].ModelId))
+                    {
+                        bool nextEn = !cur.Slots[sIdx].Enabled;
+                        cur.Slots[sIdx].Enabled = nextEn;
+                        if (cur.Scenes is { Count: 8 })
+                            cur.Scenes[Math.Clamp(cur.ActiveScene, 0, 7)].Slots[sIdx].Enabled = nextEn;
+                        _settings.SignalChain = cur;
+                        _router.Tone.Chain.UpdateChain(cur);
+                        EmitEvent("signalChainChanged", new { signalChain = cur });
+                    }
+                });
+            }
+            return;
+        }
+
+        if (matched.TargetKind == "param")
+        {
+            // 연속 익스프레션 페달/노브 제어: 오디오 엔진에는 즉시 원자 스냅샷 반영, WebView2 UI 브로드캐스트는 30fps 쓰로틀링
+            var cur = AntigravityToneArchitect.EnsureScenes(_router.Tone.Chain.GetConfigSnapshot());
+            int sIdx = Math.Clamp(matched.SlotIndex, 0, 15);
+            int pIdx = Math.Clamp(matched.ParamIndex, 0, 7);
+            var slot = cur.Slots[sIdx];
+            if (string.IsNullOrEmpty(slot.ModelId) || !AntigravityToneArchitect.Catalog.TryGetValue(slot.ModelId, out var meta))
+                return;
+            if (pIdx >= meta.Ranges.Length) return;
+
+            var (mn, mx) = meta.Ranges[pIdx];
+            float norm = Math.Clamp(ev.Value / 127f, 0f, 1f);
+            float val = MathF.Round(mn + (mx - mn) * norm, 2);
+            slot.Params[pIdx] = val;
+            if (cur.Scenes is { Count: 8 })
+                cur.Scenes[Math.Clamp(cur.ActiveScene, 0, 7)].Slots[sIdx].Params[pIdx] = val;
+
+            _router.Tone.Chain.UpdateChain(cur);
+
+            long now = Environment.TickCount64;
+            if (now - Interlocked.Read(ref _lastMidiUiBroadcastTick) >= 33)
+            {
+                Interlocked.Exchange(ref _lastMidiUiBroadcastTick, now);
+                RunOnUi(() =>
+                {
+                    _settings.SignalChain = cur;
+                    EmitEvent("signalChainChanged", new { signalChain = cur });
+                });
+            }
+        }
+    }
+
     public void Dispose()
     {
         try { _mcpCts.Cancel(); } catch { }
         try { _mcpCts.Dispose(); } catch { }
+        try { _midi.Dispose(); } catch { }
         try { _panelDev?.Dispose(); } catch { }
         _panelDev = null;
     }

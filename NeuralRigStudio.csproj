@@ -8,8 +8,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ForceDesignerDpiUnaware>false</ForceDesignerDpiUnaware>
-    <DefaultItemExcludes>$(DefaultItemExcludes);tools\**;web-ui\**;wwwroot\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);src\**;tools\**;web-ui\**;wwwroot\**</DefaultItemExcludes>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="src\NeuralRig.Core\NeuralRig.Core.csproj" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
@@ -21,7 +25,6 @@
     <Content Include="wwwroot\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <EmbeddedResource Include="Assets\CabIRs\*.wav" LogicalName="NeuralRigStudio.CabIRs.%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>
