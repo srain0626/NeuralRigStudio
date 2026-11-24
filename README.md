@@ -9,12 +9,13 @@
 <br />
 
 [![Release](https://img.shields.io/badge/release-v3.0.0-18181b?style=flat-square&labelColor=09090b)](https://github.com/srain0626/NeuralRigStudio/releases)
+[![npm](https://img.shields.io/badge/npm-neuralrig--mcp%20v3.0.0-18181b?style=flat-square&labelColor=09090b)](https://www.npmjs.com/package/neuralrig-mcp)
 [![Platform](https://img.shields.io/badge/platform-Windows%20x64-18181b?style=flat-square&labelColor=09090b)](#quick-start)
 [![License](https://img.shields.io/badge/license-MIT-52525b?style=flat-square&labelColor=09090b)](LICENSE)
 
-**English** · [한국어 (Korean)](README.ko.md)
+**English** · [한국어 (Korean)](README.ko.md) · [Website](https://neuralrigstudio.seltum.xyz)
 
-[Quick Start](#quick-start) · [Audio & Presets](#universal-audio--first-run) · [Custom SPICE & MCP](#creating-custom-pedals-amps--cabinets) · [Benchmark Suite](#benchmark-suite) · [Cloud & OTA](#cloud-sync-gear-hub--ota) · [Build](#building-from-source)
+[Quick Start](#quick-start) · [Audio & Presets](#universal-audio--first-run-showcase-presets) · [Custom SPICE & MCP](#creating-custom-pedals-amps--cabinets) · [Benchmark Suite](#benchmark-suite) · [Cloud & OTA](#cloud-sync-gear-hub--ota) · [Build](#building-from-source)
 
 </div>
 
@@ -40,7 +41,7 @@ All DSP kernels run inside the native managed audio thread with zero background 
 
 ### First-Run Flow
 1. **Account or Guest Mode**: On initial launch you may sign in with Google (unlocks Cloud Settings Sync and the Community Gear Hub) or click **Continue as Guest (Offline Mode)** to play locally with zero account required.
-2. **Interactive Studio Tutorial**: A 6-step guided walkthrough highlights Audio I/O patching, 8 showcase presets (`1A`–`2D`), the 2x8 signal chain, AI Tone Architect, custom SPICE gear creation, and the Benchmark Suite. Click **GUIDE** in the header anytime to replay it.
+2. **Interactive Studio Tutorial & Hardware Themes**: A 6-step guided walkthrough highlights Audio I/O patching, 8 showcase presets (`1A`–`2D`), the 2x8 signal chain, AI Tone Architect, custom SPICE gear creation, and the Benchmark Suite. All dialogs follow the 5 industrial chassis themes (`Putty`, `Carbon`, `Zine`, `Field`, `Cobalt`) with instant KO/EN switching. Click **GUIDE** in the header anytime to replay the tour.
 3. **Connect Your Guitar**: Open **Audio I/O** (`Audio` sheet or Command Palette `/`) and select your ASIO driver (Focusrite, Steinberg, Audient, Behringer, Roland, Line 6, Valeton, etc.) or driverless WASAPI Line-In with Mono (`Ch 1..N`) or Stereo (`Ch 1/2`, `Ch 3/4`) channel mapping.
 
 ---
@@ -75,7 +76,7 @@ Search inside the Signal Chain catalog matches both safe UI aliases (`Green Scre
 When a guitar pedal, tube amp, or cabinet is missing from the built-in 75+ device catalog, you can add physical models directly via AI MCP agents or external files:
 
 1. **Click `CRAFT` in the top bar** to open the interactive creation guide with copyable prompts and MCP snippets.
-2. **Install `neuralrig-mcp` across your AI tools** in one command (supports Claude Desktop, Claude Code, Cursor, Windsurf, OpenAI Codex CLI, Gemini CLI, and Antigravity):
+2. **Install [`neuralrig-mcp`](https://www.npmjs.com/package/neuralrig-mcp)** (published on npmjs.org) across your AI tools in one command (supports Claude Desktop, Claude Code, Cursor, Windsurf, OpenAI Codex CLI, Gemini CLI, and Antigravity):
    ```bash
    npx -y neuralrig-mcp install --client all
    ```
@@ -107,7 +108,8 @@ Click **BENCH** in the header (or run `RigBench.exe`) to run quantitative hardwa
 
 ## Cloud Sync, Gear Hub & OTA
 
-Optional public cloud services run on Vercel Next.js (`cloud/`) backed by Supabase (PostgreSQL + Google Auth PKCE):
+Optional public cloud services run on Vercel Next.js (`cloud/`, hosted at [neuralrigstudio.seltum.xyz](https://neuralrigstudio.seltum.xyz)) backed by Supabase PostgreSQL + Google Auth:
+- **Zero-Config Fixed Cloud Endpoint**: Desktop builds route directly to `https://neuralrigstudio.seltum.xyz` (`CloudPlatformService.DefaultCloudBaseUrl`) without exposing or requiring manual server URL inputs in the UI.
 - **Desktop Works Offline by Default**: Guitar playback, AI Tone Architect, SPICE engine, VST3/CLAP export, `.nrig` bundles, and benchmarks operate offline in Guest mode with zero network requirement.
 - **Google OAuth & Sync**: Signing in opens the loopback browser flow (`http://127.0.0.1:<port>/callback`) to sync saved presets, guitar DI profiles, and custom SPICE gear across devices.
 - **Community Gear Hub (`HUB · VST3 -> GEAR HUB`)**: Browse, filter, publish, and 1-click install community-authored SPICE circuits and cabinet IRs (validated client-side with `SpiceAnalyzer` before registration).
@@ -115,7 +117,7 @@ Optional public cloud services run on Vercel Next.js (`cloud/`) backed by Supaba
 - **Choice & Mandatory OTA (`OtaUpdateService`)**: Checks Cloud `/api/ota/check` with direct GitHub Releases fallback. Optional releases can be postponed (`Later`); releases flagged `forceUpdate` or below `minSupportedVersion` lock behind a mandatory update modal.
 - **In-App Admin Console (`ADMIN`)**: Unlocked automatically for accounts listed in `NEURALRIG_ADMIN_EMAILS` / `profiles.is_admin`, displaying live analytics KPIs, scrubbed bug queues, and OTA choice/force policy controls.
 
-To self-host `cloud/`, copy [cloud/.env.example](cloud/.env.example) to `cloud/.env.local`, apply [cloud/supabase/migrations/001_neuralrig_cloud.sql](cloud/supabase/migrations/001_neuralrig_cloud.sql) to Supabase, deploy `cloud/` to Vercel, and enter the URL in the **SIGN IN** dialog.
+To self-host a fork of `cloud/`, copy [cloud/.env.example](cloud/.env.example) to `cloud/.env.local`, apply all three Supabase migrations in order ([001_neuralrig_cloud.sql](cloud/supabase/migrations/001_neuralrig_cloud.sql), [002_rls_zero_service_role_and_rpc.sql](cloud/supabase/migrations/002_rls_zero_service_role_and_rpc.sql), and [003_fix_app_releases_anon_policy.sql](cloud/supabase/migrations/003_fix_app_releases_anon_policy.sql) for zero-service-role user JWT RLS), deploy `cloud/` to Vercel (`Root Directory: cloud`), and point `CloudPlatformService.DefaultCloudBaseUrl` to your deployment before building.
 
 ---
 

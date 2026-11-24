@@ -9,12 +9,13 @@
 <br />
 
 [![Release](https://img.shields.io/badge/release-v3.0.0-18181b?style=flat-square&labelColor=09090b)](https://github.com/srain0626/NeuralRigStudio/releases)
+[![npm](https://img.shields.io/badge/npm-neuralrig--mcp%20v3.0.0-18181b?style=flat-square&labelColor=09090b)](https://www.npmjs.com/package/neuralrig-mcp)
 [![Platform](https://img.shields.io/badge/platform-Windows%20x64-18181b?style=flat-square&labelColor=09090b)](#빠른-시작)
 [![License](https://img.shields.io/badge/license-MIT-52525b?style=flat-square&labelColor=09090b)](LICENSE)
 
-[English](README.md) · **한국어 (Korean)**
+[English](README.md) · **한국어 (Korean)** · [공식 웹](https://neuralrigstudio.seltum.xyz)
 
-[빠른 시작](#빠른-시작) · [범용 오디오 · 프리셋](#범용-오디오-인터페이스--첫인상-프리셋) · [새 페달·앰프 제작 & npx MCP](#새-페달-앰프-캐비넷-추가--다중-ai-mcp-연동) · [벤치마크](#벤치마크-스위트) · [클라우드 · 허브 · OTA](#클라우드-동기화-기어-허브--ota) · [소스 빌드](#소스-빌드)
+[빠른 시작](#빠른-시작) · [범용 오디오 · 프리셋](#범용-오디오-인터페이스--첫인상-프리셋) · [새 페달·앰프 제작 & npx MCP](#새-페달-앰프-캐비넷-추가-및-다중-ai-mcp-연동) · [벤치마크](#벤치마크-스위트) · [클라우드 · 허브 · OTA](#클라우드-동기화-기어-허브-버그-리포트-ota) · [소스 빌드](#소스-빌드)
 
 </div>
 
@@ -40,7 +41,7 @@
 
 ### 최초 실행 흐름
 1. **Google 로그인 또는 게스트 모드 선택**: 첫 실행 시 Google 로그인(클라우드 설정 동기화·커뮤니티 기어 허브) 또는 **게스트 / 오프라인 모드** 중 하나를 선택합니다. 게스트 모드에서도 모든 오디오 DSP, 프리셋, AI 톤 아키텍트, SPICE 엔진은 제한 없이 동작합니다.
-2. **인터랙티브 UI 튜토리얼**: 6단계 가이드가 오디오 인터페이스 연결, 8종 대표 프리셋, 2×8 시그널 체인, AI 톤/DI 프로파일러, 새 페달 생성, 벤치마크 실행 방법을 차례로 안내합니다. 상단 **GUIDE** 버튼으로 언제든 다시 열 수 있습니다.
+2. **인터랙티브 UI 튜토리얼 · 5종 섀시 테마**: 6단계 가이드가 오디오 인터페이스 연결, 8종 대표 프리셋, 2×8 시그널 체인, AI 톤/DI 프로파일러, 새 페달 생성, 벤치마크 실행 방법을 차례로 안내합니다. 모든 UI 창은 5종 하드웨어 섀시 마감 테마(`Putty`, `Carbon`, `Zine`, `Field`, `Cobalt`)와 한/영 전환을 동일하게 따르며 상단 **GUIDE** 버튼으로 언제든 다시 열 수 있습니다.
 3. **기타 입력 연결**: 상단 **Audio I/O**에서 사용 중인 ASIO 인터페이스(Focusrite, Steinberg, Audient, Behringer, Roland, Line 6, Valeton 등) 또는 드라이버리스 WASAPI 라인 인풋(모노 `Ch 1..N` / 스테레오 페어)을 선택하세요.
 
 ---
@@ -69,12 +70,12 @@
 
 ---
 
-## 새 페달·앰프·캐비넷 추가 & 다중 AI MCP 연동
+## 새 페달, 앰프, 캐비넷 추가 및 다중 AI MCP 연동
 
 기본 75종+ 카탈로그 외에 원하는 장비가 있다면 AI 에이전트를 통해 실제 회로도 기반으로 직접 추가할 수 있습니다.
 
 1. 상단 **CRAFT** 버튼을 열면 단계별 제작 파이프라인, 복사 가능한 프롬프트, AI 클라이언트별 MCP 설정을 확인할 수 있습니다.
-2. 아래 명령 한 줄로 Claude Desktop, Claude Code, Cursor, Windsurf, OpenAI Codex CLI, Gemini CLI, Antigravity에 MCP를 자동 등록하세요:
+2. npm 공식 레지스트리에 배포된 [`neuralrig-mcp`](https://www.npmjs.com/package/neuralrig-mcp)를 아래 명령 한 줄로 Claude Desktop, Claude Code, Cursor, Windsurf, OpenAI Codex CLI, Gemini CLI, Antigravity에 자동 등록하세요:
    ```bash
    npx -y neuralrig-mcp install --client all
    ```
@@ -99,14 +100,15 @@
   - `Fuzz Face (AC128)` MNA 바이어스 및 배음 밀도 (`98.5%`)
   - `Fender '65 Twin Reverb (12AX7 + FMV 5-5-5)` `650Hz` 미드 스쿱 `-9.7dB` (`95.9%`)
   - `NAM WaveNet Feather` `64fr` vs `256fr` 블록 경계 일치율 (`ESR=0.00E+000`, `100.0%`)
-- **지연시간 · RT 데드라인**: `64` / `128` / `256` 프레임(@ 48kHz) 기준 단일 페달 `0.0234ms`, 6-블록 리그 `0.0535ms`, 듀얼 앰프 병렬 리그 `0.0794ms`, MNA SPICE `0.0342ms` 모두 `64fr` 버짓(`1.333ms`) 내 **`RT alloc: 0 B`** 통과.
+- **지연시간 · RT 데드라인**: `64` / `128` / `256` 프레임(@ 48kHz) 기준 단일 페달 `0.0237ms`, 6-블록 리그 `0.0509ms`, 듀얼 앰프 병렬 리그 `0.0678ms`, MNA SPICE `0.1855ms`(`13.9% CPU`) 모두 `64fr` 버짓(`1.333ms`) 내 **`RT alloc: 0 B`** 통과.
 - **16슬롯 멀티체인 스트레스**: 16슬롯 직렬 풀체인, 16슬롯 병렬 듀얼 앰프 매트릭스, 4단 하이게인 캐스케이드(`SoftKneeCeiling`), MNA SPICE(x2)+8192탭 FFT 캐비넷 IR 체인 모두 무할당·유한 출력 통과.
 
 ---
 
-## 클라우드 동기화 · 기어 허브 · 버그 리포트 · OTA
+## 클라우드 동기화, 기어 허브, 버그 리포트, OTA
 
-공개 라이브 백엔드는 `cloud/` (Vercel Next.js + Supabase Google Auth / Postgres)로 구성되며 데스크톱 앱과 연동됩니다:
+공개 라이브 백엔드는 `cloud/` (Vercel Next.js, 공식 주소 [neuralrigstudio.seltum.xyz](https://neuralrigstudio.seltum.xyz) + Supabase PostgreSQL/Google Auth)로 구성되며 데스크톱 앱과 연동됩니다:
+- **별도 설정 없는 고정 엔드포인트**: 데스크톱 앱은 내부 고정 주소(`https://neuralrigstudio.seltum.xyz`, `CloudPlatformService.DefaultCloudBaseUrl`)에 자동 연결되며 UI에 서버 URL을 노출하거나 변경을 요구하지 않습니다.
 - **오프라인 우선 설계**: 게스트 모드에서는 네트워크나 Supabase 설정 없이도 모든 로컬 DSP·프리셋·SPICE 제작·VST3/CLAP 내보내기 기능이 완전히 동작합니다.
 - **Google 로그인 & 설정 동기화**: 루프백 OAuth로 Google 계정에 연결해 저장 프리셋, 기타 DI 프로필, 커스텀 SPICE 기어를 클라우드에 동기화합니다.
 - **커뮤니티 기어 허브 (`HUB · VST3 → SPICE 기어 허브`)**: 사용자가 생성한 SPICE 페달·앰프·캐비넷을 업로드하고, 설치 전 로컬 `SpiceAnalyzer` 물리/무할당 검증을 거쳐 안전하게 받아 적용합니다.
@@ -114,7 +116,7 @@
 - **선택 / 강제 OTA 업데이트**: 선택 업데이트는 사용자가 보류(`나중에`)할 수 있지만, `forceUpdate` 정책 또는 `minSupportedVersion` 미만 버전은 차단 모달이 표시되어 업데이트를 완료해야 계속 이용할 수 있습니다.
 - **인앱 어드민 콘솔 (`ADMIN`)**: 관리자 Google 계정(`NEURALRIG_ADMIN_EMAILS` 또는 `profiles.is_admin`)으로 로그인하면 서비스 애널리틱스, 익명화 로그 기반 버그 트리아지, OTA 선택/강제 업데이트 정책 패널이 열립니다.
 
-자체 클라우드 배포 방법은 [cloud/.env.example](cloud/.env.example)과 [cloud/supabase/migrations/001_neuralrig_cloud.sql](cloud/supabase/migrations/001_neuralrig_cloud.sql)을 확인하세요.
+포크(Fork) 환경에서 자체 클라우드를 운영하려면 [cloud/.env.example](cloud/.env.example)을 참고해 `cloud/.env.local`과 Vercel 환경 변수를 설정하고, Supabase에 마이그레이션 3종([001_neuralrig_cloud.sql](cloud/supabase/migrations/001_neuralrig_cloud.sql), [002_rls_zero_service_role_and_rpc.sql](cloud/supabase/migrations/002_rls_zero_service_role_and_rpc.sql), [003_fix_app_releases_anon_policy.sql](cloud/supabase/migrations/003_fix_app_releases_anon_policy.sql) — Service Role 키 없는 사용자 JWT 전달형 RLS)을 순서대로 적용한 뒤 `CloudPlatformService.DefaultCloudBaseUrl`을 배포 주소로 변경하여 빌드하세요.
 
 ---
 
