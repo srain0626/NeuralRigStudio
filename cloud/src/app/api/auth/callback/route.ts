@@ -1,25 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { User } from "@supabase/supabase-js";
-import { getSupabaseAnon, isAdminEmail } from "@/lib/supabase";
+import { getSupabaseAnon, resolveAuthContextForUser } from "@/lib/supabase";
 
-function redirectToDesktopLoopback(
+async function redirectToDesktopLoopback(
   port: number,
   accessToken: string,
   refreshToken: string,
   user: User
-): NextResponse {
-  const meta = (user.user_metadata || {}) as Record<string, unknown>;
+): Promise<NextResponse> {
+  const auth = await resolveAuthContextForUser(user, accessToken);
   const loopback = new URL(`http://127.0.0.1:${port}/callback`);
   loopback.searchParams.set("access_token", accessToken);
   loopback.searchParams.set("refresh_token", refreshToken);
-  loopback.searchParams.set("user_id", user.id);
-  loopback.searchParams.set("email", user.email || "");
-  loopback.searchParams.set(
-    "display_name",
-    String(meta.full_name || meta.name || user.email || "Player")
-  );
-  loopback.searchParams.set("avatar_url", String(meta.avatar_url || meta.picture || ""));
-  loopback.searchParams.set("is_admin", isAdminEmail(user.email) ? "1" : "0");
+  loopback.searchParams.set("user_id", auth.userId);
+  loopback.searchParams.set("email", auth.email);
+  loopback.searchParams.set("display_name", auth.displayName);
+  loopback.searchParams.set("avatar_url", auth.avatarUrl);
+  loopback.searchParams.set("is_admin", auth.isAdmin ? "1" : "0");
   return NextResponse.redirect(loopback.toString());
 }
 
@@ -46,7 +43,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    return redirectToDesktopLoopback(
+    return await redirectToDesktopLoopback(
       port,
       data.session.access_token,
       data.session.refresh_token || "",
@@ -67,7 +64,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    return redirectToDesktopLoopback(port, accessToken, refreshToken, data.user);
+    return await redirectToDesktopLoopback(port, accessToken, refreshToken, data.user);
   }
 
   // Fallback for implicit fragment tokens (#access_token=...) -> re-dispatch to /api/auth/callback so server resolves user profile & admin status

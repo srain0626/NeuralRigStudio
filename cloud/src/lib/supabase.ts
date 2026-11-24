@@ -85,18 +85,22 @@ export async function resolveAuthContextForUser(
 ): Promise<AuthContext> {
   const email = user.email || "";
   const meta = (user.user_metadata || {}) as Record<string, unknown>;
-  const displayName =
+  const fallbackDisplayName =
     String(meta.full_name || meta.name || email.split("@")[0] || "Player");
   const avatarUrl = String(meta.avatar_url || meta.picture || "");
 
+  let displayName = fallbackDisplayName;
   let dbAdmin = false;
   const db = getSupabaseForToken(accessToken);
   if (db) {
     const { data: prof } = await db
       .from("profiles")
-      .select("is_admin")
+      .select("display_name, is_admin")
       .eq("id", user.id)
       .maybeSingle();
+    const existingDisplayName =
+      typeof prof?.display_name === "string" ? prof.display_name.trim() : "";
+    displayName = existingDisplayName || fallbackDisplayName;
     dbAdmin = Boolean(prof?.is_admin);
     await db.from("profiles").upsert({
       id: user.id,
