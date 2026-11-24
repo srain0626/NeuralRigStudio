@@ -7,7 +7,7 @@
   "author": "Ray Kim <raykim@users.noreply.github.com>",
   "repository": {
     "type": "git",
-    "url": "https://github.com/srain0626/NeuralRigStudio.git",
+    "url": "git+https://github.com/srain0626/NeuralRigStudio.git",
     "directory": "packages/neuralrig-mcp"
   },
   "keywords": [
@@ -23,7 +23,7 @@
     "node": ">=18.0.0"
   },
   "bin": {
-    "neuralrig-mcp": "./bin/neuralrig-mcp.mjs"
+    "neuralrig-mcp": "bin/neuralrig-mcp.mjs"
   },
   "files": [
     "bin/",
