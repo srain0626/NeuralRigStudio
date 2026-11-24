@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://neuralrigstudio.seltum.xyz"),
   title: "NeuralRig Studio — Component-Level SPICE & Neural Guitar Workstation",
   description:
     "Real-time MNA SPICE circuit solver, native AVX2/FMA .nam inference, and 2x8 parallel signal routing with 0 B audio-thread allocation for Windows.",

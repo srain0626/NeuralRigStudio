@@ -116,7 +116,7 @@ public sealed class CloudPlatformService
         LoadBugOutboxFromDisk();
     }
 
-    public const string DefaultCloudBaseUrl = "https://neuralrig-studio-cloud.vercel.app";
+    public const string DefaultCloudBaseUrl = "https://neuralrigstudio.seltum.xyz";
 
     public static string ResolveCloudBaseUrl(AppSettings _)
         => DefaultCloudBaseUrl;
