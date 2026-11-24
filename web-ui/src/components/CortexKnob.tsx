@@ -24,6 +24,8 @@ interface CortexKnobProps {
   midiCc?: number | null
   isMidiLearning?: boolean
   onChange: (next: number) => void
+  onGestureStart?: () => void
+  onGestureEnd?: () => void
   onContextLearn?: () => void
 }
 
@@ -41,6 +43,8 @@ export const CortexKnob: React.FC<CortexKnobProps> = ({
   midiCc,
   isMidiLearning,
   onChange,
+  onGestureStart,
+  onGestureEnd,
   onContextLearn,
 }) => {
   const { tx } = useI18n()
@@ -65,6 +69,7 @@ export const CortexKnob: React.FC<CortexKnobProps> = ({
     e.preventDefault()
     e.currentTarget.setPointerCapture(e.pointerId)
     dragRef.current = { startY: e.clientY, startVal: clamped }
+    onGestureStart?.()
   }
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -77,8 +82,11 @@ export const CortexKnob: React.FC<CortexKnobProps> = ({
 
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     if (dragRef.current) {
-      e.currentTarget.releasePointerCapture(e.pointerId)
+      if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId)
+      }
       dragRef.current = null
+      onGestureEnd?.()
     }
   }
 
@@ -87,7 +95,9 @@ export const CortexKnob: React.FC<CortexKnobProps> = ({
     e.preventDefault()
     const dir = e.deltaY < 0 ? 1 : -1
     const inc = step * (e.shiftKey ? 1 : max - min > 100 ? 5 : 2)
+    onGestureStart?.()
     onChange(quantize(clamped + dir * inc))
+    onGestureEnd?.()
   }
 
   const formattedVal =
@@ -97,7 +107,9 @@ export const CortexKnob: React.FC<CortexKnobProps> = ({
     setEditing(false)
     const parsed = Number.parseFloat(draftVal)
     if (!Number.isNaN(parsed) && Number.isFinite(parsed)) {
+      onGestureStart?.()
       onChange(quantize(parsed))
+      onGestureEnd?.()
     }
   }
 
@@ -111,9 +123,14 @@ export const CortexKnob: React.FC<CortexKnobProps> = ({
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
       onWheel={handleWheel}
       onDoubleClick={() => {
-        if (!editing) onChange(defaultVal)
+        if (!editing) {
+          onGestureStart?.()
+          onChange(defaultVal)
+          onGestureEnd?.()
+        }
       }}
     >
       <div className="flex flex-col justify-between h-11 min-w-0 pr-2">

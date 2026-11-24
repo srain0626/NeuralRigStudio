@@ -2,8 +2,8 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using NAudio.Wave;
 using NeuralRigStudio.Audio;
+using NeuralRigStudio.Serialization;
 
 namespace NeuralRigStudio.Services;
 
@@ -225,7 +225,7 @@ public static class NrigBundleService
                 GuitarProfile = guitarProfile?.Clone(),
             };
 
-            byte[] manifestBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(manifest, JsonOpts));
+            byte[] manifestBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(manifest, NeuralRigIndentedJsonContext.Default.NrigManifestDto));
             WriteZipEntryBytes(zip, "manifest.json", manifestBytes);
         }
 
@@ -249,7 +249,7 @@ public static class NrigBundleService
         NrigManifestDto manifest;
         using (var s = manifestEntry.Open())
         {
-            manifest = JsonSerializer.Deserialize<NrigManifestDto>(s, JsonOpts)
+            manifest = JsonSerializer.Deserialize(s, NeuralRigJsonContext.Default.NrigManifestDto)
                 ?? throw new InvalidDataException(".nrig manifest.json 파싱에 실패했습니다.");
         }
 
@@ -410,14 +410,7 @@ public static class NrigBundleService
     }
 
     public static byte[] EncodeMonoFloatWavBytes(float[] samples, int sampleRate)
-    {
-        using var ms = new MemoryStream(samples.Length * 4 + 128);
-        using (var w = new WaveFileWriter(ms, WaveFormat.CreateIeeeFloatWaveFormat(Math.Max(8000, sampleRate), 1)))
-        {
-            w.WriteSamples(samples, 0, samples.Length);
-        }
-        return ms.ToArray();
-    }
+        => WavFileCodec.EncodeMonoFloatWavBytes(samples, sampleRate);
 
     private static Dictionary<string, ToneProfile> BuildModelLookup(
         ToneProcessor? toneProc,

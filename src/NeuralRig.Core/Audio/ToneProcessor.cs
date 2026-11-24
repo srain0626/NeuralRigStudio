@@ -1,6 +1,5 @@
 ﻿using System.Numerics;
 using System.Runtime.CompilerServices;
-using NAudio.Wave;
 
 namespace NeuralRigStudio.Audio;
 
@@ -199,26 +198,7 @@ public sealed class ToneProcessor
         if (!File.Exists(wavPath))
             throw new FileNotFoundException("캐비넷 IR 파일을 찾을 수 없습니다.", wavPath);
 
-        using var reader = new AudioFileReader(wavPath);
-        int srcRate = reader.WaveFormat.SampleRate;
-        int ch = reader.WaveFormat.Channels;
-        var raw = new List<float>(Math.Min(srcRate * 2, 192000));
-        var chunk = new float[4096 * ch];
-        int read;
-        while ((read = reader.Read(chunk.AsSpan())) > 0 && raw.Count < srcRate * 2)
-        {
-            int framesRead = read / ch;
-            for (int i = 0; i < framesRead; i++)
-            {
-                float sum = 0f;
-                for (int c = 0; c < ch; c++) sum += chunk[i * ch + c];
-                raw.Add(sum / ch);
-            }
-        }
-        if (raw.Count < 8)
-            throw new InvalidOperationException("IR 파일이 비어 있거나 너무 짧습니다.");
-
-        float[] mono = raw.ToArray();
+        float[] mono = WavFileCodec.ReadMonoFloat(wavPath, 2, out int srcRate);
         return LoadCustomCabIrFromSamples(mono, srcRate, Path.GetFileName(wavPath), wavPath);
     }
 

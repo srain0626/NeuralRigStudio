@@ -1,5 +1,3 @@
-using NAudio.Wave;
-
 namespace NeuralRigStudio.Audio;
 
 public sealed record RecorderReampSnapshotDto(
@@ -248,10 +246,9 @@ public sealed class DualStreamRecorder : IDisposable
     {
         var dryRing = _dryRing!;
         var wetRing = _wetRing!;
-        var fmt = WaveFormat.CreateIeeeFloatWaveFormat(sr, 2);
 
-        using var dryWriter = new WaveFileWriter(dryPath, fmt);
-        using var wetWriter = new WaveFileWriter(wetPath, fmt);
+        using var dryWriter = new WavFileCodec.FloatWavFileWriter(dryPath, sr, 2);
+        using var wetWriter = new WavFileCodec.FloatWavFileWriter(wetPath, sr, 2);
 
         var scratch = new float[WriterChunkFrames * 2];
 
@@ -310,30 +307,7 @@ public sealed class DualStreamRecorder : IDisposable
         if (string.IsNullOrWhiteSpace(wavPath) || !File.Exists(wavPath))
             throw new FileNotFoundException("리앰핑할 Dry DI WAV 파일을 찾을 수 없습니다.", wavPath);
 
-        using var reader = new AudioFileReader(wavPath);
-        int srcRate = reader.WaveFormat.SampleRate;
-        int ch = Math.Max(1, reader.WaveFormat.Channels);
-        int maxFrames = srcRate * MaxInMemoryReampSeconds;
-        var left = new List<float>(Math.Min(srcRate * 45, maxFrames));
-        var right = new List<float>(Math.Min(srcRate * 45, maxFrames));
-        var chunk = new float[4096 * ch];
-        int read;
-        while ((read = reader.Read(chunk.AsSpan())) > 0 && left.Count < maxFrames)
-        {
-            int n = Math.Min(read / ch, maxFrames - left.Count);
-            for (int i = 0; i < n; i++)
-            {
-                float l = chunk[i * ch];
-                float r = ch > 1 ? chunk[i * ch + 1] : l;
-                left.Add(l);
-                right.Add(r);
-            }
-        }
-        if (left.Count < 8)
-            throw new InvalidOperationException("DI 오디오 파일이 비어 있거나 너무 짧습니다.");
-
-        float[] arrL = left.ToArray();
-        float[] arrR = right.ToArray();
+        var (arrL, arrR, srcRate) = WavFileCodec.ReadStereoFloat(wavPath, MaxInMemoryReampSeconds);
         int targetSr = Math.Max(8000, _sampleRate);
         if (srcRate != targetSr && srcRate > 0)
         {

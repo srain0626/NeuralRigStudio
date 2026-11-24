@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using NeuralRigStudio.Audio;
 using NeuralRigStudio.Audio.Spice;
+using NeuralRigStudio.Serialization;
 
 namespace NeuralRigStudio.Services;
 
@@ -104,9 +105,9 @@ public static class CustomDeviceRegistry
             try
             {
                 if (!File.Exists(StorePath)) return;
-                var list = JsonSerializer.Deserialize<List<CustomDeviceSpecDto>>(
+                var list = JsonSerializer.Deserialize(
                     File.ReadAllText(StorePath),
-                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    NeuralRigJsonContext.Default.ListCustomDeviceSpecDto);
                 if (list == null) return;
                 foreach (var d in list)
                 {
@@ -304,7 +305,7 @@ public static class CustomDeviceRegistry
             string? dir = Path.GetDirectoryName(StorePath);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             var list = Devices.Values.OrderBy(d => d.Id).ToList();
-            File.WriteAllText(StorePath, JsonSerializer.Serialize(list, new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(StorePath, JsonSerializer.Serialize(list, NeuralRigIndentedJsonContext.Default.ListCustomDeviceSpecDto));
         }
         catch
         {

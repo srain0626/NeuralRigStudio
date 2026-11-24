@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using NeuralRigStudio.Serialization;
 
 namespace NeuralRigStudio.Audio.Spice;
 
@@ -91,9 +92,9 @@ public static class SpiceModelLibrary
             try
             {
                 if (!File.Exists(StorePath)) return;
-                var list = JsonSerializer.Deserialize<List<SpiceComponentModelDto>>(
+                var list = JsonSerializer.Deserialize(
                     File.ReadAllText(StorePath),
-                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    NeuralRigJsonContext.Default.ListSpiceComponentModelDto);
                 if (list == null) return;
                 foreach (var m in list)
                 {
@@ -368,7 +369,7 @@ public static class SpiceModelLibrary
                 .OrderBy(m => m.Kind)
                 .ThenBy(m => m.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
-            File.WriteAllText(StorePath, JsonSerializer.Serialize(list, new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(StorePath, JsonSerializer.Serialize(list, NeuralRigIndentedJsonContext.Default.ListSpiceComponentModelDto));
         }
         catch
         {

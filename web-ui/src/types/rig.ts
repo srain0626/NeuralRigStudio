@@ -395,7 +395,30 @@ export interface CustomDeviceSpecDto {
   paramLabels: string[]
 }
 
+export interface DawHostInfoDto {
+  isPluginHost: boolean
+  format: "VST3" | "CLAP" | string
+  sampleRate: number
+  maxBlockSize: number
+  parameterCount: number
+  hostBpm: number
+  hostBpmSync: boolean
+}
+
+export interface DawParamSyncEvent {
+  signalChain: SignalChainConfigDto
+  hostBpm: number
+  hostBpmSync: boolean
+  inputGainDb: number
+  outputGainDb: number
+  gateThresholdDb: number
+  driveMultiplier: number
+  wetMix: number
+}
+
 export interface StudioInitSnapshot {
+  hostMode?: "standalone" | "vst3" | string
+  dawHost?: DawHostInfoDto
   settings: AppSettingsDto
   presets: PresetDef[]
   audio: {

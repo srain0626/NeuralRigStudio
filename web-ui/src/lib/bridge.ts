@@ -23,6 +23,25 @@ class StudioBridge {
   private seq = 0
 
   public readonly isWebView2 = Boolean(window.chrome?.webview)
+  private _hostMode: "standalone" | "vst3" =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("host") === "vst3"
+      ? "vst3"
+      : "standalone"
+
+  public get hostMode(): "standalone" | "vst3" {
+    return this._hostMode
+  }
+
+  public get isVst3Host(): boolean {
+    return this._hostMode === "vst3"
+  }
+
+  public setHostMode(mode?: string) {
+    if (mode === "vst3" || mode === "standalone") {
+      this._hostMode = mode
+    }
+  }
 
   constructor() {
     if (window.chrome?.webview) {

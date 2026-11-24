@@ -1,4 +1,5 @@
 using System.Text.Json;
+using NeuralRigStudio.Serialization;
 
 namespace NeuralRigStudio.Audio;
 
@@ -79,7 +80,7 @@ public sealed class AppSettings
         try
         {
             if (File.Exists(FilePath))
-                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath)) ?? new AppSettings();
+                return JsonSerializer.Deserialize(File.ReadAllText(FilePath), NeuralRigJsonContext.Default.AppSettings) ?? new AppSettings();
         }
         catch
         {
@@ -94,7 +95,7 @@ public sealed class AppSettings
         {
             string? dir = Path.GetDirectoryName(FilePath);
             if (dir != null) Directory.CreateDirectory(dir);
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(FilePath, JsonSerializer.Serialize(this, NeuralRigIndentedJsonContext.Default.AppSettings));
         }
         catch
         {

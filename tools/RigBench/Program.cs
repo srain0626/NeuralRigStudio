@@ -1866,6 +1866,19 @@ static void RunWhiteBoxVerification()
             var br = new float[frames];
             long sampleIdx = 0;
 
+            // Tier-0 -> Tier-1 JIT/PGO warmup before strict 0 B sweep check (matches Capo/CLAP/VST3)
+            for (int w = 0; w < 40; w++)
+            {
+                cfg.Slots[0].Params[0] = (w & 1) == 0 ? 0f : 50f;
+                whProc.Chain.UpdateChain(cfg);
+                whProc.Process(bl, br, frames);
+            }
+            cfg.Slots[0].Params[0] = 0f;
+            whProc.Chain.UpdateChain(cfg);
+            whProc.ResetState();
+            Array.Clear(bl);
+            Array.Clear(br);
+
             for (int b = 0; b < totalBlocks; b++)
             {
                 float pedal = b < 12 ? (b / 11f) * 100f : 100f;
@@ -2553,6 +2566,7 @@ static void RunWhiteBoxVerification()
                 {
                     for (int i = 0; i < frames; i++) inL[i] = inR[i] = 0.22f * MathF.Sin(2f * MathF.PI * 220f * i / sr);
                     vstA.SetParamNormalized((uint)DawParamId.Slot02Bypass, k % 2 == 0 ? 1.0 : 0.0, 128);
+                    vstA.SetParamNormalized(DawParameterCatalog.SlotKnobParamId(1, 0), 0.35 + 0.05 * (k & 1), 160);
                     vstA.Process(inL, inR, outL, outR, frames, vstCtx);
                 }
                 long vAlloc = GC.GetAllocatedBytesForCurrentThread() - vAlloc0;
@@ -2589,7 +2603,7 @@ static void RunWhiteBoxVerification()
                 if (!File.Exists(pkg.Vst3ModuleInfoPath) || !File.Exists(pkg.ClapPluginPath) || !File.Exists(pkg.DefaultRigPath))
                     throw new Exception("DawPluginExporter output missing expected .vst3 / .clap artifacts!");
 
-                Console.WriteLine($"[PASS] VST3/CLAP NativeAOT-Ready Plugins (32 Params, Host BPM=140/144, Sample-Accurate Automation, State Diff={stateDiff:E1}): {clapMs:F4} ms/block, CLAP={cAlloc} B / VST3={vAlloc} B");
+                Console.WriteLine($"[PASS] VST3/CLAP NativeAOT-Ready Plugins (160 Params, Host BPM=140/144, Sample-Accurate Automation, State Diff={stateDiff:E1}): {clapMs:F4} ms/block, CLAP={cAlloc} B / VST3={vAlloc} B");
             }
         }
         finally

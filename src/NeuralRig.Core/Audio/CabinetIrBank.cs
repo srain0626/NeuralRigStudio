@@ -1,7 +1,6 @@
 using System.Numerics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
-using NAudio.Wave;
 
 namespace NeuralRigStudio.Audio;
 
@@ -120,27 +119,9 @@ public sealed class CabinetIrBank
         ir = Array.Empty<float>();
         rev = Array.Empty<float>();
 
-        using var reader = new WaveFileReader(stream);
-        var sp = reader.ToSampleProvider();
-        int srcRate = Math.Max(8000, sp.WaveFormat.SampleRate);
-        int ch = Math.Max(1, sp.WaveFormat.Channels);
-        int maxSrcFrames = srcRate * 2;
-        var raw = new List<float>(Math.Min(maxSrcFrames, 65536));
-        var chunk = new float[4096 * ch];
-        int read;
-        while ((read = sp.Read(chunk.AsSpan())) > 0 && raw.Count < maxSrcFrames)
-        {
-            int framesRead = read / ch;
-            for (int i = 0; i < framesRead; i++)
-            {
-                float sum = 0f;
-                for (int c = 0; c < ch; c++) sum += chunk[i * ch + c];
-                raw.Add(sum / ch);
-            }
-        }
-        if (raw.Count < 8) return false;
+        if (!WavFileCodec.TryReadMonoFloat(stream, 2, out float[] mono, out int srcRate) || mono.Length < 8)
+            return false;
 
-        float[] mono = raw.ToArray();
         if (srcRate != targetSampleRate)
             mono = SincResampler.Resample(mono, srcRate, targetSampleRate);
 

@@ -99,7 +99,28 @@ interface CortexStudioProps {
   allPresets: SignalChainConfigDto[]
   selectedSlot: number
   onSelectSlot: (idx: number) => void
-  onPushChain: (next: SignalChainConfigDto, immediate?: boolean, recordHistory?: boolean) => void
+  onPushChain: (
+    next: SignalChainConfigDto,
+    immediate?: boolean,
+    recordHistory?: boolean,
+    skipEngineSync?: boolean
+  ) => void
+  isVst3Host?: boolean
+  onParamGesture?: (req: {
+    phase: "begin" | "change" | "end"
+    kind:
+      | "slotBypass"
+      | "slotParam"
+      | "scene"
+      | "tempo"
+      | "routing"
+      | "parallelMix"
+      | "inputGain"
+      | "outputGain"
+    slotIndex?: number
+    paramIndex?: number
+    value: number
+  }) => void
   onLoadPreset: (preset: SignalChainConfigDto) => void
   onAssignModel: (modelId: string, slotIdx: number) => void
   onSavedPresetsChange: (presets: SignalChainConfigDto[]) => void
@@ -151,6 +172,8 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
   selectedSlot,
   onSelectSlot,
   onPushChain,
+  isVst3Host = false,
+  onParamGesture,
   onLoadPreset,
   onAssignModel,
   onSavedPresetsChange,
@@ -179,6 +202,26 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
   onLog,
 }) => {
   const { tx } = useI18n()
+
+  const emitGesture = (
+    phase: "begin" | "change" | "end",
+    kind:
+      | "slotBypass"
+      | "slotParam"
+      | "scene"
+      | "tempo"
+      | "routing"
+      | "parallelMix"
+      | "inputGain"
+      | "outputGain",
+    value: number,
+    slotIndex?: number,
+    paramIndex?: number
+  ) => {
+    if (isVst3Host && onParamGesture) {
+      onParamGesture({ phase, kind, value, slotIndex, paramIndex })
+    }
+  }
 
   const [activeCategory, setActiveCategory] = useState<DeviceCategoryId>("amp")
   const [inspectorOpen, setInspectorOpen] = useState(false)
@@ -423,12 +466,21 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
   const toggleSlotBypass = (slotIdx: number) => {
     const target = chain.slots[slotIdx]
     if (!target?.modelId) return
+    const nextEnabled = !target.enabled
     const nextSlots = chain.slots.map((s, i) =>
       i === slotIdx
-        ? { ...s, enabled: !s.enabled, params: [...s.params] }
+        ? { ...s, enabled: nextEnabled, params: [...s.params] }
         : { ...s, params: [...s.params] }
     )
-    onPushChain({ ...chain, slots: nextSlots }, true)
+    if (isVst3Host && onParamGesture) {
+      const val = nextEnabled ? 1 : 0
+      emitGesture("begin", "slotBypass", val, slotIdx)
+      emitGesture("change", "slotBypass", val, slotIdx)
+      emitGesture("end", "slotBypass", val, slotIdx)
+      onPushChain({ ...chain, slots: nextSlots }, false, false, true)
+    } else {
+      onPushChain({ ...chain, slots: nextSlots }, true)
+    }
   }
 
   const removeSlotBlock = (slotIdx: number) => {
@@ -466,7 +518,12 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
       p[paramIdx] = val
       return { ...s, params: p }
     })
-    onPushChain({ ...chain, slots: nextSlots }, false)
+    if (isVst3Host && onParamGesture) {
+      emitGesture("change", "slotParam", val, slotIdx, paramIdx)
+      onPushChain({ ...chain, slots: nextSlots }, false, false, true)
+    } else {
+      onPushChain({ ...chain, slots: nextSlots }, false)
+    }
   }
 
   const updateSlotSyncDivision = (slotIdx: number, syncDivision: number) => {
@@ -502,7 +559,14 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
     if (prev.length >= 2) {
       const avgMs = (prev[prev.length - 1] - prev[0]) / (prev.length - 1)
       const bpm = Math.max(40, Math.min(280, Math.round((60000 / avgMs) * 2) / 2))
-      onPushChain({ ...chain, tempoBpm: bpm }, true, true)
+      if (isVst3Host && onParamGesture) {
+        emitGesture("begin", "tempo", bpm)
+        emitGesture("change", "tempo", bpm)
+        emitGesture("end", "tempo", bpm)
+        onPushChain({ ...chain, tempoBpm: bpm }, false, true, true)
+      } else {
+        onPushChain({ ...chain, tempoBpm: bpm }, true, true)
+      }
     }
   }
 
@@ -1226,7 +1290,17 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                         >
                           <button
                             type="button"
-                            onClick={() => onPushChain(switchSceneOnChain(chain, idx), true, true)}
+                            onClick={() => {
+                              const nextChain = switchSceneOnChain(chain, idx)
+                              if (isVst3Host && onParamGesture) {
+                                emitGesture("begin", "scene", idx)
+                                emitGesture("change", "scene", idx)
+                                emitGesture("end", "scene", idx)
+                                onPushChain(nextChain, false, true, true)
+                              } else {
+                                onPushChain(nextChain, true, true)
+                              }
+                            }}
                             className={`relative h-6 min-w-6 px-2 rounded-full font-mono text-[11px] font-medium transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-pointer ${
                               active
                                 ? "bg-foreground text-background shadow-[0_4px_14px_rgba(11,14,16,0.22)] scale-[1.03]"
@@ -1296,7 +1370,15 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                         setEditingBpm(false)
                         const v = Number.parseFloat(draftBpm)
                         if (!Number.isNaN(v) && Number.isFinite(v)) {
-                          onPushChain({ ...chain, tempoBpm: Math.max(40, Math.min(280, v)) }, true, true)
+                          const clampedBpm = Math.max(40, Math.min(280, v))
+                          if (isVst3Host && onParamGesture) {
+                            emitGesture("begin", "tempo", clampedBpm)
+                            emitGesture("change", "tempo", clampedBpm)
+                            emitGesture("end", "tempo", clampedBpm)
+                            onPushChain({ ...chain, tempoBpm: clampedBpm }, false, true, true)
+                          } else {
+                            onPushChain({ ...chain, tempoBpm: clampedBpm }, true, true)
+                          }
                         }
                       }}
                       onKeyDown={(e) => {
@@ -1349,14 +1431,32 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                     <Button
                       size="sm"
                       variant={chain.routingMode !== 1 ? "default" : "outline"}
-                      onClick={() => onPushChain({ ...chain, routingMode: 0 }, true)}
+                      onClick={() => {
+                        if (isVst3Host && onParamGesture) {
+                          emitGesture("begin", "routing", 0)
+                          emitGesture("change", "routing", 0)
+                          emitGesture("end", "routing", 0)
+                          onPushChain({ ...chain, routingMode: 0 }, false, false, true)
+                        } else {
+                          onPushChain({ ...chain, routingMode: 0 }, true)
+                        }
+                      }}
                     >
                       {tx("직렬 (Serial)", "Serial")}
                     </Button>
                     <Button
                       size="sm"
                       variant={chain.routingMode === 1 ? "signal" : "outline"}
-                      onClick={() => onPushChain({ ...chain, routingMode: 1 }, true)}
+                      onClick={() => {
+                        if (isVst3Host && onParamGesture) {
+                          emitGesture("begin", "routing", 1)
+                          emitGesture("change", "routing", 1)
+                          emitGesture("end", "routing", 1)
+                          onPushChain({ ...chain, routingMode: 1 }, false, false, true)
+                        } else {
+                          onPushChain({ ...chain, routingMode: 1 }, true)
+                        }
+                      }}
                     >
                       {tx("병렬 분기 (Parallel)", "Parallel")}
                     </Button>
@@ -1430,7 +1530,16 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                           min={0}
                           max={100}
                           step={1}
-                          onValueChange={([v]) => onPushChain({ ...chain, parallelMix: v / 100 }, false)}
+                          onPointerDown={() => emitGesture("begin", "parallelMix", chain.parallelMix * 100)}
+                          onValueChange={([v]) => {
+                            if (isVst3Host && onParamGesture) {
+                              emitGesture("change", "parallelMix", v)
+                              onPushChain({ ...chain, parallelMix: v / 100 }, false, false, true)
+                            } else {
+                              onPushChain({ ...chain, parallelMix: v / 100 }, false)
+                            }
+                          }}
+                          onValueCommit={([v]) => emitGesture("end", "parallelMix", v)}
                         />
                       </div>
                     </div>
@@ -1453,7 +1562,16 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                       </span>
                       <button
                         type="button"
-                        onDoubleClick={() => onPushChain({ ...chain, inputGainDb: 0 }, false)}
+                        onDoubleClick={() => {
+                          if (isVst3Host && onParamGesture) {
+                            emitGesture("begin", "inputGain", 0)
+                            emitGesture("change", "inputGain", 0)
+                            emitGesture("end", "inputGain", 0)
+                            onPushChain({ ...chain, inputGainDb: 0 }, false, false, true)
+                          } else {
+                            onPushChain({ ...chain, inputGainDb: 0 }, false)
+                          }
+                        }}
                         className="font-mono font-semibold tabular-nums cursor-pointer"
                       >
                         {chain.inputGainDb >= 0
@@ -1467,7 +1585,16 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                       min={-12}
                       max={12}
                       step={0.5}
-                      onValueChange={([v]) => onPushChain({ ...chain, inputGainDb: v }, false)}
+                      onPointerDown={() => emitGesture("begin", "inputGain", chain.inputGainDb)}
+                      onValueChange={([v]) => {
+                        if (isVst3Host && onParamGesture) {
+                          emitGesture("change", "inputGain", v)
+                          onPushChain({ ...chain, inputGainDb: v }, false, false, true)
+                        } else {
+                          onPushChain({ ...chain, inputGainDb: v }, false)
+                        }
+                      }}
+                      onValueCommit={([v]) => emitGesture("end", "inputGain", v)}
                     />
                   </div>
 
@@ -1476,7 +1603,16 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                       <span className="text-muted-foreground">{tx("마스터 출력 (Output)", "Output Gain")}</span>
                       <button
                         type="button"
-                        onDoubleClick={() => onPushChain({ ...chain, outputGainDb: 0 }, false)}
+                        onDoubleClick={() => {
+                          if (isVst3Host && onParamGesture) {
+                            emitGesture("begin", "outputGain", 0)
+                            emitGesture("change", "outputGain", 0)
+                            emitGesture("end", "outputGain", 0)
+                            onPushChain({ ...chain, outputGainDb: 0 }, false, false, true)
+                          } else {
+                            onPushChain({ ...chain, outputGainDb: 0 }, false)
+                          }
+                        }}
                         className="font-mono font-semibold tabular-nums cursor-pointer"
                       >
                         {chain.outputGainDb >= 0
@@ -1490,7 +1626,16 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                       min={-12}
                       max={12}
                       step={0.5}
-                      onValueChange={([v]) => onPushChain({ ...chain, outputGainDb: v }, false)}
+                      onPointerDown={() => emitGesture("begin", "outputGain", chain.outputGainDb)}
+                      onValueChange={([v]) => {
+                        if (isVst3Host && onParamGesture) {
+                          emitGesture("change", "outputGain", v)
+                          onPushChain({ ...chain, outputGainDb: v }, false, false, true)
+                        } else {
+                          onPushChain({ ...chain, outputGainDb: v }, false)
+                        }
+                      }}
+                      onValueCommit={([v]) => emitGesture("end", "outputGain", v)}
                     />
                   </div>
                 </div>
@@ -1701,7 +1846,16 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                         onLabel={p.onLabel}
                         offLabel={p.offLabel}
                         accentHex={currentCategory.hex}
-                        onChange={(checked) => updateSlotParam(selectedSlot, p.index, checked ? 1 : 0)}
+                        onChange={(checked) => {
+                          const v = checked ? 1 : 0
+                          if (isVst3Host && onParamGesture) {
+                            emitGesture("begin", "slotParam", v, selectedSlot, p.index)
+                            updateSlotParam(selectedSlot, p.index, v)
+                            emitGesture("end", "slotParam", v, selectedSlot, p.index)
+                          } else {
+                            updateSlotParam(selectedSlot, p.index, v)
+                          }
+                        }}
                       />
                     )
                   }
@@ -1740,7 +1894,19 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                         midiState?.learning?.slotIndex === selectedSlot &&
                         midiState?.learning?.paramIndex === p.index
                       }
+                      onGestureStart={() =>
+                        emitGesture("begin", "slotParam", val, selectedSlot, p.index)
+                      }
                       onChange={(nextVal) => updateSlotParam(selectedSlot, p.index, nextVal)}
+                      onGestureEnd={() =>
+                        emitGesture(
+                          "end",
+                          "slotParam",
+                          chain.slots[selectedSlot]?.params[p.index] ?? val,
+                          selectedSlot,
+                          p.index
+                        )
+                      }
                       onContextLearn={() => {
                         const existing = midiState?.bindings?.find(
                           (b) =>

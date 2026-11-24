@@ -24,31 +24,68 @@ public static class DawPluginExporter
         Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFiles),
         "NeuralRigStudio_Plugins");
 
-    public static object GetPluginInspectorInfo(string? exportDir = null)
+    public static Vst3ModuleInfoDto CreateModuleInfo()
     {
-        return new
+        return new Vst3ModuleInfoDto
         {
-            pluginName = ClapNativeMetadata.PluginName,
-            vendor = ClapNativeMetadata.Vendor,
-            version = ClapNativeMetadata.Version,
-            clapId = ClapNativeMetadata.PluginId,
-            vst3ProcessorCid = Vst3PluginMetadata.ProcessorCidHex,
-            vst3ControllerCid = Vst3PluginMetadata.ControllerCidHex,
-            subCategories = Vst3PluginMetadata.SubCategories,
-            nativeAotCommand = "dotnet publish src/NeuralRig.Plugin/NeuralRig.Plugin.csproj -c Release -r win-x64 -p:NativeLib=Shared",
-            defaultOutputDir = string.IsNullOrWhiteSpace(exportDir)
+            Name = Vst3PluginMetadata.Name,
+            Version = "3.0.0",
+            FactoryInfo = new Vst3FactoryInfoDto
+            {
+                Vendor = Vst3PluginMetadata.Vendor,
+                Url = "https://neuralrig.studio",
+                Email = "support@neuralrig.studio",
+                Flags = new Vst3FactoryFlagsDto
+                {
+                    Unicode = true,
+                    ClassesDiscardable = false,
+                    ComponentNonDiscardable = false,
+                },
+            },
+            Classes = new List<Vst3ClassInfoDto>
+            {
+                new()
+                {
+                    Cid = Vst3PluginMetadata.ProcessorCidHex,
+                    Category = "Audio Module Class",
+                    Name = Vst3PluginMetadata.Name,
+                    Vendor = Vst3PluginMetadata.Vendor,
+                    Version = "3.0.0",
+                    SdkVersion = "VST 3.7.11",
+                    SubCategories = new[] { "Fx", "Guitar", "AmpSim" },
+                    ClassFlags = 2,
+                    Cardinality = 2147483647,
+                    Snapshots = Array.Empty<string>(),
+                },
+            },
+        };
+    }
+
+    public static DawPluginInspectorDto GetPluginInspectorInfo(string? exportDir = null)
+    {
+        return new DawPluginInspectorDto
+        {
+            PluginName = ClapNativeMetadata.PluginName,
+            Vendor = ClapNativeMetadata.Vendor,
+            Version = "3.0.0",
+            ClapId = ClapNativeMetadata.PluginId,
+            Vst3ProcessorCid = Vst3PluginMetadata.ProcessorCidHex,
+            Vst3ControllerCid = Vst3PluginMetadata.ControllerCidHex,
+            SubCategories = Vst3PluginMetadata.SubCategories,
+            NativeAotCommand = "powershell -ExecutionPolicy Bypass -File scripts/build-vst3.ps1",
+            DefaultOutputDir = string.IsNullOrWhiteSpace(exportDir)
                 ? Path.Combine(AppContext.BaseDirectory, "DawPlugins")
                 : exportDir,
-            parameters = DawParameterCatalog.All.Select(p => new
+            Parameters = DawParameterCatalog.All.Select(p => new DawPluginParamSummaryDto
             {
-                id = p.Id,
-                name = p.Name,
-                module = p.Module,
-                unit = p.Unit,
-                min = p.MinValue,
-                max = p.MaxValue,
-                defaultVal = p.DefaultValue,
-                steps = p.StepCount,
+                Id = p.Id,
+                Name = p.Name,
+                Module = p.Module,
+                Unit = p.Unit,
+                Min = p.MinValue,
+                Max = p.MaxValue,
+                DefaultVal = p.DefaultValue,
+                Steps = p.StepCount,
             }).ToArray(),
         };
     }
@@ -74,61 +111,43 @@ public static class DawPluginExporter
         Directory.CreateDirectory(vst3ResDir);
 
         string vst3BinaryPath = Path.Combine(vst3BinDir, "NeuralRigStudio.vst3");
-        if (!string.IsNullOrEmpty(pluginDllSrc) && File.Exists(pluginDllSrc))
+        string? nativeRuntimeRoot = ResolveNativeVst3RuntimeRoot();
+        bool hasRealNativeVst3 = false;
+
+        if (!string.IsNullOrEmpty(nativeRuntimeRoot))
         {
-            File.Copy(pluginDllSrc, vst3BinaryPath, overwrite: true);
-            if (!string.IsNullOrEmpty(coreDllSrc) && File.Exists(coreDllSrc))
-                File.Copy(coreDllSrc, Path.Combine(vst3BinDir, "NeuralRig.Core.dll"), overwrite: true);
+            string srcVst3 = Path.Combine(nativeRuntimeRoot, "x86_64-win", "NeuralRigStudio.vst3");
+            string srcNativeCore = Path.Combine(nativeRuntimeRoot, "x86_64-win", "NeuralRig.NativeCore.dll");
+            if (File.Exists(srcVst3) && File.Exists(srcNativeCore))
+            {
+                File.Copy(srcVst3, vst3BinaryPath, overwrite: true);
+                File.Copy(srcNativeCore, Path.Combine(vst3BinDir, "NeuralRig.NativeCore.dll"), overwrite: true);
+                hasRealNativeVst3 = true;
+
+                string srcWwwroot = Path.Combine(nativeRuntimeRoot, "Resources", "wwwroot");
+                if (Directory.Exists(srcWwwroot))
+                    CopyDirectoryRecursive(srcWwwroot, Path.Combine(vst3ResDir, "wwwroot"));
+            }
         }
-        else
+
+        if (!hasRealNativeVst3)
         {
-            File.WriteAllText(vst3BinaryPath, "NeuralRig.Plugin NativeAOT Host Target");
+            if (File.Exists(pluginDllSrc))
+            {
+                File.Copy(pluginDllSrc, vst3BinaryPath, overwrite: true);
+                if (File.Exists(coreDllSrc))
+                    File.Copy(coreDllSrc, Path.Combine(vst3BinDir, "NeuralRig.Core.dll"), overwrite: true);
+            }
+            else
+            {
+                File.WriteAllText(vst3BinaryPath, "NeuralRig.Plugin NativeAOT Host Target");
+            }
         }
 
         string moduleInfoPath = Path.Combine(vst3Root, "Contents", "moduleinfo.json");
-        var moduleInfo = new
-        {
-            Name = Vst3PluginMetadata.Name,
-            Version = Vst3PluginMetadata.Version,
-            FactoryInfo = new
-            {
-                Vendor = Vst3PluginMetadata.Vendor,
-                URL = "https://github.com/neuralrig/studio",
-                E_Mail = "support@neuralrig.audio",
-                Flags = new { Unicode = true, ClassesDiscardable = false, LicenseCheck = false, ComponentNonDiscardable = false },
-            },
-            Classes = new object[]
-            {
-                new
-                {
-                    CID = Vst3PluginMetadata.ProcessorCidHex,
-                    Category = "Audio Module Class",
-                    Name = Vst3PluginMetadata.Name,
-                    Vendor = Vst3PluginMetadata.Vendor,
-                    Version = Vst3PluginMetadata.Version,
-                    SDKVersion = "VST 3.7.8",
-                    SubCategories = new[] { "Fx", "Guitar", "AmpSim" },
-                    ClassFlags = 0,
-                    Cardinality = 2147483647,
-                    Snapshots = Array.Empty<object>(),
-                },
-                new
-                {
-                    CID = Vst3PluginMetadata.ControllerCidHex,
-                    Category = "Component Controller Class",
-                    Name = $"{Vst3PluginMetadata.Name} Controller",
-                    Vendor = Vst3PluginMetadata.Vendor,
-                    Version = Vst3PluginMetadata.Version,
-                    SDKVersion = "VST 3.7.8",
-                    SubCategories = Array.Empty<string>(),
-                    ClassFlags = 0,
-                    Cardinality = 2147483647,
-                },
-            },
-        };
         File.WriteAllText(
             moduleInfoPath,
-            JsonSerializer.Serialize(moduleInfo, new JsonSerializerOptions { WriteIndented = true }),
+            JsonSerializer.Serialize(CreateModuleInfo(), Vst3ModuleInfoJsonContext.Default.Vst3ModuleInfoDto),
             Encoding.UTF8);
 
         string vst3DefaultRigPath = Path.Combine(vst3ResDir, "FactoryDefault.nrig");
@@ -143,28 +162,27 @@ public static class DawPluginExporter
 
         // 2) CLAP v1.2 Plugin Package
         string clapBinaryPath = Path.Combine(outputDirectory, "NeuralRigStudio.clap");
-        if (!string.IsNullOrEmpty(pluginDllSrc) && File.Exists(pluginDllSrc))
+        if (File.Exists(pluginDllSrc))
             File.Copy(pluginDllSrc, clapBinaryPath, overwrite: true);
         else
             File.WriteAllText(clapBinaryPath, "NeuralRig.Plugin CLAP v1.2 NativeAOT Target");
 
         string clapManifestPath = Path.Combine(outputDirectory, "NeuralRigStudio.clap.json");
-        var clapManifest = new
+        var clapManifest = new ClapManifestDto
         {
-            clapVersion = "1.2.2",
-            id = ClapNativeMetadata.PluginId,
-            name = ClapNativeMetadata.PluginName,
-            vendor = ClapNativeMetadata.Vendor,
-            version = ClapNativeMetadata.Version,
-            description = ClapNativeMetadata.Description,
-            features = ClapNativeMetadata.Features,
-            entrySymbol = "clap_entry",
-            parameterCount = DawParameterCatalog.ParameterCount,
-            defaultRig = Path.GetFileName(vst3DefaultRigPath),
+            Schema = "clap-v1.2.2",
+            PluginId = ClapNativeMetadata.PluginId,
+            PluginName = ClapNativeMetadata.PluginName,
+            Vendor = ClapNativeMetadata.Vendor,
+            Version = ClapNativeMetadata.Version,
+            Description = ClapNativeMetadata.Description,
+            Features = ClapNativeMetadata.Features,
+            DefaultRigFile = Path.GetFileName(vst3DefaultRigPath),
+            ParameterCount = DawParameterCatalog.ParameterCount,
         };
         File.WriteAllText(
             clapManifestPath,
-            JsonSerializer.Serialize(clapManifest, new JsonSerializerOptions { WriteIndented = true }),
+            JsonSerializer.Serialize(clapManifest, PluginIndentedJsonContext.Default.ClapManifestDto),
             Encoding.UTF8);
 
         return new DawPluginPackageResultDto(
@@ -175,6 +193,36 @@ public static class DawPluginExporter
             clapManifestPath,
             vst3DefaultRigPath,
             DawParameterCatalog.ParameterCount,
-            NativeAotReady: true);
+            NativeAotReady: hasRealNativeVst3 || File.Exists(pluginDllSrc));
+    }
+
+    private static string? ResolveNativeVst3RuntimeRoot()
+    {
+        string baseDir = AppContext.BaseDirectory;
+        string[] candidates =
+        {
+            Path.Combine(baseDir, "Vst3Runtime", "Contents"),
+            Path.Combine(baseDir, "NeuralRigStudio.vst3", "Contents"),
+            Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "..", "dist-vst3", "NeuralRigStudio.vst3", "Contents")),
+            Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "..", "..", "dist-vst3", "NeuralRigStudio.vst3", "Contents")),
+        };
+        foreach (string dir in candidates)
+        {
+            if (File.Exists(Path.Combine(dir, "x86_64-win", "NeuralRigStudio.vst3")) &&
+                File.Exists(Path.Combine(dir, "x86_64-win", "NeuralRig.NativeCore.dll")))
+            {
+                return dir;
+            }
+        }
+        return null;
+    }
+
+    private static void CopyDirectoryRecursive(string sourceDir, string destDir)
+    {
+        Directory.CreateDirectory(destDir);
+        foreach (string file in Directory.GetFiles(sourceDir))
+            File.Copy(file, Path.Combine(destDir, Path.GetFileName(file)), overwrite: true);
+        foreach (string sub in Directory.GetDirectories(sourceDir))
+            CopyDirectoryRecursive(sub, Path.Combine(destDir, Path.GetFileName(sub)));
     }
 }

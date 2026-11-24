@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <Compile Include="..\..\Audio\AudioRouter.cs" Link="AudioRouter.cs" />
+    <Compile Include="..\..\Audio\RingSource.cs" Link="RingSource.cs" />
   </ItemGroup>
 
 </Project>

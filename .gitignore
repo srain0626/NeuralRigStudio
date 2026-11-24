@@ -20,6 +20,7 @@ cloud/next-env.d.ts
 packages/*/node_modules/
 packages/*/*.tgz
 dist-release/
+dist-vst3/
 *.tsbuildinfo
 *.zip
 

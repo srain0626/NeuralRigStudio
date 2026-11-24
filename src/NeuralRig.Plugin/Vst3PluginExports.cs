@@ -35,7 +35,7 @@ public static class Vst3PluginMetadata
     public const string SubCategories = "Fx|Guitar|AmpSim";
     public const string Name = "NeuralRig Studio";
     public const string Vendor = "NeuralRig Audio";
-    public const string Version = "2.0.0.0";
+    public const string Version = "3.0.0.0";
 }
 
 /// <summary>
@@ -139,7 +139,6 @@ public static unsafe class Vst3NativeEntry
     private static nint _factoryPtr;
     private static int _initCount;
 
-    [UnmanagedCallersOnly(EntryPoint = "InitDll")]
     public static byte InitDll()
     {
         Interlocked.Increment(ref _initCount);
@@ -147,14 +146,12 @@ public static unsafe class Vst3NativeEntry
         return 1;
     }
 
-    [UnmanagedCallersOnly(EntryPoint = "ExitDll")]
     public static byte ExitDll()
     {
         Interlocked.Decrement(ref _initCount);
         return 1;
     }
 
-    [UnmanagedCallersOnly(EntryPoint = "GetPluginFactory")]
     public static nint GetPluginFactory() => EnsureFactory();
 
     public static nint EnsureFactory()

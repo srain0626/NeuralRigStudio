@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using NeuralRigStudio.Audio.Spice;
+using NeuralRigStudio.Serialization;
 using NeuralRigStudio.Services;
 
 namespace NeuralRigStudio.Audio;
@@ -670,10 +671,17 @@ public sealed partial class SignalChainEngine
 
     public SignalChainConfigDto GetConfigSnapshot() => Volatile.Read(ref _lastDto).Clone();
 
+    private CompiledSnapshot ReadLatestSnapshot()
+    {
+        int ver = Volatile.Read(ref _version);
+        int applied = Volatile.Read(ref _appliedVersion);
+        return applied == ver ? Volatile.Read(ref _activeSnapshot) : Volatile.Read(ref _pendingSnapshot);
+    }
+
     public float TempoBpm => Volatile.Read(ref _pendingSnapshot).TempoBpm;
-    public int ActiveScene => Volatile.Read(ref _activeSnapshot).ActiveScene;
-    public ChainRoutingMode RoutingMode => Volatile.Read(ref _activeSnapshot).Routing;
-    public float ParallelMix => Volatile.Read(ref _activeSnapshot).ParallelMix;
+    public int ActiveScene => ReadLatestSnapshot().ActiveScene;
+    public ChainRoutingMode RoutingMode => ReadLatestSnapshot().Routing;
+    public float ParallelMix => ReadLatestSnapshot().ParallelMix;
 
     /// <summary>DAW 오토메이션 및 실시간 MIDI용 무할당 RT 파라미터 갱신 API (힙 할당 0 B).</summary>
     public void SetGlobalParamsRt(
@@ -713,7 +721,7 @@ public sealed partial class SignalChainEngine
     public bool GetSlotBypassRt(int slotIndex)
     {
         if ((uint)slotIndex >= SlotCount) return false;
-        return _activeSnapshot.Slots[slotIndex].Enabled;
+        return ReadLatestSnapshot().Slots[slotIndex].Enabled;
     }
 
     public bool SwitchSceneRt(int sceneIndex)
@@ -738,6 +746,17 @@ public sealed partial class SignalChainEngine
             ConfigureSlotFilters(_states[i], ref sl, sr);
         }
         return true;
+    }
+
+    public int GetPrimaryAmpSlotIndex()
+    {
+        var snap = ReadLatestSnapshot();
+        for (int i = 0; i < SlotCount; i++)
+        {
+            if (snap.Slots[i].Op is BlockOp.AmpWhiteBox or BlockOp.AmpJc120 or BlockOp.CustomAmp)
+                return i;
+        }
+        return -1;
     }
 
     public bool SetPrimaryAmpParamRt(int paramIdx, float value)
@@ -776,7 +795,7 @@ public sealed partial class SignalChainEngine
     {
         value = 0f;
         if ((uint)paramIdx > 7) return false;
-        var snap = Volatile.Read(ref _activeSnapshot);
+        var snap = ReadLatestSnapshot();
         for (int i = 0; i < SlotCount; i++)
         {
             ref var sl = ref snap.Slots[i];
@@ -793,17 +812,51 @@ public sealed partial class SignalChainEngine
         return false;
     }
 
+    public bool SetSlotParamRt(int slotIndex, int paramIdx, float value)
+    {
+        if ((uint)slotIndex >= SlotCount || (uint)paramIdx > 7) return false;
+        EnsureApplied();
+        ref var sl = ref _activeSnapshot.Slots[slotIndex];
+        switch (paramIdx)
+        {
+            case 0: sl.P0 = value; break;
+            case 1: sl.P1 = value; break;
+            case 2: sl.P2 = value; break;
+            case 3: sl.P3 = value; break;
+            case 4: sl.P4 = value; break;
+            case 5: sl.P5 = value; break;
+            case 6: sl.P6 = value; break;
+            case 7: sl.P7 = value; break;
+        }
+        ConfigureSlotFilters(_states[slotIndex], ref sl, _sampleRate);
+        return true;
+    }
+
+    public bool TryGetSlotParam(int slotIndex, int paramIdx, out float value)
+    {
+        value = 0f;
+        if ((uint)slotIndex >= SlotCount || (uint)paramIdx > 7) return false;
+        var snap = ReadLatestSnapshot();
+        ref var sl = ref snap.Slots[slotIndex];
+        value = paramIdx switch
+        {
+            0 => sl.P0, 1 => sl.P1, 2 => sl.P2, 3 => sl.P3,
+            4 => sl.P4, 5 => sl.P5, 6 => sl.P6, _ => sl.P7,
+        };
+        return true;
+    }
+
     /// <summary>DAW 상태 저장용(비-RT 스레드): 현재 RT 스냅샷의 오토메이션 반영 값을 DTO에 동기화하여 반환한다.</summary>
     public SignalChainConfigDto ExportLiveStateSnapshot()
     {
         var dto = GetConfigSnapshot();
-        var act = Volatile.Read(ref _activeSnapshot);
+        var act = ReadLatestSnapshot();
         dto.ActiveScene = Math.Clamp(act.ActiveScene, 0, 7);
         dto.RoutingMode = (int)act.Routing;
         dto.ParallelMix = Math.Clamp(act.ParallelMix, 0f, 1f);
         dto.TempoBpm = Math.Clamp(act.TempoBpm, 40f, 280f);
-        dto.InputGainDb = MathF.Round(Math.Clamp(20f * MathF.Log10(Math.Max(1e-4f, act.InputGain)), -18f, 18f), 2);
-        dto.OutputGainDb = MathF.Round(Math.Clamp(20f * MathF.Log10(Math.Max(1e-4f, act.OutputGain)), -18f, 18f), 2);
+        dto.InputGainDb = MathF.Round(Math.Clamp(20f * MathF.Log10(Math.Max(1e-4f, act.InputGain)), -18f, 18f), 4);
+        dto.OutputGainDb = MathF.Round(Math.Clamp(20f * MathF.Log10(Math.Max(1e-4f, act.OutputGain)), -18f, 18f), 4);
 
         for (int i = 0; i < SlotCount && i < dto.Slots.Count; i++)
         {
@@ -953,7 +1006,7 @@ public sealed partial class SignalChainEngine
                     customHash = StringComparer.OrdinalIgnoreCase.GetHashCode(customSpec.Id) ^ (int)customSpec.CreatedAtUtc.Ticks;
                     if (customSpec.SpiceCircuit != null && customSpec.Category != "cab")
                     {
-                        string spiceJson = JsonSerializer.Serialize(customSpec.SpiceCircuit);
+                        string spiceJson = JsonSerializer.Serialize(customSpec.SpiceCircuit, NeuralRigJsonContext.Default.SpiceCircuitDto);
                         int spiceHash = customHash ^ StringComparer.Ordinal.GetHashCode(spiceJson);
                         customHash = spiceHash;
                         var cachedSpice = _uiSpicePool[i];

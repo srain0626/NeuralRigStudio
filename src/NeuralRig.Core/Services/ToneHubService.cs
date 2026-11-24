@@ -2,6 +2,7 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using NeuralRigStudio.Audio;
+using NeuralRigStudio.Serialization;
 
 namespace NeuralRigStudio.Services;
 
@@ -675,7 +676,7 @@ public static class ToneHubService
                 Dilations = new[] { 1, 2, 4, 8 },
                 BatchNorm = true,
                 KernelSize = 2,
-                Activation = JsonSerializer.SerializeToElement("Tanh"),
+                Activation = NeuralRigJsonContext.DefaultTanhElement,
             };
             var wl = new List<float>();
             int ch = convCfg.Channels;
@@ -739,7 +740,7 @@ public static class ToneHubService
                     Channels = ch,
                     KernelSize = 3,
                     Dilations = dils,
-                    Activation = JsonSerializer.SerializeToElement("Tanh"),
+                    Activation = NeuralRigJsonContext.DefaultTanhElement,
                     Gated = true,
                     HeadBias = headBias,
                 });
@@ -783,21 +784,29 @@ public static class ToneHubService
             weights = wl.ToArray();
         }
 
-        var namFile = new
+        JsonElement cfgElem;
+        if (cfgObj is WaveNetConfigDto wn)
+            cfgElem = JsonSerializer.SerializeToElement(wn, NeuralRigJsonContext.Default.WaveNetConfigDto);
+        else if (cfgObj is LstmConfigDto ls)
+            cfgElem = JsonSerializer.SerializeToElement(ls, NeuralRigJsonContext.Default.LstmConfigDto);
+        else
+            cfgElem = JsonSerializer.SerializeToElement((ConvNetConfigDto)cfgObj, NeuralRigJsonContext.Default.ConvNetConfigDto);
+
+        var namFile = new NamFileExportDto
         {
-            version = "0.5.4",
-            metadata = new
+            Version = "0.5.4",
+            Metadata = new NamMetadataExportDto
             {
-                name = recipe.Meta.Title,
-                modeled_by = recipe.Meta.Author,
-                esr = Math.Pow(10.0, recipe.Meta.EsrDb / 10.0),
+                Name = recipe.Meta.Title,
+                ModeledBy = recipe.Meta.Author,
+                Esr = Math.Pow(10.0, recipe.Meta.EsrDb / 10.0),
             },
-            architecture = recipe.Meta.Architecture,
-            sample_rate = recipe.Meta.SampleRate,
-            config = cfgObj,
-            weights,
+            Architecture = recipe.Meta.Architecture,
+            SampleRate = recipe.Meta.SampleRate,
+            Config = cfgElem,
+            Weights = weights,
         };
-        return JsonSerializer.Serialize(namFile, new JsonSerializerOptions { WriteIndented = false, PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+        return JsonSerializer.Serialize(namFile, NeuralRigJsonContext.Default.NamFileExportDto);
     }
 
     private static float[] SynthesizeCuratedHighResCabIr(HubRecipe recipe)

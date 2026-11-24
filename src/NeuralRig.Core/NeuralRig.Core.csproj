@@ -8,12 +8,10 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>NeuralRigStudio</RootNamespace>
+    <IsTrimmable>true</IsTrimmable>
+    <IsAotCompatible>true</IsAotCompatible>
     <NoWarn>$(NoWarn);CA1416</NoWarn>
   </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="NAudio" Version="3.3.0" />
-  </ItemGroup>
 
   <ItemGroup>
     <EmbeddedResource Include="..\..\Assets\CabIRs\*.wav" LogicalName="NeuralRigStudio.CabIRs.%(Filename)%(Extension)" />
@@ -22,6 +20,9 @@
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
       <_Parameter1>NeuralRigStudio</_Parameter1>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>NeuralRig.Plugin</_Parameter1>
     </AssemblyAttribute>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
       <_Parameter1>NeuralRigMcp</_Parameter1>

@@ -12,7 +12,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ForceDesignerDpiUnaware>false</ForceDesignerDpiUnaware>
-    <DefaultItemExcludes>$(DefaultItemExcludes);src\**;tools\**;web-ui\**;wwwroot\**;cloud\**;packages\**;installer\**;scripts\**;dist-release\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);src\**;tools\**;web-ui\**;wwwroot\**;cloud\**;packages\**;installer\**;scripts\**;dist-release\**;dist-vst3\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>

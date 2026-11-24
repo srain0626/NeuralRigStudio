@@ -50,6 +50,7 @@ import type {
 interface ToneHubModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  isVst3Host?: boolean
   cloudState?: CloudStateDto
   customDevices?: CustomDeviceSpecDto[]
   onRequestLogin?: () => void
@@ -61,6 +62,7 @@ type HubTab = "all" | "nam" | "ir" | "nrig" | "community" | "daw"
 export const ToneHubModal: React.FC<ToneHubModalProps> = ({
   open,
   onOpenChange,
+  isVst3Host = false,
   cloudState,
   customDevices = [],
   onRequestLogin,
@@ -329,7 +331,7 @@ export const ToneHubModal: React.FC<ToneHubModalProps> = ({
               <TabsTrigger value="ir">8K IR</TabsTrigger>
               <TabsTrigger value="nrig">.NRIG</TabsTrigger>
               <TabsTrigger value="community">{tx("SPICE 기어 허브", "GEAR HUB")}</TabsTrigger>
-              <TabsTrigger value="daw">VST3 / CLAP</TabsTrigger>
+              {!isVst3Host && <TabsTrigger value="daw">VST3 / CLAP</TabsTrigger>}
             </TabsList>
           </Tabs>
 

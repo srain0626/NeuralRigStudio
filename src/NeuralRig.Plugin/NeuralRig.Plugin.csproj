@@ -8,6 +8,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>NeuralRigStudio.Plugin</RootNamespace>
+    <AssemblyName Condition="'$(PublishAot)' == 'true'">NeuralRig.NativeCore</AssemblyName>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsTrimmable>true</IsTrimmable>
     <IsAotCompatible>true</IsAotCompatible>

@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using NeuralRigStudio.Serialization;
 
 namespace NeuralRigStudio.Services;
 
@@ -113,7 +114,7 @@ public static partial class OtaUpdateService
                 if (resp.IsSuccessStatusCode)
                 {
                     string json = await resp.Content.ReadAsStringAsync(ct);
-                    var dto = JsonSerializer.Deserialize<OtaCheckResultDto>(json, JsonOpts);
+                    var dto = JsonSerializer.Deserialize(json, NeuralRigJsonContext.Default.OtaCheckResultDto);
                     if (dto != null)
                     {
                         var (avail, force) = EvaluateReleasePolicy(curVer, dto.LatestVersion, dto.MinSupportedVersion, dto.ForceUpdate);

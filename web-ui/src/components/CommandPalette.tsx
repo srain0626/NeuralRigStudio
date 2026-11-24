@@ -60,6 +60,7 @@ interface CommandPaletteProps {
   onOpenUpdates: () => void
   onOpenAdmin?: () => void
   isAdmin?: boolean
+  isVst3Host?: boolean
   onOpenAudioSheet: () => void
   onOpenLogsSheet: () => void
 }
@@ -88,6 +89,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   onOpenUpdates,
   onOpenAdmin,
   isAdmin,
+  isVst3Host = false,
   onOpenAudioSheet,
   onOpenLogsSheet,
 }) => {
@@ -119,13 +121,15 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         <CommandEmpty>{tx("일치하는 항목이 없습니다.", "No matching items found.")}</CommandEmpty>
 
         <CommandGroup heading={tx("스튜디오 액션", "Studio Actions")}>
-          <CommandItem onSelect={() => runAndClose(onToggleAudio)}>
-            <span className="flex items-center gap-2 min-w-0 flex-1">
-              {isAudioRunning ? <Square className="size-3.5 text-signal-hot shrink-0" /> : <Play className="size-3.5 text-signal-ok shrink-0" />}
-              <span className="truncate">{isAudioRunning ? tx("오디오 엔진 중지", "Stop Audio Engine") : tx("오디오 엔진 시작", "Start Audio Engine")}</span>
-            </span>
-            <CommandShortcut>AUDIO</CommandShortcut>
-          </CommandItem>
+          {!isVst3Host && (
+            <CommandItem onSelect={() => runAndClose(onToggleAudio)}>
+              <span className="flex items-center gap-2 min-w-0 flex-1">
+                {isAudioRunning ? <Square className="size-3.5 text-signal-hot shrink-0" /> : <Play className="size-3.5 text-signal-ok shrink-0" />}
+                <span className="truncate">{isAudioRunning ? tx("오디오 엔진 중지", "Stop Audio Engine") : tx("오디오 엔진 시작", "Start Audio Engine")}</span>
+              </span>
+              <CommandShortcut>AUDIO</CommandShortcut>
+            </CommandItem>
+          )}
           <CommandItem onSelect={() => runAndClose(() => onSelectView("grid"))}>
             <span className="flex items-center gap-2 min-w-0 flex-1">
               <AudioWaveform className="size-3.5 shrink-0" />
@@ -162,7 +166,11 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           <CommandItem onSelect={() => runAndClose(onOpenToneHub)}>
             <span className="flex items-center gap-2 min-w-0 flex-1">
               <Globe className="size-3.5 shrink-0" />
-              <span className="truncate">{tx("Tone Hub · .nrig 번들 · VST3/CLAP 내보내기", "Tone Hub · .nrig Bundles · VST3/CLAP")}</span>
+              <span className="truncate">
+                {isVst3Host
+                  ? tx("Tone Hub · .nrig 번들 · 커스텀 IR", "Tone Hub · .nrig Bundles · Custom IR")
+                  : tx("Tone Hub · .nrig 번들 · VST3/CLAP 내보내기", "Tone Hub · .nrig Bundles · VST3/CLAP")}
+              </span>
             </span>
           </CommandItem>
           <CommandItem onSelect={() => runAndClose(onOpenBenchmark)}>
@@ -183,25 +191,29 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
               <span className="truncate">{tx("스튜디오 UI 튜토리얼 다시 보기", "Replay Studio Quick Tour Tutorial")}</span>
             </span>
           </CommandItem>
-          <CommandItem onSelect={() => runAndClose(onOpenAuth)}>
-            <span className="flex items-center gap-2 min-w-0 flex-1">
-              <Cloud className="size-3.5 shrink-0" />
-              <span className="truncate">{tx("Google 계정 · 클라우드 동기화", "Google Account · Cloud Sync")}</span>
-            </span>
-          </CommandItem>
-          <CommandItem onSelect={() => runAndClose(onOpenUpdates)}>
-            <span className="flex items-center gap-2 min-w-0 flex-1">
-              <Sparkles className="size-3.5 shrink-0" />
-              <span className="truncate">{tx("OTA 업데이트 확인", "Check OTA Software Updates")}</span>
-            </span>
-          </CommandItem>
+          {!isVst3Host && (
+            <CommandItem onSelect={() => runAndClose(onOpenAuth)}>
+              <span className="flex items-center gap-2 min-w-0 flex-1">
+                <Cloud className="size-3.5 shrink-0" />
+                <span className="truncate">{tx("Google 계정 · 클라우드 동기화", "Google Account · Cloud Sync")}</span>
+              </span>
+            </CommandItem>
+          )}
+          {!isVst3Host && (
+            <CommandItem onSelect={() => runAndClose(onOpenUpdates)}>
+              <span className="flex items-center gap-2 min-w-0 flex-1">
+                <Sparkles className="size-3.5 shrink-0" />
+                <span className="truncate">{tx("OTA 업데이트 확인", "Check OTA Software Updates")}</span>
+              </span>
+            </CommandItem>
+          )}
           <CommandItem onSelect={() => runAndClose(onOpenBugReport)}>
             <span className="flex items-center gap-2 min-w-0 flex-1">
               <Bug className="size-3.5 shrink-0" />
               <span className="truncate">{tx("버그 제보 (자동 익명화 로그 전송)", "Submit Bug Report (Scrubbed Logs)")}</span>
             </span>
           </CommandItem>
-          {isAdmin && onOpenAdmin && (
+          {!isVst3Host && isAdmin && onOpenAdmin && (
             <CommandItem onSelect={() => runAndClose(onOpenAdmin)}>
               <span className="flex items-center gap-2 min-w-0 flex-1">
                 <Shield className="size-3.5 text-signal-warn shrink-0" />
@@ -209,12 +221,14 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
               </span>
             </CommandItem>
           )}
-          <CommandItem onSelect={() => runAndClose(onOpenAudioSheet)}>
-            <span className="flex items-center gap-2 min-w-0 flex-1">
-              <SlidersHorizontal className="size-3.5 shrink-0" />
-              <span className="truncate">{tx("오디오 I/O & MIDI 패치베이", "Audio I/O & MIDI Patchbay")}</span>
-            </span>
-          </CommandItem>
+          {!isVst3Host && (
+            <CommandItem onSelect={() => runAndClose(onOpenAudioSheet)}>
+              <span className="flex items-center gap-2 min-w-0 flex-1">
+                <SlidersHorizontal className="size-3.5 shrink-0" />
+                <span className="truncate">{tx("오디오 I/O & MIDI 패치베이", "Audio I/O & MIDI Patchbay")}</span>
+              </span>
+            </CommandItem>
+          )}
           <CommandItem onSelect={() => runAndClose(onOpenLogsSheet)}>
             <span className="flex items-center gap-2 min-w-0 flex-1">
               <Terminal className="size-3.5 shrink-0" />

@@ -56,6 +56,8 @@ import type {
   BackingTrackStateDto,
   CloudStateDto,
   CustomDeviceSpecDto,
+  DawHostInfoDto,
+  DawParamSyncEvent,
   GuitarAnalysisLiveStateDto,
   GuitarProfileDto,
   LooperSnapshotDto,
@@ -78,6 +80,8 @@ export default function App() {
   const { themeId, toggleTheme } = useStudioTheme()
   const [introDone, setIntroDone] = useState(false)
   const [studioMenuOpen, setStudioMenuOpen] = useState(false)
+  const [isVst3Host, setIsVst3Host] = useState(() => studioBridge.isVst3Host)
+  const [dawHostInfo, setDawHostInfo] = useState<DawHostInfoDto | null>(null)
 
   useEffect(() => {
     const id = window.setTimeout(() => setIntroDone(true), 760)
@@ -246,11 +250,12 @@ export default function App() {
   const pushChainToEngine = (
     next: SignalChainConfigDto,
     immediate = false,
-    preserveScenes = false
+    preserveScenes = false,
+    skipEngineSync = false
   ) => {
     const finalized = preserveScenes ? ensurePresetScenes(next) : commitActiveScene(next)
     setChain(finalized)
-    if (!studioBridge.isWebView2) return
+    if (!studioBridge.isWebView2 || skipEngineSync) return
     if (syncTimerRef.current !== null) {
       window.clearTimeout(syncTimerRef.current)
       syncTimerRef.current = null
@@ -262,6 +267,38 @@ export default function App() {
     }
     if (immediate) send()
     else syncTimerRef.current = window.setTimeout(send, 16)
+  }
+
+  const handleParamGesture = (req: {
+    phase: "begin" | "change" | "end"
+    kind:
+      | "slotBypass"
+      | "slotParam"
+      | "scene"
+      | "tempo"
+      | "routing"
+      | "parallelMix"
+      | "inputGain"
+      | "outputGain"
+    slotIndex?: number
+    paramIndex?: number
+    value: number
+  }) => {
+    if (!studioBridge.isWebView2 || !isVst3Host) return
+    studioBridge.invoke("paramGesture", req).catch(() => {})
+  }
+
+  const handleToggleHostBpmSync = async () => {
+    if (!studioBridge.isWebView2 || !isVst3Host) return
+    const nextEnabled = !(dawHostInfo?.hostBpmSync ?? true)
+    try {
+      const updated = await studioBridge.invoke<DawHostInfoDto>("setHostBpmSync", {
+        enabled: nextEnabled,
+      })
+      if (updated) setDawHostInfo(updated)
+    } catch {
+      // ignore
+    }
   }
 
   const allPresets = useMemo(() => {
@@ -444,10 +481,39 @@ export default function App() {
       }
     })
 
+    const unsubDawSync = studioBridge.on<DawParamSyncEvent>("dawParamSync", (ev) => {
+      if (ev?.signalChain) {
+        setChain(ensurePresetScenes(ev.signalChain))
+      }
+      if (ev) {
+        setDawHostInfo((prev) =>
+          prev
+            ? { ...prev, hostBpm: ev.hostBpm, hostBpmSync: ev.hostBpmSync }
+            : {
+                isPluginHost: true,
+                format: "VST3",
+                sampleRate: 48000,
+                maxBlockSize: 512,
+                parameterCount: 160,
+                hostBpm: ev.hostBpm,
+                hostBpmSync: ev.hostBpmSync,
+              }
+        )
+      }
+    })
+
     if (studioBridge.isWebView2) {
       studioBridge
         .invoke<StudioInitSnapshot>("init")
         .then((snap) => {
+          const hostIsVst3 =
+            snap.hostMode === "vst3" ||
+            Boolean(snap.dawHost?.isPluginHost) ||
+            studioBridge.isVst3Host
+          studioBridge.setHostMode(hostIsVst3 ? "vst3" : "standalone")
+          setIsVst3Host(hostIsVst3)
+          if (snap.dawHost) setDawHostInfo(snap.dawHost)
+
           const loadedAsio = snap.audio.asioDrivers || []
           setAsioDrivers(loadedAsio)
           setWasapiDevices(snap.audio.wasapiDevices || [{ id: "", label: "System Default Output" }])
@@ -496,30 +562,32 @@ export default function App() {
             firstSignInUtcRef.current = s.firstGoogleSignInUtc ?? null
             hasShownSponsorRef.current = Boolean(s.hasShownSponsorPrompt)
           }
-          const tutDone = Boolean(s.hasCompletedTutorial)
+          const tutDone = Boolean(s.hasCompletedTutorial) || hostIsVst3
           setHasCompletedTutorial(tutDone)
-          if (!s.hasChosenAuthMode && snap.cloudState?.mode === "unselected") {
-            setAuthDailyPrompt(false)
-            setAuthOpen(true)
-          } else if (!tutDone) {
-            setTutorialOpen(true)
-          } else if (snap.cloudState?.shouldShowGuestDailyLoginPrompt) {
-            markGuestDailyPromptShown(getLocalYmd())
-            setAuthDailyPrompt(true)
-            setAuthOpen(true)
-          } else if (snap.cloudState?.shouldShowSponsorPrompt) {
-            markSponsorPromptShown()
-            setSponsorOpen(true)
+          if (!hostIsVst3) {
+            if (!s.hasChosenAuthMode && snap.cloudState?.mode === "unselected") {
+              setAuthDailyPrompt(false)
+              setAuthOpen(true)
+            } else if (!tutDone) {
+              setTutorialOpen(true)
+            } else if (snap.cloudState?.shouldShowGuestDailyLoginPrompt) {
+              markGuestDailyPromptShown(getLocalYmd())
+              setAuthDailyPrompt(true)
+              setAuthOpen(true)
+            } else if (snap.cloudState?.shouldShowSponsorPrompt) {
+              markSponsorPromptShown()
+              setSponsorOpen(true)
+            }
+            studioBridge
+              .invoke<OtaCheckResultDto>("checkOtaUpdate")
+              .then((rel) => {
+                if (rel) {
+                  setOtaInfo(rel)
+                  if (rel.updateAvailable) setOtaOpen(true)
+                }
+              })
+              .catch(() => {})
           }
-          studioBridge
-            .invoke<OtaCheckResultDto>("checkOtaUpdate")
-            .then((rel) => {
-              if (rel) {
-                setOtaInfo(rel)
-                if (rel.updateAvailable) setOtaOpen(true)
-              }
-            })
-            .catch(() => {})
           if (snap.signalChain) setChain(ensurePresetScenes(snap.signalChain))
           if (snap.savedPresets) setSavedPresets(snap.savedPresets)
           setGuitarProfiles(snap.guitarProfiles || [])
@@ -557,11 +625,12 @@ export default function App() {
       unsubLooperActivity()
       unsubRecorderActivity()
       unsubTel()
+      unsubDawSync()
     }
   }, [])
 
   useEffect(() => {
-    if (!studioBridge.isWebView2) return
+    if (!studioBridge.isWebView2 || isVst3Host) return
 
     const evaluateActivePrompts = () => {
       const blockingOta = Boolean(otaOpen && otaInfo?.updateAvailable && otaInfo?.forceUpdate)
@@ -601,6 +670,7 @@ export default function App() {
       window.clearInterval(timer)
     }
   }, [
+    isVst3Host,
     cloudState.mode,
     cloudState.isAuthenticated,
     hasCompletedTutorial,
@@ -1062,14 +1132,37 @@ export default function App() {
           )}
         </div>
 
-        {/* Right: Conditional MIDI Learn Cancel Only */}
-        {midiState.learning && (
-          <Hint content={tx("클릭해 MIDI Learn 대기 취소", "Cancel MIDI Learn")}>
-            <Button size="xs" variant="signal" onClick={handleCancelMidiLearn} className="rounded-full">
-              MIDI LEARN…
-            </Button>
-          </Hint>
-        )}
+        {/* Right: VST3 Host Pill + Conditional MIDI Learn Cancel */}
+        <div className="flex items-center gap-2 shrink-0">
+          {isVst3Host && (
+            <Hint
+              content={tx(
+                "클릭해 DAW 호스트 템포 자동 동기화(BPM SYNC) 전환",
+                "Click to toggle DAW Host BPM Sync"
+              )}
+            >
+              <button
+                type="button"
+                onClick={() => void handleToggleHostBpmSync()}
+                className="h-7 px-3 rounded-full border border-border bg-card/85 hover:bg-secondary/80 text-[11px] font-mono font-medium text-foreground flex items-center gap-1.5 shadow-[0_4px_12px_rgba(11,14,16,0.06)] transition-colors cursor-pointer tabular-nums"
+              >
+                <span className="size-1.5 rounded-full bg-signal-ok" />
+                <span>
+                  VST3 PLUGIN · {((dawHostInfo?.sampleRate || 48000) / 1000).toFixed(1)} kHz ·{" "}
+                  {Math.round(chain.tempoBpm ?? 120)} BPM{" "}
+                  {dawHostInfo?.hostBpmSync !== false ? "SYNC" : "FREE"}
+                </span>
+              </button>
+            </Hint>
+          )}
+          {midiState.learning && (
+            <Hint content={tx("클릭해 MIDI Learn 대기 취소", "Cancel MIDI Learn")}>
+              <Button size="xs" variant="signal" onClick={handleCancelMidiLearn} className="rounded-full">
+                MIDI LEARN…
+              </Button>
+            </Hint>
+          )}
+        </div>
       </header>
 
       {/* ── Main Studio Workspace (RIG | VAULT | SCOPE) ── */}
@@ -1086,6 +1179,8 @@ export default function App() {
         selectedSlot={selectedSlot}
         onSelectSlot={setSelectedSlot}
         onPushChain={pushChainToEngine}
+        isVst3Host={isVst3Host}
+        onParamGesture={handleParamGesture}
         onLoadPreset={loadPreset}
         onAssignModel={assignModelToSlot}
         onSavedPresetsChange={setSavedPresets}
@@ -1126,32 +1221,36 @@ export default function App() {
         aria-label={tx("스튜디오 빠른 제어 독", "Studio Floating Dock")}
         className="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 nr-liquid-dock p-1.5 flex items-center gap-1.5"
       >
-        <div data-tour="audio-io">
-          <Hint content={audioStatus} side="top">
-            <button
-              type="button"
-              data-audio={isAudioRunning ? "live" : "idle"}
-              disabled={isAudioBusy}
-              onClick={handleToggleAudio}
-              className="nr-liquid-btn h-9 px-4 inline-flex items-center gap-2 text-[12.5px] font-medium cursor-pointer"
-            >
-              {isAudioRunning ? (
-                <Square className="size-2.5 fill-current" />
-              ) : (
-                <Play className="size-2.5 fill-current text-primary" />
-              )}
-              <span className="tabular-nums">
-                {isAudioRunning
-                  ? headerLatencyMs !== null
-                    ? `${tx("연주 중", "LIVE")} · ${headerLatencyMs.toFixed(1)}ms`
-                    : tx("연주 중", "LIVE")
-                  : tx("오디오 시작", "Start Audio")}
-              </span>
-            </button>
-          </Hint>
-        </div>
+        {!isVst3Host && (
+          <>
+            <div data-tour="audio-io">
+              <Hint content={audioStatus} side="top">
+                <button
+                  type="button"
+                  data-audio={isAudioRunning ? "live" : "idle"}
+                  disabled={isAudioBusy}
+                  onClick={handleToggleAudio}
+                  className="nr-liquid-btn h-9 px-4 inline-flex items-center gap-2 text-[12.5px] font-medium cursor-pointer"
+                >
+                  {isAudioRunning ? (
+                    <Square className="size-2.5 fill-current" />
+                  ) : (
+                    <Play className="size-2.5 fill-current text-primary" />
+                  )}
+                  <span className="tabular-nums">
+                    {isAudioRunning
+                      ? headerLatencyMs !== null
+                        ? `${tx("연주 중", "LIVE")} · ${headerLatencyMs.toFixed(1)}ms`
+                        : tx("연주 중", "LIVE")
+                      : tx("오디오 시작", "Start Audio")}
+                  </span>
+                </button>
+              </Hint>
+            </div>
 
-        <span className="h-4 w-px bg-foreground/12" aria-hidden="true" />
+            <span className="h-4 w-px bg-foreground/12" aria-hidden="true" />
+          </>
+        )}
 
         <Hint
           content={tx("루퍼 · 듀얼 녹음 & 1클릭 리앰핑", "Looper, Dry+Wet Recording & Re-Amping")}
@@ -1202,36 +1301,38 @@ export default function App() {
             className="w-80 rounded-[18px] p-3 space-y-2.5"
           >
             {/* Account Sync Card */}
-            <button
-              type="button"
-              onClick={() => {
-                setStudioMenuOpen(false)
-                setAuthDailyPrompt(false)
-                setAuthOpen(true)
-              }}
-              className="w-full min-w-0 overflow-hidden flex items-center justify-between gap-2 px-3 py-2.5 rounded-[12px] bg-secondary/70 hover:bg-secondary border border-border text-left transition-colors cursor-pointer"
-            >
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                <Cloud className="size-4 text-primary shrink-0" />
-                <span className="text-xs font-semibold truncate">
-                  {cloudState.isAuthenticated && cloudState.user
-                    ? cloudState.user.displayName
-                    : tx("Google 클라우드 동기화", "Cloud Account & Sync")}
-                </span>
-                <HelpHint
-                  side="top"
-                  content={
-                    cloudState.isAuthenticated && cloudState.user
-                      ? cloudState.user.email
-                      : tx(
-                          "프리셋·기타 프로필 클라우드 백업 및 커뮤니티 기어 게시",
-                          "Back up presets & guitar profiles or publish custom gear."
-                        )
-                  }
-                />
-              </div>
-              <span className="font-mono text-xs text-primary shrink-0">→</span>
-            </button>
+            {!isVst3Host && (
+              <button
+                type="button"
+                onClick={() => {
+                  setStudioMenuOpen(false)
+                  setAuthDailyPrompt(false)
+                  setAuthOpen(true)
+                }}
+                className="w-full min-w-0 overflow-hidden flex items-center justify-between gap-2 px-3 py-2.5 rounded-[12px] bg-secondary/70 hover:bg-secondary border border-border text-left transition-colors cursor-pointer"
+              >
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <Cloud className="size-4 text-primary shrink-0" />
+                  <span className="text-xs font-semibold truncate">
+                    {cloudState.isAuthenticated && cloudState.user
+                      ? cloudState.user.displayName
+                      : tx("Google 클라우드 동기화", "Cloud Account & Sync")}
+                  </span>
+                  <HelpHint
+                    side="top"
+                    content={
+                      cloudState.isAuthenticated && cloudState.user
+                        ? cloudState.user.email
+                        : tx(
+                            "프리셋·기타 프로필 클라우드 백업 및 커뮤니티 기어 게시",
+                            "Back up presets & guitar profiles or publish custom gear."
+                          )
+                    }
+                  />
+                </div>
+                <span className="font-mono text-xs text-primary shrink-0">→</span>
+              </button>
+            )}
 
             {/* Compact Segmented Mode Chips: Theme & Language */}
             <div className="grid grid-cols-2 gap-1.5">
@@ -1259,19 +1360,21 @@ export default function App() {
 
             {/* 2x2 Quick Studio Tools Grid */}
             <div className="grid grid-cols-2 gap-1.5">
-              <button
-                type="button"
-                onClick={() => {
-                  setStudioMenuOpen(false)
-                  setAudioDialogOpen(true)
-                }}
-                className="min-w-0 overflow-hidden flex items-center gap-2 px-2.5 py-2 rounded-[10px] border border-border bg-card hover:bg-secondary text-left transition-colors cursor-pointer"
-              >
-                <SlidersHorizontal className="size-3.5 text-primary shrink-0" />
-                <span className="text-xs font-medium truncate">
-                  {tx("오디오 설정", "Audio I/O")}
-                </span>
-              </button>
+              {!isVst3Host && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStudioMenuOpen(false)
+                    setAudioDialogOpen(true)
+                  }}
+                  className="min-w-0 overflow-hidden flex items-center gap-2 px-2.5 py-2 rounded-[10px] border border-border bg-card hover:bg-secondary text-left transition-colors cursor-pointer"
+                >
+                  <SlidersHorizontal className="size-3.5 text-primary shrink-0" />
+                  <span className="text-xs font-medium truncate">
+                    {tx("오디오 설정", "Audio I/O")}
+                  </span>
+                </button>
+              )}
 
               <button
                 type="button"
@@ -1334,7 +1437,9 @@ export default function App() {
               {[
                 {
                   icon: Layers,
-                  label: tx("톤 보관함 · .NAM · VST3", "Rig Vault & VST3"),
+                  label: isVst3Host
+                    ? tx("톤 보관함 · .NAM", "Tone Vault")
+                    : tx("톤 보관함 · .NAM · VST3", "Rig Vault & VST3"),
                   action: () => setActiveView("directory"),
                 },
                 {
@@ -1382,7 +1487,7 @@ export default function App() {
                 )
               })}
 
-              {cloudState.user?.isAdmin && (
+              {!isVst3Host && cloudState.user?.isAdmin && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1421,16 +1526,20 @@ export default function App() {
               >
                 {tx("버그 제보", "Bug Report")}
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setStudioMenuOpen(false)
-                  void handleManualCheckUpdates()
-                }}
-                className="hover:text-foreground font-mono tabular-nums transition-colors cursor-pointer"
-              >
-                v{appVersion}
-              </button>
+              {isVst3Host ? (
+                <span className="font-mono tabular-nums">v{appVersion}</span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStudioMenuOpen(false)
+                    void handleManualCheckUpdates()
+                  }}
+                  className="hover:text-foreground font-mono tabular-nums transition-colors cursor-pointer"
+                >
+                  v{appVersion}
+                </button>
+              )}
             </div>
           </PopoverContent>
         </Popover>
@@ -1445,6 +1554,7 @@ export default function App() {
         activeScene={chain.activeScene}
         selectedSlot={selectedSlot}
         isAudioRunning={isAudioRunning}
+        isVst3Host={isVst3Host}
         onSelectView={setActiveView}
         onLoadPreset={loadPreset}
         onSelectScene={(sceneIdx) =>
@@ -1567,6 +1677,7 @@ export default function App() {
       <ToneHubModal
         open={toneHubOpen}
         onOpenChange={setToneHubOpen}
+        isVst3Host={isVst3Host}
         cloudState={cloudState}
         customDevices={customDevices}
         onRequestLogin={() => {

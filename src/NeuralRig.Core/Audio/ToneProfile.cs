@@ -1,5 +1,6 @@
 ﻿using System.Text.Json;
 using System.Text.Json.Serialization;
+using NeuralRigStudio.Serialization;
 
 namespace NeuralRigStudio.Audio;
 
@@ -95,7 +96,7 @@ public sealed class WaveNetLayerArrayCfg
     public int[] Dilations { get; set; } = Array.Empty<int>();
 
     [JsonPropertyName("activation")]
-    public JsonElement Activation { get; set; } = JsonSerializer.SerializeToElement("Tanh");
+    public JsonElement Activation { get; set; } = NeuralRigJsonContext.DefaultTanhElement;
 
     [JsonPropertyName("gated")]
     public bool Gated { get; set; }
@@ -134,7 +135,7 @@ public sealed class WaveNetHeadCfg
     public int[] KernelSizes { get; set; } = new[] { 1 };
 
     [JsonPropertyName("activation")]
-    public JsonElement Activation { get; set; } = JsonSerializer.SerializeToElement("Tanh");
+    public JsonElement Activation { get; set; } = NeuralRigJsonContext.DefaultTanhElement;
 }
 
 public sealed class WaveNetConfigDto
@@ -173,7 +174,7 @@ public sealed class ConvNetConfigDto
     public bool BatchNorm { get; set; }
 
     [JsonPropertyName("activation")]
-    public JsonElement Activation { get; set; } = JsonSerializer.SerializeToElement("Tanh");
+    public JsonElement Activation { get; set; } = NeuralRigJsonContext.DefaultTanhElement;
 
     [JsonPropertyName("kernel_size")]
     public int KernelSize { get; set; } = 2;
@@ -876,7 +877,7 @@ public static class ToneProfileStore
     {
         if (!File.Exists(jsonPath)) return null;
         var json = File.ReadAllText(jsonPath);
-        var prof = JsonSerializer.Deserialize<ToneProfile>(json, ReadOpts);
+        var prof = JsonSerializer.Deserialize(json, NeuralRigJsonContext.Default.ToneProfile);
         if (prof is null) return null;
         prof.JsonPath = jsonPath;
         prof.PrepareForRt();
@@ -966,7 +967,7 @@ public static class ToneProfileStore
         if (string.Equals(rawArch, "WaveNet", StringComparison.OrdinalIgnoreCase))
         {
             normArch = "WaveNet";
-            wnCfg = JsonSerializer.Deserialize<WaveNetConfigDto>(cfgEl.GetRawText(), ReadOpts)
+            wnCfg = JsonSerializer.Deserialize(cfgEl.GetRawText(), NeuralRigJsonContext.Default.WaveNetConfigDto)
                 ?? throw new InvalidOperationException("WaveNet config 역직렬화에 실패했습니다.");
             if (wnCfg.Head != null)
                 throw new InvalidOperationException("현재 post-head 블록이 없는 표준 NAM WaveNet(.nam v0.5+)만 지원합니다.");
@@ -977,7 +978,7 @@ public static class ToneProfileStore
         else if (string.Equals(rawArch, "LSTM", StringComparison.OrdinalIgnoreCase))
         {
             normArch = "LSTM";
-            lstmCfg = JsonSerializer.Deserialize<LstmConfigDto>(cfgEl.GetRawText(), ReadOpts)
+            lstmCfg = JsonSerializer.Deserialize(cfgEl.GetRawText(), NeuralRigJsonContext.Default.LstmConfigDto)
                 ?? throw new InvalidOperationException("LSTM config 역직렬화에 실패했습니다.");
             if (ToneProfile.CompileLstm(lstmCfg, weights) is null)
                 throw new InvalidOperationException("LSTM 가중치 구조 검증 또는 컴파일에 실패했습니다.");
@@ -986,7 +987,7 @@ public static class ToneProfileStore
         else if (string.Equals(rawArch, "ConvNet", StringComparison.OrdinalIgnoreCase))
         {
             normArch = "ConvNet";
-            convCfg = JsonSerializer.Deserialize<ConvNetConfigDto>(cfgEl.GetRawText(), ReadOpts)
+            convCfg = JsonSerializer.Deserialize(cfgEl.GetRawText(), NeuralRigJsonContext.Default.ConvNetConfigDto)
                 ?? throw new InvalidOperationException("ConvNet config 역직렬화에 실패했습니다.");
             if (ToneProfile.CompileConvNet(convCfg, weights) is null)
                 throw new InvalidOperationException("ConvNet 가중치 구조 검증 또는 컴파일에 실패했습니다.");
@@ -1043,7 +1044,7 @@ public static class ToneProfileStore
         };
 
         string jsonPath = Path.Combine(folder, "tone_profile.json");
-        File.WriteAllText(jsonPath, JsonSerializer.Serialize(prof, WriteOpts));
+        File.WriteAllText(jsonPath, JsonSerializer.Serialize(prof, NeuralRigIndentedJsonContext.Default.ToneProfile));
         prof.JsonPath = jsonPath;
         prof.PrepareForRt();
         return prof;
@@ -1097,34 +1098,43 @@ public static class ToneProfileStore
         if (prof.Weights.Length == 0)
             throw new InvalidOperationException("신경망 가중치가 없는 프로파일은 .nam으로 직렬화할 수 없습니다.");
 
-        object? cfgObj = prof.WaveNetConfig is not null
-            ? prof.WaveNetConfig
-            : prof.LstmConfig is not null
-                ? prof.LstmConfig
-                : prof.ConvNetConfig;
-        string arch = prof.WaveNetConfig is not null
-            ? "WaveNet"
-            : prof.LstmConfig is not null
-                ? "LSTM"
-                : prof.ConvNetConfig is not null
-                    ? "ConvNet"
-                    : throw new InvalidOperationException("유효한 NAM 아키텍처 구성이 없습니다.");
-
-        var namObj = new
+        JsonElement cfgElem;
+        string arch;
+        if (prof.WaveNetConfig is not null)
         {
-            version = "0.5.4",
-            metadata = new
+            cfgElem = JsonSerializer.SerializeToElement(prof.WaveNetConfig, NeuralRigJsonContext.Default.WaveNetConfigDto);
+            arch = "WaveNet";
+        }
+        else if (prof.LstmConfig is not null)
+        {
+            cfgElem = JsonSerializer.SerializeToElement(prof.LstmConfig, NeuralRigJsonContext.Default.LstmConfigDto);
+            arch = "LSTM";
+        }
+        else if (prof.ConvNetConfig is not null)
+        {
+            cfgElem = JsonSerializer.SerializeToElement(prof.ConvNetConfig, NeuralRigJsonContext.Default.ConvNetConfigDto);
+            arch = "ConvNet";
+        }
+        else
+        {
+            throw new InvalidOperationException("유효한 NAM 아키텍처 구성이 없습니다.");
+        }
+
+        var namObj = new NamFileExportDto
+        {
+            Version = "0.5.4",
+            Metadata = new NamMetadataExportDto
             {
-                name = prof.Name,
-                modeled_by = "NeuralRig Studio",
-                esr = prof.Esr > 0 ? prof.Esr : (double?)null,
+                Name = prof.Name,
+                ModeledBy = "NeuralRig Studio",
+                Esr = prof.Esr > 0 ? prof.Esr : null,
             },
-            architecture = arch,
-            sample_rate = prof.SampleRate > 0 ? prof.SampleRate : 44100,
-            config = cfgObj,
-            weights = prof.Weights,
+            Architecture = arch,
+            SampleRate = prof.SampleRate > 0 ? prof.SampleRate : 44100,
+            Config = cfgElem,
+            Weights = prof.Weights,
         };
-        return JsonSerializer.Serialize(namObj, WriteOpts);
+        return JsonSerializer.Serialize(namObj, NeuralRigIndentedJsonContext.Default.NamFileExportDto);
     }
 }
 
