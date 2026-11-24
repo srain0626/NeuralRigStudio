@@ -210,7 +210,7 @@ export const CortexGrid: React.FC<CortexGridProps> = ({
                 onDrop={(e) => handleDrop(e, slotIdx)}
                 onClick={() => onSelectSlot(slotIdx, false)}
                 onDoubleClick={() => onToggleBypass(slotIdx)}
-                className={`relative z-10 w-full max-w-[126px] h-[86px] rounded-[14px] px-3 py-2.5 flex flex-col justify-between text-left transition-all duration-200 cursor-grab active:cursor-grabbing ${cardStateClasses} ${
+                className={`relative z-10 w-full max-w-[126px] h-[86px] rounded-[14px] px-3 py-2.5 flex flex-col justify-between text-left transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-grab active:cursor-grabbing ${cardStateClasses} ${
                   isDragOver ? "ring-2 ring-primary scale-105" : ""
                 }`}
               >
@@ -224,13 +224,16 @@ export const CortexGrid: React.FC<CortexGridProps> = ({
                     {catTag}
                   </span>
                   <span
-                    className="size-2 rounded-full shrink-0"
+                    className="size-2 rounded-full shrink-0 transition-all duration-300"
                     style={{
                       backgroundColor: bypassed
                         ? "rgba(255,255,255,0.25)"
                         : isSelected
                           ? "#ff6b24"
                           : cat.hex,
+                      boxShadow: bypassed
+                        ? "none"
+                        : `0 0 8px ${isSelected ? "#ff6b24" : cat.hex}`,
                     }}
                   />
                 </div>

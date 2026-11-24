@@ -239,18 +239,18 @@ export const OnboardingTutorialModal: React.FC<OnboardingTutorialModalProps> = (
     {
       badge: "STEP 03 / 04",
       target: "audio-io",
-      preferredSide: "bottom",
-      pad: 6,
-      rx: 20,
+      preferredSide: "top",
+      pad: 5,
+      rx: 22,
       titleKo: "원클릭 오디오 시작",
       titleEn: "One-Click Audio Start",
       descKo:
-        "별도 설정 없이 연결된 오디오 인터페이스나 라인 입력을 자동 감지해 바로 연주를 시작합니다.",
+        "하단 플로팅 독에서 원클릭으로 오디오 엔진을 켜고 연결된 인터페이스 입력으로 바로 연주를 시작하세요.",
       descEn:
-        "Auto-detects connected ASIO interfaces and multi-channel WASAPI inputs so you can start playing in a single click.",
+        "Start the audio engine in one click from the bottom floating dock—ASIO and WASAPI inputs are auto-detected.",
       tipsKo: [
         "ASIO와 WASAPI 라인 인풋을 모두 지원해 어떤 PC 환경에서도 즉시 연주할 수 있어요.",
-        "세밀한 채널·버퍼 레이턴시 조정이 필요하면 메뉴 안 오디오 설정을 열어보세요.",
+        "세밀한 채널·버퍼 레이턴시 조정이 필요하면 오른쪽 메뉴 안 오디오 설정을 열어보세요.",
       ],
       tipsEn: [
         "Supports universal ASIO drivers and low-latency WASAPI inputs.",
@@ -260,23 +260,23 @@ export const OnboardingTutorialModal: React.FC<OnboardingTutorialModalProps> = (
     },
     {
       badge: "STEP 04 / 04",
-      target: "studio-menu",
-      preferredSide: "bottom",
+      target: "liquid-dock",
+      preferredSide: "top",
       pad: 6,
-      rx: 20,
-      titleKo: "튜너 · 루퍼 · 보관함 · 더보기",
-      titleEn: "Tuner, Looper, Vault & More",
+      rx: 26,
+      titleKo: "하단 리퀴드 독 — 오디오 · 녹음 · 메뉴",
+      titleEn: "Liquid Dock — Audio · Record · Menu",
       descKo:
-        "평소엔 연주에만 집중할 수 있도록 튜너, 루퍼·리앰핑, 오디오 세부 설정, Tone Hub, AI 기어 제작(MCP)을 모두 메뉴 안에 깔끔하게 담아 두었습니다.",
+        "하단 플로팅 버튼에서 드라이 DI 동시 녹음·루퍼·리앰핑을 바로 켜거나, 메뉴를 열어 튜너·오디오 설정·보관함·AI 기어 제작(MCP)을 불러오세요.",
       descEn:
-        "To keep the workspace calm, Tuner, Looper & Re-Amp, Audio I/O, Vault, Tone Hub, and AI Gear Crafting (MCP) stay neatly inside Menu.",
+        "Toggle Dry+Wet Recording, Looper, and Re-Amp directly from the bottom floating dock, or open Menu for Tuner, Audio I/O, Vault, Tone Hub, and AI Gear Crafting (MCP).",
       tipsKo: [
-        "빠른 도구 그리드로 오디오 설정·정밀 튜너·루퍼(L)·검색(/)에 1클릭으로 이동하세요.",
-        "AI 기어 제작(npx neuralrig-mcp)과 DSP 벤치마크도 메뉴에서 실행할 수 있습니다.",
+        "녹음(L) 버튼은 루퍼·녹음·리앰핑이 켜지면 오렌지 빛으로 부드럽게 점등됩니다.",
+        "메뉴 안 빠른 도구 그리드와 AI 기어 제작(npx neuralrig-mcp)·벤치마크를 실행해 보세요.",
       ],
       tipsEn: [
-        "Jump straight to Audio I/O, Tuner, Looper (L), and Search (/) from the Menu grid.",
-        "Craft new SPICE gear via `npx neuralrig-mcp` or verify DSP accuracy in Benchmark.",
+        "The Record (L) pill smoothly illuminates orange whenever Looper or Recording is active.",
+        "Jump straight to Audio I/O, Tuner, MCP Gear Builder, or DSP Benchmark from Menu.",
       ],
       icon: <Menu className="size-4 text-primary" />,
       actions: [

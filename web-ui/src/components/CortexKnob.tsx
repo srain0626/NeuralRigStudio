@@ -284,18 +284,23 @@ export const CortexToggleCell: React.FC<CortexToggleCellProps> = ({
         {label}
       </span>
       <div className="flex items-center gap-3 mt-1">
-        <div className="w-5 h-9 rounded-[2px] bg-secondary border border-border p-0.5 flex flex-col justify-between items-center relative">
+        <div className="w-5 h-9 rounded-[4px] bg-secondary border border-border p-0.5 flex flex-col justify-between items-center relative">
           <div
-            className="w-3.5 h-3.5 rounded-[1px] transition-transform duration-150"
+            className="w-3.5 h-3.5 rounded-[2px] transition-[transform,background-color,box-shadow] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
             style={{
               transform: checked ? "translateY(0px)" : "translateY(16px)",
               backgroundColor: checked ? "var(--primary)" : "var(--muted-foreground)",
+              boxShadow: checked ? "0 0 12px rgba(255, 107, 36, 0.55)" : "none",
             }}
           />
         </div>
         <div className="flex flex-col font-mono text-[11px] leading-tight font-semibold">
-          <span className={checked ? "text-foreground" : "text-muted-foreground/45"}>{onLabel}</span>
-          <span className={!checked ? "text-foreground" : "text-muted-foreground/45"}>{offLabel}</span>
+          <span className={`transition-colors duration-250 ${checked ? "text-foreground" : "text-muted-foreground/45"}`}>
+            {onLabel}
+          </span>
+          <span className={`transition-colors duration-250 ${!checked ? "text-foreground" : "text-muted-foreground/45"}`}>
+            {offLabel}
+          </span>
         </div>
       </div>
     </button>

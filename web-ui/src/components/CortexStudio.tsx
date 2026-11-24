@@ -199,6 +199,12 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
     }
   }, [isTourActive, onLooperOpenChange])
 
+  useEffect(() => {
+    if (looperOpen) {
+      setInspectorOpen(false)
+    }
+  }, [looperOpen])
+
   const tapTimesRef = useRef<number[]>([])
 
   const [meterL, setMeterL] = useState(0)
@@ -394,6 +400,7 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
     if (openCatalogIfEmpty || !modelId) {
       onSelectSlot(idx)
       setInspectorOpen(false)
+      onLooperOpenChange?.(false)
       setCatalogOpen(true)
       return
     }
@@ -403,6 +410,7 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
     }
     onSelectSlot(idx)
     setCatalogOpen(false)
+    onLooperOpenChange?.(false)
     setInspectorOpen(true)
   }
 
@@ -1046,15 +1054,13 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
   const tapBinding = midiState?.bindings?.find((b) => b.targetKind === "tapTempo")
   const splitCol = Math.max(0, Math.min(7, chain.splitCol))
   const mergeCol = Math.max(splitCol, Math.min(7, chain.mergeCol))
-  const hasLooperActivity =
-    looper.state !== "empty" || recorder.recording || recorder.reampPlaying || backing.playing
 
   return (
     <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden bg-transparent">
       {/* Centered Hero Canvas: Preset Bar + Pure 2x8 Signal Chain */}
       <div
-        className={`flex-1 min-h-0 flex flex-col justify-center max-w-[1300px] w-full mx-auto px-6 gap-6 transition-[padding] duration-200 ${
-          inspectorOpen && currentModel ? "pb-64" : "pb-6"
+        className={`flex-1 min-h-0 flex flex-col justify-center max-w-[1300px] w-full mx-auto px-6 gap-6 transition-[padding] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+          (inspectorOpen && currentModel) || looperOpen ? "pb-72" : "pb-16"
         }`}
       >
         {/* Clean Toss-Style Preset + Scene Bar */}
@@ -1200,9 +1206,9 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                           <button
                             type="button"
                             onClick={() => onPushChain(switchSceneOnChain(chain, idx), true, true)}
-                            className={`relative h-6 min-w-6 px-2 rounded-full font-mono text-[11px] font-medium transition-colors cursor-pointer ${
+                            className={`relative h-6 min-w-6 px-2 rounded-full font-mono text-[11px] font-medium transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-pointer ${
                               active
-                                ? "bg-foreground text-background shadow-xs"
+                                ? "bg-foreground text-background shadow-[0_4px_14px_rgba(11,14,16,0.22)] scale-[1.03]"
                                 : "text-muted-foreground hover:text-foreground hover:bg-secondary/70"
                             }`}
                           >
@@ -1480,7 +1486,7 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
       {inspectorOpen && currentModel && currentCategory && (
         <section
           data-tour="inspector-dock"
-          className="fixed inset-x-0 bottom-5 z-30 mx-auto w-[min(960px,calc(100vw-48px))] rounded-[18px] border border-border bg-card/96 backdrop-blur-md shadow-[0_24px_64px_rgba(11,14,16,0.22)] overflow-hidden"
+          className="fixed inset-x-0 bottom-[80px] z-30 mx-auto w-[min(960px,calc(100vw-48px))] rounded-[18px] border border-border bg-card/96 backdrop-blur-md shadow-[0_24px_64px_rgba(11,14,16,0.22)] overflow-hidden nr-float-up"
         >
           <div className="h-11 shrink-0 px-4 border-b border-border bg-secondary/40 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
@@ -1857,52 +1863,38 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
         </div>
       )}
 
-      {/* Floating Looper & Recording Pod (Hidden unless opened from Menu or active pill) */}
-      {looperOpen ? (
-        <div className="fixed right-6 bottom-6 w-[388px] max-w-[calc(100vw-32px)] h-[256px] z-30 shadow-[0_24px_64px_rgba(11,14,16,0.32)] rounded-[14px]">
-          <LooperRecorderDeck
-            looper={looper}
-            recorder={recorder}
-            backing={backing}
-            tempoBpm={chain.tempoBpm ?? 120}
-            isAudioRunning={isAudioRunning}
-            midiState={midiState}
-            onLooperCmd={handleLooperCommand}
-            onRecorderCmd={handleRecorderCommand}
-            onLoadBacking={handleLoadBacking}
-            onControlBacking={controlBacking}
-            onUnloadBacking={unloadBacking}
-            onStartMidiLearn={onStartMidiLearn}
-            onClearMidiBinding={onClearMidiBinding}
-          />
-          <button
-            type="button"
-            aria-label={tx("루퍼 닫기", "Close Looper")}
-            onClick={() => onLooperOpenChange?.(false)}
-            className="absolute -top-2.5 -right-2.5 size-6 rounded-full bg-card border border-border text-foreground hover:bg-secondary flex items-center justify-center shadow-md cursor-pointer"
+      {/* Floating Looper & Recording Pod (Centered cleanly above Liquid Glass Dock) */}
+      {looperOpen && (
+        <div className="fixed inset-x-0 bottom-[80px] z-30 flex justify-center pointer-events-none px-4">
+          <div
+            data-tour="looper-pod-frame"
+            className="pointer-events-auto relative w-[420px] max-w-full h-[256px] shadow-[0_24px_64px_rgba(11,14,16,0.32)] rounded-[16px] nr-float-up"
           >
-            <X className="size-3.5" />
-          </button>
+            <LooperRecorderDeck
+              looper={looper}
+              recorder={recorder}
+              backing={backing}
+              tempoBpm={chain.tempoBpm ?? 120}
+              isAudioRunning={isAudioRunning}
+              midiState={midiState}
+              onLooperCmd={handleLooperCommand}
+              onRecorderCmd={handleRecorderCommand}
+              onLoadBacking={handleLoadBacking}
+              onControlBacking={controlBacking}
+              onUnloadBacking={unloadBacking}
+              onStartMidiLearn={onStartMidiLearn}
+              onClearMidiBinding={onClearMidiBinding}
+            />
+            <button
+              type="button"
+              aria-label={tx("루퍼 닫기", "Close Looper")}
+              onClick={() => onLooperOpenChange?.(false)}
+              className="absolute -top-2.5 -right-2.5 size-6 rounded-full bg-card border border-border text-foreground hover:bg-secondary flex items-center justify-center shadow-md cursor-pointer"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
         </div>
-      ) : (
-        hasLooperActivity && (
-          <button
-            type="button"
-            onClick={() => onLooperOpenChange?.(true)}
-            className="fixed right-6 bottom-5 z-20 rounded-full bg-oled text-oled-foreground border border-oled-border px-3.5 py-1.5 text-xs font-mono flex items-center gap-2 shadow-xl hover:border-primary transition-colors cursor-pointer"
-          >
-            <span className="size-2 rounded-full bg-primary animate-pulse" />
-            <span>
-              {recorder.recording
-                ? tx("녹음 중", "REC ACTIVE")
-                : recorder.reampPlaying
-                  ? tx("리앰핑 중", "RE-AMPING")
-                  : looper.state !== "empty"
-                    ? `${tx("루퍼", "LOOPER")} · ${looper.state.toUpperCase()}`
-                    : tx("백킹 재생 중", "MR PLAYING")}
-            </span>
-          </button>
-        )
       )}
     </div>
   )

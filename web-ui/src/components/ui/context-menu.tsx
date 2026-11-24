@@ -26,7 +26,7 @@ function ContextMenuContent({
       <ContextMenuPrimitive.Content
         data-slot="context-menu-content"
         className={cn(
-          "z-50 min-w-[11rem] overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg",
+          "z-50 min-w-[11rem] overflow-hidden rounded-[12px] border border-border bg-popover p-1 text-popover-foreground shadow-lg nr-popover-anim",
           className
         )}
         {...props}
