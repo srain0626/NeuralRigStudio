@@ -102,7 +102,7 @@ export default function App() {
   const [otaOpen, setOtaOpen] = useState(false)
   const [otaInfo, setOtaInfo] = useState<OtaCheckResultDto | null>(null)
   const [adminOpen, setAdminOpen] = useState(false)
-  const [appVersion, setAppVersion] = useState("3.0.0")
+  const [appVersion, setAppVersion] = useState("3.0.1")
   const [hasCompletedTutorial, setHasCompletedTutorial] = useState(false)
   const [cloudState, setCloudState] = useState<CloudStateDto>({
     mode: "unselected",

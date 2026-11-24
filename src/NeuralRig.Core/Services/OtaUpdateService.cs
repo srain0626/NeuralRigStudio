@@ -30,7 +30,7 @@ public sealed class OtaCheckResultDto
 /// </summary>
 public static partial class OtaUpdateService
 {
-    public const string CurrentVersion = "3.0.0";
+    public const string CurrentVersion = "3.0.1";
     public const string GitHubRepo = "srain0626/NeuralRigStudio";
 
     private static readonly HttpClient SharedHttp = new()
@@ -50,7 +50,7 @@ public static partial class OtaUpdateService
     static OtaUpdateService()
     {
         if (!SharedHttp.DefaultRequestHeaders.UserAgent.Any())
-            SharedHttp.DefaultRequestHeaders.UserAgent.ParseAdd("NeuralRigStudio/3.0.0");
+            SharedHttp.DefaultRequestHeaders.UserAgent.ParseAdd("NeuralRigStudio/3.0.1");
     }
 
     public static int CompareSemVer(string? a, string? b)
