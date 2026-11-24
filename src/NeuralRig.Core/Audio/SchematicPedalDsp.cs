@@ -901,4 +901,162 @@ internal static class SchematicPedalDsp
             buf4[i] = Lpf1(m3, lpA, ref cs.Lp0Y) * 1.15f;
         }
     }
+
+    // =========================================================================
+    // 20) 동적 인터넷 회로도 기반 커스텀 페달 범용 4x 커널 (RT 할당 0)
+    // =========================================================================
+    internal struct CustomPedalCircuitParams
+    {
+        public byte ClippingKind; // CustomClippingTopology
+        public float InputHpfHz;
+        public float ToneMinHz;
+        public float ToneMaxHz;
+        public float MidPeakHz;
+        public float MidPeakDb;
+        public float MaxGainDb;
+        public float Asymmetry;
+    }
+
+    public static void ProcessCustomSchematicPedal4x(
+        ref CircuitState cs,
+        Span<float> buf4,
+        int fs4,
+        float drive0to10,
+        float char0to10,
+        in CustomPedalCircuitParams cp)
+    {
+        double dt = 1.0 / fs4;
+        float hpfFc = Math.Clamp(cp.InputHpfHz, 28f, 1100f);
+        float inHpfA = (float)Math.Exp(-2.0 * Math.PI * hpfFc * dt);
+        float fbLpfA = (float)(1.0 - Math.Exp(-2.0 * Math.PI * Math.Clamp(cp.ToneMaxHz, 2600f, 11000f) * dt));
+
+        double d = Math.Clamp(drive0to10, 0f, 10f) / 10.0;
+        double charNorm = Math.Clamp(char0to10, 0f, 10f) / 10.0;
+        double maxGainDb = Math.Clamp(cp.MaxGainDb, 12f, 56f);
+        double maxLinGain = Math.Pow(10.0, maxGainDb / 20.0);
+        float preGain = (float)(1.4 + (maxLinGain - 1.4) * (0.20 * d + 0.80 * d * d));
+        float asym = Math.Clamp(cp.Asymmetry, 0f, 0.45f) * (float)(0.7 + 0.6 * charNorm);
+
+        switch (cp.ClippingKind)
+        {
+            case 0: // SiliconSymmetric (1N914 / 1N4148)
+            {
+                double coeff = 2.0 * (22000.0 + 320000.0 * d * d) * SiIs;
+                float gFb = (float)((1.6 + 18.0 * d * d) * (0.8 + 0.4 * charNorm));
+                for (int i = 0; i < buf4.Length; i++)
+                {
+                    float x = Hpf1(buf4[i], inHpfA, ref cs.Hp0X, ref cs.Hp0Y);
+                    float vd = SolveSymDiodeNR(x * gFb, coeff, SiEtaVt, SiInvEtaVt, SiMaxVd);
+                    buf4[i] = Lpf1(x * 0.45f + vd * 0.90f, fbLpfA, ref cs.Lp0Y);
+                }
+                break;
+            }
+            case 1: // SiliconAsymmetric (2x + 1x 1N914)
+            {
+                double rIs = (24000.0 + 300000.0 * d * d) * SiIs;
+                float gFb = (float)((1.6 + 20.0 * d * d) * (0.85 + 0.35 * charNorm));
+                for (int i = 0; i < buf4.Length; i++)
+                {
+                    float x = Hpf1(buf4[i], inHpfA, ref cs.Hp0X, ref cs.Hp0Y);
+                    float vd = SolveAsymDiodeNR(x * gFb, rIs, SiEtaVt, SiInvEtaVt, SiMaxVd);
+                    buf4[i] = Lpf1(x * 0.40f + vd * 0.92f, fbLpfA, ref cs.Lp0Y);
+                }
+                break;
+            }
+            case 2: // Germanium (1N34A / AC128 low-Vf soft knee)
+            {
+                double coeff = 2.0 * 4700.0 * GeIs;
+                for (int i = 0; i < buf4.Length; i++)
+                {
+                    float x = Hpf1(buf4[i], inHpfA, ref cs.Hp0X, ref cs.Hp0Y) * preGain;
+                    float biased = x + asym * 0.35f;
+                    float vd = SolveSymDiodeNR(biased, coeff, GeEtaVt, GeInvEtaVt, GeMaxVd);
+                    buf4[i] = Lpf1(vd * 1.45f, fbLpfA, ref cs.Lp0Y);
+                }
+                break;
+            }
+            case 3: // RedLed (high headroom Vf ~ 1.7V)
+            {
+                double coeff = 2.0 * 2200.0 * LedIs;
+                for (int i = 0; i < buf4.Length; i++)
+                {
+                    float x = Hpf1(buf4[i], inHpfA, ref cs.Hp0X, ref cs.Hp0Y) * preGain;
+                    float vd = SolveSymDiodeNR(x, coeff, LedEtaVt, LedInvEtaVt, LedMaxVd);
+                    buf4[i] = Lpf1(vd * 0.85f, fbLpfA, ref cs.Lp0Y);
+                }
+                break;
+            }
+            case 4: // Mosfet (2N7000 / BS170)
+            {
+                double rIs = 12000.0 * SiIs;
+                for (int i = 0; i < buf4.Length; i++)
+                {
+                    float x = Hpf1(buf4[i], inHpfA, ref cs.Hp0X, ref cs.Hp0Y) * preGain;
+                    float vd = SolveAsymDiodeNR(x, rIs, SiEtaVt * 1.32, SiInvEtaVt / 1.32, SiMaxVd * 1.45);
+                    float m2 = FastTanh(vd * (0.95f + asym));
+                    buf4[i] = Lpf1(m2 * 1.15f, fbLpfA, ref cs.Lp0Y);
+                }
+                break;
+            }
+            case 5: // Jfet (J201 / 2N5457 tube-like asymmetric)
+            {
+                float hp2A = (float)Math.Exp(-2.0 * Math.PI * 140.0 * dt);
+                float g1 = 1.6f + 0.55f * preGain;
+                float g2 = 1.3f + 0.30f * preGain;
+                for (int i = 0; i < buf4.Length; i++)
+                {
+                    float x1 = Hpf1(buf4[i], inHpfA, ref cs.Hp0X, ref cs.Hp0Y) * g1;
+                    float j1 = x1 >= 0f ? FastTanh(x1 * (1f - asym)) : FastTanh(x1 * (1f + asym));
+                    float x2 = Hpf1(j1, hp2A, ref cs.Hp1X, ref cs.Hp1Y) * g2;
+                    float j2 = FastTanh(x2 * 0.95f);
+                    buf4[i] = Lpf1(j2 * 1.15f, fbLpfA, ref cs.Lp0Y);
+                }
+                break;
+            }
+            case 6: // BjtFuzz (2N5088 / BC108 cascaded saturation)
+            {
+                float hp2A = (float)Math.Exp(-2.0 * Math.PI * 105.0 * dt);
+                float g1 = 2.0f + 0.48f * preGain;
+                float g2 = 1.8f + 0.45f * preGain;
+                for (int i = 0; i < buf4.Length; i++)
+                {
+                    float x1 = Hpf1(buf4[i], inHpfA, ref cs.Hp0X, ref cs.Hp0Y) * g1;
+                    float q1 = x1 >= 0f ? FastTanh(x1 * 1.25f) : FastTanh(x1 * 0.85f);
+                    float x2 = Hpf1(q1 + (asym - 0.1f) * 0.4f, hp2A, ref cs.Hp1X, ref cs.Hp1Y) * g2;
+                    float q2 = FastTanh(x2 * 1.1f);
+                    buf4[i] = Lpf1(q2, fbLpfA, ref cs.Lp0Y) * 1.05f;
+                }
+                break;
+            }
+            case 7: // Lm308Slew (slew-rate limited + shunt clip)
+            {
+                float maxStep = (0.30f + 0.14f * (float)charNorm) * (176400f / fs4);
+                double coeff = 2.0 * 1500.0 * SiIs;
+                for (int i = 0; i < buf4.Length; i++)
+                {
+                    float x = Hpf1(buf4[i], inHpfA, ref cs.Hp0X, ref cs.Hp0Y) * preGain;
+                    float delta = Math.Clamp(x - cs.SlewY, -maxStep, maxStep);
+                    cs.SlewY += delta;
+                    float vd = SolveSymDiodeNR(cs.SlewY, coeff, SiEtaVt, SiInvEtaVt, SiMaxVd);
+                    buf4[i] = Lpf1(vd * 1.35f, fbLpfA, ref cs.Lp0Y);
+                }
+                break;
+            }
+            default: // 8: SchottkyBlend (Klon-style clean feedforward + 1N34A/BAT41 Ge shunt)
+            {
+                float cleanMix = (float)(1.0 - 0.65 * d);
+                float clipMix = (float)(0.25 + 1.0 * d) * (0.85f + 0.30f * (float)charNorm);
+                double coeff = 2.0 * 1000.0 * GeIs;
+                for (int i = 0; i < buf4.Length; i++)
+                {
+                    float raw = buf4[i];
+                    float vHp = Hpf1(raw, inHpfA, ref cs.Hp0X, ref cs.Hp0Y);
+                    float vd = SolveSymDiodeNR(vHp * preGain, coeff, GeEtaVt, GeInvEtaVt, GeMaxVd);
+                    float clipped = Lpf1(vd, fbLpfA, ref cs.Lp0Y);
+                    buf4[i] = raw * cleanMix + clipped * clipMix * 1.35f;
+                }
+                break;
+            }
+        }
+    }
 }

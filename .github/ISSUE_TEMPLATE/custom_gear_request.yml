@@ -1,0 +1,27 @@
+name: Custom Gear / Schematic Request
+description: Request a verified pedal, tube amp, or cabinet IR based on real schematics
+title: "[Gear]: "
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: category
+    attributes:
+      label: Gear Category
+      options:
+        - Overdrive / Distortion / Fuzz Pedal
+        - Tube Amp / Preamp
+        - Speaker Cabinet IR
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Hardware Make & Exact Model
+      placeholder: "e.g., ProCo RAT 2, Fender Deluxe Reverb 65"
+    validations:
+      required: true
+  - type: input
+    id: schematic-url
+    attributes:
+      label: Reference Schematic / Datasheet URL (optional)
+      placeholder: "https://..."

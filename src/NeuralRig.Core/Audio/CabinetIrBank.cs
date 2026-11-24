@@ -94,7 +94,31 @@ public sealed class CabinetIrBank
         ir = Array.Empty<float>();
         rev = Array.Empty<float>();
         using var stream = typeof(CabinetIrBank).Assembly.GetManifestResourceStream(resourceName);
-        if (stream is null) return false;
+        return stream != null && TryReadWavStreamIr(stream, targetSampleRate, maxTaps, out ir, out rev);
+    }
+
+    public static bool TryLoadWavIrFromFile(string path, int targetSampleRate, out PartitionedIr? partIr)
+    {
+        partIr = null;
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return false;
+        try
+        {
+            using var fs = File.OpenRead(path);
+            if (!TryReadWavStreamIr(fs, Math.Max(8000, targetSampleRate), MaxWavTapCount, out var ir, out _))
+                return false;
+            partIr = PartitionedIr.Compile(ir);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryReadWavStreamIr(Stream stream, int targetSampleRate, int maxTaps, out float[] ir, out float[] rev)
+    {
+        ir = Array.Empty<float>();
+        rev = Array.Empty<float>();
 
         using var reader = new WaveFileReader(stream);
         var sp = reader.ToSampleProvider();
@@ -195,6 +219,119 @@ public sealed class CabinetIrBank
         double lpHz, double lpOrder,
         double erDelayMs, double erGain)
     {
+        var ir = SynthesizeMinimumPhaseIr(
+            sampleRate, hpHz, hpQ, bodyHz, bodyAmt,
+            midHz, midW, midAmt, dipHz, dipW, dipAmt,
+            lpHz, lpOrder, erDelayMs, erGain);
+
+        var rev = new float[TapCount];
+        for (int i = 0; i < TapCount; i++)
+            rev[i] = ir[TapCount - 1 - i];
+
+        _irs[slot] = ir;
+        _irsRev[slot] = rev;
+    }
+
+    public static PartitionedIr CompileCustomCabIr(
+        int sampleRate,
+        double hpHz, double hpQ,
+        double bodyHz, double bodyAmt,
+        double midHz, double midAmt,
+        double lpHz, double erDelayMs)
+    {
+        var ir = SynthesizeMinimumPhaseIr(
+            Math.Max(8000, sampleRate),
+            hpHz, hpQ, bodyHz, bodyAmt,
+            midHz, midW: 780.0, midAmt: midAmt,
+            dipHz: 3950.0, dipW: 500.0, dipAmt: 0.25,
+            lpHz: lpHz, lpOrder: 4.0,
+            erDelayMs: erDelayMs, erGain: erDelayMs > 1.9 ? 0.09 : -0.10);
+        return PartitionedIr.Compile(ir);
+    }
+
+    public static float[] SynthesizeCustomCabIrFromMeasuredCurve(
+        int sampleRate,
+        ReadOnlySpan<(double freqHz, double db)> curve,
+        double erDelayMs,
+        double erGain)
+    {
+        sampleRate = Math.Max(8000, sampleRate);
+        const int nFft = 1024;
+        int bins = nFft / 2 + 1;
+        double[] logMag = new double[nFft];
+
+        // Sort curve by frequency using a small stack/list copy
+        var pts = new (double f, double db)[curve.Length];
+        for (int i = 0; i < curve.Length; i++) pts[i] = curve[i];
+        Array.Sort(pts, (a, b) => a.f.CompareTo(b.f));
+
+        double maxDb = -200.0;
+        for (int i = 0; i < pts.Length; i++)
+            if (pts[i].db > maxDb) maxDb = pts[i].db;
+        if (!double.IsFinite(maxDb) || pts.Length == 0) maxDb = 0.0;
+
+        for (int k = 0; k < bins; k++)
+        {
+            double f = k * (double)sampleRate / nFft;
+            double db = pts.Length > 0 ? InterpolateCurveLogDb(pts, f) - maxDb : 0.0;
+            double mag = Math.Clamp(Math.Pow(10.0, db / 20.0), 1e-4, 4.0);
+            double lm = Math.Log(mag);
+            logMag[k] = lm;
+            if (k > 0 && k < nFft / 2)
+                logMag[nFft - k] = lm;
+        }
+
+        return MinimumPhaseReconstructFromLogMag(logMag, sampleRate, erDelayMs, erGain);
+    }
+
+    public static PartitionedIr CompileCustomCabFromMeasuredCurve(
+        int sampleRate,
+        ReadOnlySpan<(double freqHz, double db)> curve,
+        double erDelayMs,
+        double erGain)
+        => PartitionedIr.Compile(SynthesizeCustomCabIrFromMeasuredCurve(sampleRate, curve, erDelayMs, erGain));
+
+    private static double InterpolateCurveLogDb(ReadOnlySpan<(double f, double db)> pts, double freqHz)
+    {
+        if (pts.Length == 1) return pts[0].db;
+        double f = Math.Max(15.0, freqHz);
+        if (f <= pts[0].f)
+        {
+            // Below lowest measured point: sub-bass 12 dB/oct natural speaker rolloff
+            double oct = Math.Log2(Math.Max(1.0, pts[0].f) / f);
+            return pts[0].db - 12.0 * oct;
+        }
+        int last = pts.Length - 1;
+        if (f >= pts[last].f)
+        {
+            // Above highest measured point: cone breakup 18 dB/oct rolloff
+            double oct = Math.Log2(f / Math.Max(1.0, pts[last].f));
+            return pts[last].db - 18.0 * oct;
+        }
+
+        double lf = Math.Log(f);
+        for (int i = 0; i < last; i++)
+        {
+            double f0 = Math.Max(1.0, pts[i].f);
+            double f1 = Math.Max(f0 + 1e-3, pts[i + 1].f);
+            if (f >= f0 && f <= f1)
+            {
+                double t = (lf - Math.Log(f0)) / (Math.Log(f1) - Math.Log(f0));
+                return pts[i].db + t * (pts[i + 1].db - pts[i].db);
+            }
+        }
+        return pts[last].db;
+    }
+
+    private static float[] SynthesizeMinimumPhaseIr(
+        int sampleRate,
+        double hpHz, double hpQ,
+        double bodyHz, double bodyAmt,
+        double midHz, double midW, double midAmt,
+        double dipHz, double dipW, double dipAmt,
+        double lpHz, double lpOrder,
+        double erDelayMs, double erGain)
+    {
         const int nFft = 1024;
         int bins = nFft / 2 + 1;
         double[] logMag = new double[nFft];
@@ -217,6 +354,17 @@ public sealed class CabinetIrBank
             if (k > 0 && k < nFft / 2)
                 logMag[nFft - k] = lm;
         }
+
+        return MinimumPhaseReconstructFromLogMag(logMag, sampleRate, erDelayMs, erGain);
+    }
+
+    private static float[] MinimumPhaseReconstructFromLogMag(
+        double[] logMag,
+        int sampleRate,
+        double erDelayMs,
+        double erGain)
+    {
+        const int nFft = 1024;
 
         // Cepstral Minimum-Phase Reconstruction
         double[] cepIm = new double[nFft];
@@ -260,13 +408,7 @@ public sealed class CabinetIrBank
         for (int i = 0; i < TapCount; i++) energy += (double)ir[i] * ir[i];
         float norm = (float)Math.Sqrt(energy + 1e-12);
         for (int i = 0; i < TapCount; i++) ir[i] /= norm;
-
-        var rev = new float[TapCount];
-        for (int i = 0; i < TapCount; i++)
-            rev[i] = ir[TapCount - 1 - i];
-
-        _irs[slot] = ir;
-        _irsRev[slot] = rev;
+        return ir;
     }
 
     private static void FftD(double[] re, double[] im, bool inverse)

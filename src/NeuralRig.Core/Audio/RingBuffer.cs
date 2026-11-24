@@ -44,6 +44,48 @@ public sealed class RingBuffer
     public long DroppedOldest => Volatile.Read(ref _droppedOldest);
     public long PaddedFrames => Volatile.Read(ref _padded);
 
+    /// <summary>스트림이 중지된 유휴 상태에서 링 포인터와 통계를 초기화한다.</summary>
+    public void Reset()
+    {
+        Volatile.Write(ref _w, 0);
+        Volatile.Write(ref _r, 0);
+        Volatile.Write(ref _lostNewest, 0);
+        Volatile.Write(ref _droppedOldest, 0);
+        Volatile.Write(ref _padded, 0);
+    }
+
+    /// <summary>백그라운드 소비자(레코더 등)에서 현재 쌓여 있는 프레임만 무음 패딩 없이 읽어온다.</summary>
+    public int ReadAvailable(Span<float> dstInterleaved, int maxFrames)
+    {
+        if (maxFrames <= 0 || dstInterleaved.Length < 2) return 0;
+        int capOut = Math.Min(maxFrames, dstInterleaved.Length / 2);
+        long w = Volatile.Read(ref _w);
+        long r = Volatile.Read(ref _r);
+        long fill = Math.Max(0, w - r);
+        int avail = (int)Math.Min(fill, capOut);
+        if (avail <= 0) return 0;
+
+        int idx = (int)(r & _mask);
+        int first = Math.Min(avail, _cap - idx);
+        int baseSrc = idx * 2;
+        for (int i = 0; i < first; i++)
+        {
+            dstInterleaved[i * 2] = _buf[baseSrc + i * 2];
+            dstInterleaved[i * 2 + 1] = _buf[baseSrc + i * 2 + 1];
+        }
+
+        int second = avail - first;
+        int outOffset = first * 2;
+        for (int i = 0; i < second; i++)
+        {
+            dstInterleaved[outOffset + i * 2] = _buf[i * 2];
+            dstInterleaved[outOffset + i * 2 + 1] = _buf[i * 2 + 1];
+        }
+
+        Volatile.Write(ref _r, r + avail);
+        return avail;
+    }
+
     /// <summary>입력 콜백(RT 스레드)에서 호출. 할당/나눗셈 없음.</summary>
     public void Write(int frames, ReadOnlySpan<float> ch0, ReadOnlySpan<float> ch1)
     {

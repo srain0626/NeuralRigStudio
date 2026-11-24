@@ -1,4 +1,7 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json;
+using NeuralRigStudio.Audio.Spice;
+using NeuralRigStudio.Services;
 
 namespace NeuralRigStudio.Audio;
 
@@ -76,6 +79,13 @@ public sealed partial class SignalChainEngine
         RevPlate,
         RevBlueSky,
         RevBossRv6,
+        PitchCapo,
+        PitchWhammy,
+        PitchOctaver,
+        CustomPedal,
+        CustomAmp,
+        CustomCab,
+        CustomSpice,
     }
 
     internal struct CabMicParams
@@ -98,21 +108,50 @@ public sealed partial class SignalChainEngine
         public float Blend;
     }
 
+    internal struct CustomAmpCircuitParams
+    {
+        public byte BaseAmpChannel; // 0=Clean, 1=Plexi, 2=HighGain
+        public float PreampCathodeHz;
+        public float VoicingMidHz;
+        public float VoicingMidDb;
+        public float HighShelfDb;
+    }
+
     private struct CompiledSlot
     {
         public BlockOp Op;
         public byte SubModel; // Amp channel/voicing or Cab kind
         public byte SyncDiv;  // 0=Free, 1=1/4, 2=1/8., 3=1/8, 4=1/8T, 5=1/16
         public sbyte NamPoolIdx; // 0..2 for independent Multi-NAM, -1 if unassigned
+        public int CustomHash;   // Identifies distinct custom schematic models
         public bool Enabled;
         public float P0, P1, P2, P3, P4, P5, P6, P7;
         public CabMicParams CabMic;
+        public SchematicPedalDsp.CustomPedalCircuitParams CustomPedal;
+        public CustomAmpCircuitParams CustomAmp;
+    }
+
+    private struct CompiledSceneSlot
+    {
+        public bool Enabled;
+        public byte SyncDiv;
+        public float P0, P1, P2, P3, P4, P5, P6, P7;
+    }
+
+    private sealed class CompiledSceneSnapshot
+    {
+        public float ParallelMix = 0.5f;
+        public readonly CompiledSceneSlot[] Slots = new CompiledSceneSlot[SlotCount];
     }
 
     private sealed class CompiledSnapshot
     {
         public readonly CompiledSlot[] Slots = new CompiledSlot[SlotCount];
         public readonly NamWorkspace?[] NamWorkspaces = new NamWorkspace?[3];
+        public readonly PartitionedIr?[] CustomCabIrs = new PartitionedIr?[SlotCount];
+        public readonly RealtimeSpiceCircuit?[] CustomSpiceSlots = new RealtimeSpiceCircuit?[SlotCount];
+        public CompiledSceneSnapshot[]? Scenes;
+        public int ActiveScene;
         public ChainRoutingMode Routing;
         public int SplitCol;
         public int MergeCol;
@@ -286,13 +325,15 @@ public sealed partial class SignalChainEngine
         public float SmoothOutGain = 1f;
         public bool SmoothReady;
 
-        // 독립 리소스 풀 인덱스 (듀얼 앰프 / 듀얼 스테레오 캐비넷 / 딜레이 / 리버브)
+        // 독립 리소스 풀 인덱스 (최대 4슬롯 동시 구동: 앰프 / 캐비넷 / 딜레이 / 리버브 / 피치)
         public BlockOp LastOp;
         public byte LastSubModel;
+        public int LastCustomHash;
         public int AmpPoolIdx = -1;
         public int CabPoolIdx = -1;
         public int DelayPoolIdx = -1;
         public int ReverbPoolIdx = -1;
+        public int PitchPoolIdx = -1;
 
         public void Prepare(int sampleRate)
         {
@@ -586,19 +627,21 @@ public sealed partial class SignalChainEngine
         }
     }
 
-    // ── 엔진 필드 (모든 풀 사전 할당, RT 할당 0) ──
+    // ── 엔진 필드 (모든 풀 4슬롯 사전 할당, RT 할당 0) ──
     private readonly SlotDspState[] _states = new SlotDspState[SlotCount];
-    private readonly WhiteBoxAmpEngine[] _ampPool = { new(), new() };
+    private readonly WhiteBoxAmpEngine[] _ampPool = { new(), new(), new(), new() };
     private readonly CabinetIrBank _cabBank = new();
-    private readonly CabSlotUnit[] _cabPool = { new(), new() };
-    private readonly StereoDelayLine[] _delayPool = { new(), new() };
-    private readonly StereoReverbTank[] _reverbPool = { new(), new() };
+    private readonly CabSlotUnit[] _cabPool = { new(), new(), new(), new() };
+    private readonly StereoDelayLine[] _delayPool = { new(), new(), new(), new() };
+    private readonly StereoReverbTank[] _reverbPool = { new(), new(), new(), new() };
+    private readonly PolyPitchEngine[] _pitchPool = { new(), new(), new(), new() };
 
     private CompiledSnapshot _pendingSnapshot = new();
     private CompiledSnapshot _activeSnapshot = new();
     private SignalChainConfigDto _lastDto = new();
     private Func<string?, ToneProfile?>? _namResolver;
     private readonly (string? modelId, ToneProfile? profile, NamWorkspace? ws)[] _uiNamPool = new (string?, ToneProfile?, NamWorkspace?)[3];
+    private readonly (int hash, int sr, RealtimeSpiceCircuit? rt)[] _uiSpicePool = new (int, int, RealtimeSpiceCircuit?)[SlotCount];
     private readonly object _chainCompileLock = new();
     private int _version = 1;
     private int _appliedVersion;
@@ -626,6 +669,152 @@ public sealed partial class SignalChainEngine
     }
 
     public SignalChainConfigDto GetConfigSnapshot() => Volatile.Read(ref _lastDto).Clone();
+
+    public float TempoBpm => Volatile.Read(ref _pendingSnapshot).TempoBpm;
+    public int ActiveScene => Volatile.Read(ref _activeSnapshot).ActiveScene;
+    public ChainRoutingMode RoutingMode => Volatile.Read(ref _activeSnapshot).Routing;
+    public float ParallelMix => Volatile.Read(ref _activeSnapshot).ParallelMix;
+
+    /// <summary>DAW 오토메이션 및 실시간 MIDI용 무할당 RT 파라미터 갱신 API (힙 할당 0 B).</summary>
+    public void SetGlobalParamsRt(
+        float? inputGainDb = null,
+        float? outputGainDb = null,
+        float? parallelMix = null,
+        ChainRoutingMode? routing = null)
+    {
+        EnsureApplied();
+        var snap = _activeSnapshot;
+        if (inputGainDb.HasValue)
+            snap.InputGain = MathF.Pow(10f, Math.Clamp(inputGainDb.Value, -18f, 18f) / 20f);
+        if (outputGainDb.HasValue)
+            snap.OutputGain = MathF.Pow(10f, Math.Clamp(outputGainDb.Value, -18f, 18f) / 20f);
+        if (parallelMix.HasValue)
+            snap.ParallelMix = Math.Clamp(parallelMix.Value, 0f, 1f);
+        if (routing.HasValue)
+            snap.Routing = routing.Value;
+    }
+
+    public void SetTempoBpmRt(float bpm)
+    {
+        float clamped = Math.Clamp(bpm > 1f ? bpm : 120f, 40f, 280f);
+        EnsureApplied();
+        _activeSnapshot.TempoBpm = clamped;
+        var pend = Volatile.Read(ref _pendingSnapshot);
+        if (pend != null) pend.TempoBpm = clamped;
+    }
+
+    public void SetSlotBypassRt(int slotIndex, bool enabled)
+    {
+        if ((uint)slotIndex >= SlotCount) return;
+        EnsureApplied();
+        _activeSnapshot.Slots[slotIndex].Enabled = enabled;
+    }
+
+    public bool GetSlotBypassRt(int slotIndex)
+    {
+        if ((uint)slotIndex >= SlotCount) return false;
+        return _activeSnapshot.Slots[slotIndex].Enabled;
+    }
+
+    public bool SwitchSceneRt(int sceneIndex)
+    {
+        EnsureApplied();
+        int idx = Math.Clamp(sceneIndex, 0, 7);
+        var snap = _activeSnapshot;
+        var scenes = snap.Scenes;
+        if (scenes is null || idx >= scenes.Length) return false;
+        var sc = scenes[idx];
+        snap.ActiveScene = idx;
+        snap.ParallelMix = sc.ParallelMix;
+        int sr = _sampleRate;
+        for (int i = 0; i < SlotCount; i++)
+        {
+            ref var sl = ref snap.Slots[i];
+            ref readonly var scSlot = ref sc.Slots[i];
+            sl.Enabled = scSlot.Enabled;
+            sl.SyncDiv = scSlot.SyncDiv;
+            sl.P0 = scSlot.P0; sl.P1 = scSlot.P1; sl.P2 = scSlot.P2; sl.P3 = scSlot.P3;
+            sl.P4 = scSlot.P4; sl.P5 = scSlot.P5; sl.P6 = scSlot.P6; sl.P7 = scSlot.P7;
+            ConfigureSlotFilters(_states[i], ref sl, sr);
+        }
+        return true;
+    }
+
+    public bool SetPrimaryAmpParamRt(int paramIdx, float value)
+    {
+        if ((uint)paramIdx > 7) return false;
+        EnsureApplied();
+        var snap = _activeSnapshot;
+        int target = -1;
+        for (int i = 0; i < SlotCount; i++)
+        {
+            if (snap.Slots[i].Op is BlockOp.AmpWhiteBox or BlockOp.AmpJc120 or BlockOp.CustomAmp)
+            {
+                target = i;
+                break;
+            }
+        }
+        if (target < 0) return false;
+
+        ref var sl = ref snap.Slots[target];
+        switch (paramIdx)
+        {
+            case 0: sl.P0 = value; break;
+            case 1: sl.P1 = value; break;
+            case 2: sl.P2 = value; break;
+            case 3: sl.P3 = value; break;
+            case 4: sl.P4 = value; break;
+            case 5: sl.P5 = value; break;
+            case 6: sl.P6 = value; break;
+            case 7: sl.P7 = value; break;
+        }
+        ConfigureSlotFilters(_states[target], ref sl, _sampleRate);
+        return true;
+    }
+
+    public bool TryGetPrimaryAmpParam(int paramIdx, out float value)
+    {
+        value = 0f;
+        if ((uint)paramIdx > 7) return false;
+        var snap = Volatile.Read(ref _activeSnapshot);
+        for (int i = 0; i < SlotCount; i++)
+        {
+            ref var sl = ref snap.Slots[i];
+            if (sl.Op is BlockOp.AmpWhiteBox or BlockOp.AmpJc120 or BlockOp.CustomAmp)
+            {
+                value = paramIdx switch
+                {
+                    0 => sl.P0, 1 => sl.P1, 2 => sl.P2, 3 => sl.P3,
+                    4 => sl.P4, 5 => sl.P5, 6 => sl.P6, _ => sl.P7,
+                };
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>DAW 상태 저장용(비-RT 스레드): 현재 RT 스냅샷의 오토메이션 반영 값을 DTO에 동기화하여 반환한다.</summary>
+    public SignalChainConfigDto ExportLiveStateSnapshot()
+    {
+        var dto = GetConfigSnapshot();
+        var act = Volatile.Read(ref _activeSnapshot);
+        dto.ActiveScene = Math.Clamp(act.ActiveScene, 0, 7);
+        dto.RoutingMode = (int)act.Routing;
+        dto.ParallelMix = Math.Clamp(act.ParallelMix, 0f, 1f);
+        dto.TempoBpm = Math.Clamp(act.TempoBpm, 40f, 280f);
+        dto.InputGainDb = MathF.Round(Math.Clamp(20f * MathF.Log10(Math.Max(1e-4f, act.InputGain)), -18f, 18f), 2);
+        dto.OutputGainDb = MathF.Round(Math.Clamp(20f * MathF.Log10(Math.Max(1e-4f, act.OutputGain)), -18f, 18f), 2);
+
+        for (int i = 0; i < SlotCount && i < dto.Slots.Count; i++)
+        {
+            ref var sl = ref act.Slots[i];
+            var dst = dto.Slots[i];
+            dst.Enabled = sl.Enabled;
+            dst.SyncDivision = sl.SyncDiv;
+            dst.Params = new[] { sl.P0, sl.P1, sl.P2, sl.P3, sl.P4, sl.P5, sl.P6, sl.P7 };
+        }
+        return dto;
+    }
 
     internal bool IsMeasuredCabIr(int subModel) => _cabBank.IsMeasuredIr(subModel);
 
@@ -667,6 +856,29 @@ public sealed partial class SignalChainEngine
             _delayPool[i].Prepare(_sampleRate);
         for (int i = 0; i < _reverbPool.Length; i++)
             _reverbPool[i].Prepare(_sampleRate);
+        for (int i = 0; i < _pitchPool.Length; i++)
+            _pitchPool[i].Prepare(_sampleRate);
+
+        var pendSnap = Volatile.Read(ref _pendingSnapshot);
+        var lastDto = Volatile.Read(ref _lastDto);
+        if (pendSnap != null && lastDto?.Slots != null)
+        {
+            bool needsSpiceRecompile = false;
+            for (int i = 0; i < SlotCount && i < lastDto.Slots.Count; i++)
+            {
+                if (pendSnap.Slots[i].Op == BlockOp.CustomCab &&
+                    CustomDeviceRegistry.TryGet(lastDto.Slots[i].ModelId, out var cSpec) && cSpec != null)
+                {
+                    pendSnap.CustomCabIrs[i] = CustomDeviceRegistry.GetOrCompileCabIr(cSpec, _sampleRate);
+                }
+                else if (pendSnap.Slots[i].Op == BlockOp.CustomSpice && _uiSpicePool[i].sr != _sampleRate)
+                {
+                    needsSpiceRecompile = true;
+                }
+            }
+            if (needsSpiceRecompile)
+                UpdateChain(lastDto);
+        }
 
         _smoothReady = false;
         _appliedVersion = 0;
@@ -682,11 +894,15 @@ public sealed partial class SignalChainEngine
             _states[i].Reset();
             _states[i].LastOp = BlockOp.None;
             _states[i].LastSubModel = 0;
+            _states[i].LastCustomHash = 0;
+            _uiSpicePool[i].rt?.Reset();
         }
         for (int i = 0; i < _delayPool.Length; i++) _delayPool[i].Reset();
         for (int i = 0; i < _reverbPool.Length; i++) _reverbPool[i].Reset();
+        for (int i = 0; i < _pitchPool.Length; i++) _pitchPool[i].Reset();
         var act = _activeSnapshot;
         for (int i = 0; i < act.NamWorkspaces.Length; i++) act.NamWorkspaces[i]?.Reset();
+        for (int i = 0; i < act.CustomSpiceSlots.Length; i++) act.CustomSpiceSlots[i]?.Reset();
         _smoothReady = false;
         _appliedVersion = 0;
     }
@@ -712,6 +928,7 @@ public sealed partial class SignalChainEngine
             var clean = (dto ?? new SignalChainConfigDto()).Clone();
             var snap = new CompiledSnapshot
             {
+                ActiveScene = Math.Clamp(clean.ActiveScene, 0, 7),
                 Routing = (ChainRoutingMode)Math.Clamp(clean.RoutingMode, 0, 1),
                 SplitCol = Math.Clamp(clean.SplitCol, 0, 7),
                 MergeCol = Math.Clamp(clean.MergeCol, 0, 7),
@@ -726,6 +943,73 @@ public sealed partial class SignalChainEngine
             {
                 var s = clean.Slots[i];
                 var (op, sub) = ParseModelId(s.ModelId);
+                int customHash = 0;
+                SchematicPedalDsp.CustomPedalCircuitParams customPedal = default;
+                CustomAmpCircuitParams customAmp = default;
+
+                if (op == BlockOp.None && !string.IsNullOrWhiteSpace(s.ModelId) &&
+                    CustomDeviceRegistry.TryGet(s.ModelId, out var customSpec) && customSpec != null)
+                {
+                    customHash = StringComparer.OrdinalIgnoreCase.GetHashCode(customSpec.Id) ^ (int)customSpec.CreatedAtUtc.Ticks;
+                    if (customSpec.SpiceCircuit != null && customSpec.Category != "cab")
+                    {
+                        string spiceJson = JsonSerializer.Serialize(customSpec.SpiceCircuit);
+                        int spiceHash = customHash ^ StringComparer.Ordinal.GetHashCode(spiceJson);
+                        customHash = spiceHash;
+                        var cachedSpice = _uiSpicePool[i];
+                        if (cachedSpice.hash == spiceHash && cachedSpice.sr == _sampleRate && cachedSpice.rt != null)
+                        {
+                            snap.CustomSpiceSlots[i] = cachedSpice.rt;
+                            op = BlockOp.CustomSpice;
+                        }
+                        else
+                        {
+                            var compiledSpice = RealtimeSpiceCircuit.Compile(customSpec.SpiceCircuit, _sampleRate * 4);
+                            if (compiledSpice.Ok && compiledSpice.Circuit != null)
+                            {
+                                _uiSpicePool[i] = (spiceHash, _sampleRate, compiledSpice.Circuit);
+                                snap.CustomSpiceSlots[i] = compiledSpice.Circuit;
+                                op = BlockOp.CustomSpice;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        switch (customSpec.Category)
+                        {
+                            case "amp":
+                                op = BlockOp.CustomAmp;
+                                customAmp = new CustomAmpCircuitParams
+                                {
+                                    BaseAmpChannel = customSpec.BaseAmpChannel,
+                                    PreampCathodeHz = customSpec.PreampCathodeHz,
+                                    VoicingMidHz = customSpec.VoicingMidHz,
+                                    VoicingMidDb = customSpec.VoicingMidDb,
+                                    HighShelfDb = customSpec.HighShelfDb,
+                                };
+                                break;
+                            case "cab":
+                                op = BlockOp.CustomCab;
+                                snap.CustomCabIrs[i] = CustomDeviceRegistry.GetOrCompileCabIr(customSpec, _sampleRate);
+                                break;
+                            default:
+                                op = BlockOp.CustomPedal;
+                                customPedal = new SchematicPedalDsp.CustomPedalCircuitParams
+                                {
+                                    ClippingKind = customSpec.ClippingKind,
+                                    InputHpfHz = customSpec.InputHpfHz,
+                                    ToneMinHz = customSpec.ToneMinHz,
+                                    ToneMaxHz = customSpec.ToneMaxHz,
+                                    MidPeakHz = customSpec.MidPeakHz,
+                                    MidPeakDb = customSpec.MidPeakDb,
+                                    MaxGainDb = customSpec.MaxGainDb,
+                                    Asymmetry = customSpec.Asymmetry,
+                                };
+                                break;
+                        }
+                    }
+                }
+
                 sbyte assignedNam = -1;
                 if (op == BlockOp.NamCapture && namIdx < snap.NamWorkspaces.Length)
                 {
@@ -787,12 +1071,55 @@ public sealed partial class SignalChainEngine
                     SubModel = sub,
                     SyncDiv = (byte)Math.Clamp(s.SyncDivision, 0, 5),
                     NamPoolIdx = assignedNam,
+                    CustomHash = customHash,
                     Enabled = s.Enabled,
                     P0 = p[0], P1 = p[1], P2 = p[2], P3 = p[3],
                     P4 = p[4], P5 = p[5], P6 = p[6], P7 = p[7],
                     CabMic = micParams,
+                    CustomPedal = customPedal,
+                    CustomAmp = customAmp,
                 };
             }
+
+            // DAW RT 오토메이션에서 Scene A~H를 0 B 힙 할당으로 즉시 전환할 수 있도록 8씬 사전 컴파일
+            var compiledScenes = new CompiledSceneSnapshot[8];
+            for (int scIdx = 0; scIdx < 8; scIdx++)
+            {
+                var scDto = clean.Scenes != null && scIdx < clean.Scenes.Count ? clean.Scenes[scIdx] : null;
+                var scCompiled = new CompiledSceneSnapshot
+                {
+                    ParallelMix = scDto != null ? Math.Clamp(scDto.ParallelMix, 0f, 1f) : snap.ParallelMix,
+                };
+                for (int i = 0; i < SlotCount; i++)
+                {
+                    if (scDto?.Slots != null && i < scDto.Slots.Count && scDto.Slots[i] != null)
+                    {
+                        var src = scDto.Slots[i];
+                        var sp = src.Params ?? Array.Empty<float>();
+                        float GetP(int k) => k < sp.Length ? sp[k] : 0f;
+                        scCompiled.Slots[i] = new CompiledSceneSlot
+                        {
+                            Enabled = src.Enabled,
+                            SyncDiv = (byte)Math.Clamp(src.SyncDivision, 0, 5),
+                            P0 = GetP(0), P1 = GetP(1), P2 = GetP(2), P3 = GetP(3),
+                            P4 = GetP(4), P5 = GetP(5), P6 = GetP(6), P7 = GetP(7),
+                        };
+                    }
+                    else
+                    {
+                        ref var cur = ref snap.Slots[i];
+                        scCompiled.Slots[i] = new CompiledSceneSlot
+                        {
+                            Enabled = cur.Enabled,
+                            SyncDiv = cur.SyncDiv,
+                            P0 = cur.P0, P1 = cur.P1, P2 = cur.P2, P3 = cur.P3,
+                            P4 = cur.P4, P5 = cur.P5, P6 = cur.P6, P7 = cur.P7,
+                        };
+                    }
+                }
+                compiledScenes[scIdx] = scCompiled;
+            }
+            snap.Scenes = compiledScenes;
 
             Volatile.Write(ref _lastDto, clean);
             Volatile.Write(ref _pendingSnapshot, snap);
@@ -876,6 +1203,9 @@ public sealed partial class SignalChainEngine
             "rev_plate" => (BlockOp.RevPlate, 0),
             "rev_bluesky" => (BlockOp.RevBlueSky, 0),
             "rev_rv6" => (BlockOp.RevBossRv6, 0),
+            "pitch_capo" => (BlockOp.PitchCapo, 0),
+            "pitch_whammy" => (BlockOp.PitchWhammy, 0),
+            "pitch_octaver" => (BlockOp.PitchOctaver, 0),
             _ => (BlockOp.None, 0),
         };
     }
@@ -893,6 +1223,7 @@ public sealed partial class SignalChainEngine
         int cabIdx = 0;
         int dlyIdx = 0;
         int revIdx = 0;
+        int pitchIdx = 0;
         int sr = _sampleRate;
 
         for (int i = 0; i < SlotCount; i++)
@@ -903,23 +1234,89 @@ public sealed partial class SignalChainEngine
             int prevCabIdx = st.CabPoolIdx;
             int prevDlyIdx = st.DelayPoolIdx;
             int prevRevIdx = st.ReverbPoolIdx;
-            bool modelChanged = st.LastOp != sl.Op || st.LastSubModel != sl.SubModel;
+            int prevPitchIdx = st.PitchPoolIdx;
+            bool modelChanged = st.LastOp != sl.Op || st.LastSubModel != sl.SubModel || st.LastCustomHash != sl.CustomHash;
             if (modelChanged)
             {
                 st.Reset();
                 st.LastOp = sl.Op;
                 st.LastSubModel = sl.SubModel;
+                st.LastCustomHash = sl.CustomHash;
             }
             st.AmpPoolIdx = -1;
             st.CabPoolIdx = -1;
             st.DelayPoolIdx = -1;
             st.ReverbPoolIdx = -1;
+            st.PitchPoolIdx = -1;
 
             switch (sl.Op)
             {
+                case BlockOp.AmpWhiteBox:
+                case BlockOp.CustomAmp:
+                    // 독립 듀얼-앰프 풀 배정 (Row 1 + Row 2 병렬 듀얼 앰프 간 상태 충돌 완전 차단)
+                    st.AmpPoolIdx = (ampIdx++) % _ampPool.Length;
+                    if (modelChanged || st.AmpPoolIdx != prevAmpIdx)
+                        _ampPool[st.AmpPoolIdx].Reset();
+                    break;
+                case BlockOp.CabIr:
+                case BlockOp.CustomCab:
+                    // 독립 듀얼-캐비넷 Partitioned FFT 컨볼버 풀 배정
+                    st.CabPoolIdx = (cabIdx++) % _cabPool.Length;
+                    if (modelChanged || st.CabPoolIdx != prevCabIdx)
+                        _cabPool[st.CabPoolIdx].Reset();
+                    break;
+                case BlockOp.CustomSpice:
+                    if (modelChanged)
+                        snap.CustomSpiceSlots[i]?.Reset();
+                    break;
+                case BlockOp.DlyAnalog:
+                case BlockOp.DlyBossDm2w:
+                case BlockOp.DlyDigital:
+                case BlockOp.DlyBossDd3t:
+                case BlockOp.DlyTimeLine:
+                    if (dlyIdx < _delayPool.Length)
+                    {
+                        st.DelayPoolIdx = dlyIdx++;
+                        if (modelChanged || st.DelayPoolIdx != prevDlyIdx)
+                            _delayPool[st.DelayPoolIdx].Reset();
+                    }
+                    break;
+                case BlockOp.RevSpring:
+                case BlockOp.RevHall:
+                case BlockOp.RevPlate:
+                case BlockOp.RevBlueSky:
+                case BlockOp.RevBossRv6:
+                    if (revIdx < _reverbPool.Length)
+                    {
+                        st.ReverbPoolIdx = revIdx++;
+                        if (modelChanged || st.ReverbPoolIdx != prevRevIdx)
+                            _reverbPool[st.ReverbPoolIdx].Reset();
+                    }
+                    break;
+                case BlockOp.PitchCapo:
+                case BlockOp.PitchWhammy:
+                case BlockOp.PitchOctaver:
+                    if (pitchIdx < _pitchPool.Length)
+                    {
+                        st.PitchPoolIdx = pitchIdx++;
+                        if (modelChanged || st.PitchPoolIdx != prevPitchIdx)
+                            _pitchPool[st.PitchPoolIdx].Reset();
+                    }
+                    break;
+            }
+
+            ConfigureSlotFilters(st, ref sl, sr);
+        }
+
+        _appliedVersion = ver;
+    }
+
+    private void ConfigureSlotFilters(SlotDspState st, ref CompiledSlot sl, int sr)
+    {
+        switch (sl.Op)
+        {
                 case BlockOp.OdTs808:
                 {
-                    // TS808 액티브 톤 회로: 720Hz..3.3kHz 패시브 LPF + 2.4kHz 액티브 하이셸프 부스트 (Tone > 5)
                     double tNorm = Math.Clamp(sl.P1 / 10.0, 0.0, 1.0);
                     st.F0L.SetHighPass(sr, 720.0, 0.707);
                     st.F1L.SetLowPass(sr, 720.0 + 2800.0 * tNorm, 0.707);
@@ -928,7 +1325,6 @@ public sealed partial class SignalChainEngine
                 }
                 case BlockOp.OdTs9:
                 {
-                    // Ibanez TS9: 약간 더 타이트하고 어퍼미드가 살아있는 액티브 톤
                     double tNorm = Math.Clamp(sl.P1 / 10.0, 0.0, 1.0);
                     st.F0L.SetHighPass(sr, 760.0, 0.72);
                     st.F1L.SetLowPass(sr, 900.0 + 3200.0 * tNorm, 0.707);
@@ -936,20 +1332,17 @@ public sealed partial class SignalChainEngine
                     break;
                 }
                 case BlockOp.OdPureSky:
-                    // Caline Pure Sky (Timmy-style transparent OD with pre-clip Bass & post-clip Treble)
                     st.F0L.SetHighPass(sr, 45.0 + (10.0 - Math.Clamp(sl.P1, 0f, 10f)) * 18.0, 0.707);
                     st.F1L.SetHighShelf(sr, 2600.0, (Math.Clamp(sl.P2, 0f, 10f) - 5.0) * 1.9, 0.72);
                     st.F2L.SetLowPass(sr, 6500.0 + Math.Clamp(sl.P2, 0f, 10f) * 450.0, 0.707);
                     break;
                 case BlockOp.OdJanRay:
-                    // Vemuram Jan Ray: Blackface Fender-in-a-box, sparkling treble & warm tight bass
                     st.F0L.SetHighPass(sr, 60.0 + (10.0 - Math.Clamp(sl.P1, 0f, 10f)) * 14.0, 0.707);
                     st.F1L.SetPeaking(sr, 130.0, 0.85, (Math.Clamp(sl.P1, 0f, 10f) - 5.0) * 1.4);
                     st.F2L.SetHighShelf(sr, 3000.0, (Math.Clamp(sl.P2, 0f, 10f) - 4.5) * 1.8, 0.75);
                     st.F3L.SetLowPass(sr, 8500.0, 0.707);
                     break;
                 case BlockOp.OdBbPreamp:
-                    // Xotic BB Preamp: smooth singing J-Rock/Fusion OD with active +/-15dB Bass & Treble
                     st.F0L.SetHighPass(sr, 90.0, 0.707);
                     st.F1L.SetPeaking(sr, 115.0, 0.85, (Math.Clamp(sl.P1, 0f, 10f) - 5.0) * 2.2);
                     st.F2L.SetHighShelf(sr, 2800.0, (Math.Clamp(sl.P2, 0f, 10f) - 5.0) * 2.2, 0.72);
@@ -957,7 +1350,6 @@ public sealed partial class SignalChainEngine
                     break;
                 case BlockOp.OdOcd:
                 {
-                    // Fulltone OCD: MOSFET clipping with HP (Marshall-ish mid/treble push) vs LP (flat)
                     bool hp = sl.P3 > 0.5f;
                     st.F0L.SetHighPass(sr, hp ? 130.0 : 80.0, 0.707);
                     st.F1L.SetPeaking(sr, 1400.0, 0.85, hp ? 3.2 : 0.4);
@@ -966,7 +1358,6 @@ public sealed partial class SignalChainEngine
                 }
                 case BlockOp.DistRat2:
                 {
-                    // ProCo RAT 2: tighter OP07DP / LM308 punchy hard-clip + iconic reverse Filter
                     st.F0L.SetHighPass(sr, 165.0, 0.75);
                     double fc = 1050.0 + (10.0 - Math.Clamp(sl.P1, 0f, 10f)) * 820.0;
                     st.F1L.SetLowPass(sr, fc, 0.72);
@@ -974,26 +1365,21 @@ public sealed partial class SignalChainEngine
                     break;
                 }
                 case BlockOp.DistEcstasy:
-                {
-                    // Bogner Ecstasy Red: high-gain J-Rock/Anisong lead pedal with 3-band EQ
                     st.F0L.SetHighPass(sr, 145.0, 0.707);
                     st.F1L.SetPeaking(sr, 110.0, 0.9, (Math.Clamp(sl.P1, 0f, 10f) - 5.0) * 2.0);
                     st.F2L.SetPeaking(sr, 750.0, 1.0, (Math.Clamp(sl.P2, 0f, 10f) - 5.0) * 2.2);
                     st.F3L.SetHighShelf(sr, 3200.0, (Math.Clamp(sl.P3, 0f, 10f) - 5.0) * 2.0, 0.75);
                     st.F4L.SetLowPass(sr, 7400.0, 0.707);
                     break;
-                }
                 case BlockOp.BoostMicroAmp:
                     st.F0L.SetHighShelf(sr, 3800.0, 1.4, 0.75);
                     break;
                 case BlockOp.BoostRc:
-                    // Xotic RC Booster: active +/-15dB Bass & Treble clean boost
                     st.F0L.SetPeaking(sr, 110.0, 0.85, (Math.Clamp(sl.P2, 0f, 10f) - 5.0) * 2.4);
                     st.F1L.SetHighShelf(sr, 3200.0, (Math.Clamp(sl.P3, 0f, 10f) - 5.0) * 2.4, 0.75);
                     break;
                 case BlockOp.AmpJc120:
                 {
-                    // Roland JC-120 Jazz Chorus: 진정한 스테레오 L/R 솔리드스테이트 클린 앰프
                     double bG = (Math.Clamp(sl.P1, 0f, 10f) - 5.0) * 2.0;
                     double mG = (Math.Clamp(sl.P2, 0f, 10f) - 5.0) * 2.0;
                     double tG = (Math.Clamp(sl.P3, 0f, 10f) - 5.0) * 2.2 + (sl.P7 > 0.5f ? 3.8 : 0.0);
@@ -1008,27 +1394,21 @@ public sealed partial class SignalChainEngine
                     break;
                 }
                 case BlockOp.AmpWhiteBox:
-                {
-                    // 독립 듀얼-앰프 풀 배정 (Row 1 + Row 2 병렬 듀얼 앰프 간 상태 충돌 완전 차단)
-                    st.AmpPoolIdx = (ampIdx++) % _ampPool.Length;
-                    if (modelChanged || st.AmpPoolIdx != prevAmpIdx)
-                        _ampPool[st.AmpPoolIdx].Reset();
-                    // Per-model amp voicing contour (AC30 chime, DSL punch, Recto tight low, BE-100 growl)
                     switch (sl.SubModel)
                     {
-                        case 6: // VOX AC30 Top Boost
+                        case 6:
                             st.F0L.SetPeaking(sr, 1950.0, 0.9, 3.2);
                             st.F1L.SetHighShelf(sr, 3600.0, 2.4, 0.75);
                             break;
-                        case 7: // Marshall JCM2000 DSL
+                        case 7:
                             st.F0L.SetPeaking(sr, 950.0, 0.95, 2.0);
                             st.F1L.SetHighShelf(sr, 3200.0, 1.5, 0.75);
                             break;
-                        case 8: // Mesa Dual Rectifier
+                        case 8:
                             st.F0L.SetHighPass(sr, 95.0, 0.707);
                             st.F1L.SetPeaking(sr, 520.0, 0.9, -2.8);
                             break;
-                        case 9: // Friedman BE-100
+                        case 9:
                             st.F0L.SetPeaking(sr, 820.0, 0.95, 2.8);
                             st.F1L.SetHighShelf(sr, 4200.0, 1.2, 0.75);
                             break;
@@ -1038,7 +1418,6 @@ public sealed partial class SignalChainEngine
                             break;
                     }
                     break;
-                }
                 case BlockOp.OdKlon:
                     st.F1L.SetPeaking(sr, 1000.0, 0.9, 1.5 + 3.0 * Math.Clamp(sl.P0 / 10.0, 0.0, 1.0));
                     st.F2L.SetHighShelf(sr, 2200.0, (Math.Clamp(sl.P1, 0f, 10f) - 5.0) * 1.8, 0.75);
@@ -1046,21 +1425,15 @@ public sealed partial class SignalChainEngine
                 case BlockOp.DistRat:
                 {
                     st.F0L.SetHighPass(sr, 140.0, 0.707);
-                    // RAT Filter knob: higher value rolls off more treble (or standard tone sweep)
                     double fc = 1200.0 + (10.0 - Math.Clamp(sl.P1, 0f, 10f)) * 750.0;
                     st.F1L.SetLowPass(sr, fc, 0.75);
                     break;
                 }
                 case BlockOp.FuzzBigMuff:
-                {
-                    // EHX Big Muff Pi 실제 병렬 RC 크로스페이드 패시브 톤스택:
-                    // LPF 브랜치 (22kΩ/10nF ~480Hz) + HPF 브랜치 (39kΩ/4nF ~1280Hz)
-                    // Tone=5 중앙에서 자연스럽게 1kHz 미드 스쿱 발생, 양 끝(0/10)에서는 스쿱 소멸!
                     st.F0L.SetLowPass(sr, 480.0, 0.65);
                     st.F1L.SetHighPass(sr, 1280.0, 0.65);
                     st.F2L.SetLowPass(sr, 6400.0, 0.707);
                     break;
-                }
                 case BlockOp.OdSd1:
                     st.F0L.SetHighPass(sr, 580.0, 0.707);
                     st.F1L.SetLowPass(sr, 900.0 + 3400.0 * Math.Clamp(sl.P1 / 10.0, 0.0, 1.0), 0.707);
@@ -1098,18 +1471,12 @@ public sealed partial class SignalChainEngine
                     st.F1L.SetLowPass(sr, 950.0 + 4500.0 * Math.Clamp(sl.P1 / 10.0, 0.0, 1.0), 0.707);
                     break;
                 case BlockOp.DistBossDs1:
-                {
-                    // BOSS DS-1 실제 병렬 RC 크로스페이드 패시브 톤스택:
-                    // LPF 브랜치 (2.2kΩ/100nF ~240Hz 부하 포함) + HPF 브랜치 (6.8kΩ/22nF ~1064Hz)
-                    // Tone 중앙 부근에서 자연스러운 ~650Hz 미드 딥 발생!
                     st.F0L.SetLowPass(sr, 240.0, 0.65);
                     st.F1L.SetHighPass(sr, 1064.0, 0.65);
                     st.F2L.SetLowPass(sr, 6200.0, 0.707);
                     break;
-                }
                 case BlockOp.OdBossBd2:
                 {
-                    // BOSS BD-2 Blues Driver: open full-range JFET preamp overdrive
                     double t = Math.Clamp(sl.P1 / 10.0, 0.0, 1.0);
                     st.F0L.SetHighPass(sr, 75.0, 0.707);
                     st.F1L.SetHighShelf(sr, 2400.0, (t - 0.45) * 10.5, 0.72);
@@ -1117,18 +1484,14 @@ public sealed partial class SignalChainEngine
                     break;
                 }
                 case BlockOp.DistBossMt2:
-                {
-                    // BOSS MT-2 Metal Zone: pre-tightening HPF + 3-band EQ with sweepable Parametric Mid (200Hz..5kHz)
                     st.F0L.SetHighPass(sr, 190.0, 0.75);
-                    st.F1L.SetPeaking(sr, 110.0, 0.9, Math.Clamp(sl.P2, -15f, 15f)); // LOW
-                    st.F2L.SetPeaking(sr, Math.Clamp(sl.P4 > 100f ? sl.P4 : 1000f, 200f, 5000f), 1.35, Math.Clamp(sl.P3, -15f, 15f)); // MID + MID FREQ
-                    st.F3L.SetHighShelf(sr, 3800.0, Math.Clamp(sl.P1, -15f, 15f), 0.72); // HIGH
+                    st.F1L.SetPeaking(sr, 110.0, 0.9, Math.Clamp(sl.P2, -15f, 15f));
+                    st.F2L.SetPeaking(sr, Math.Clamp(sl.P4 > 100f ? sl.P4 : 1000f, 200f, 5000f), 1.35, Math.Clamp(sl.P3, -15f, 15f));
+                    st.F3L.SetHighShelf(sr, 3800.0, Math.Clamp(sl.P1, -15f, 15f), 0.72);
                     st.F4L.SetLowPass(sr, 7200.0, 0.707);
                     break;
-                }
                 case BlockOp.DistBossHm2:
                 {
-                    // BOSS HM-2 Heavy Metal: Swedish chainsaw dual gyrator peaks (~95Hz Low + ~1.15kHz High)
                     double lowG = (Math.Clamp(sl.P1, 0f, 10f) - 4.0) * 2.4;
                     double hiG = (Math.Clamp(sl.P2, 0f, 10f) - 3.5) * 2.8;
                     st.F0L.SetHighPass(sr, 95.0, 0.707);
@@ -1138,16 +1501,30 @@ public sealed partial class SignalChainEngine
                     st.F4L.SetLowPass(sr, 6800.0, 0.707);
                     break;
                 }
+                case BlockOp.CustomPedal:
+                {
+                    double tNorm = Math.Clamp(sl.P1 / 10.0, 0.0, 1.0);
+                    double cScale = 0.65 + 0.07 * Math.Clamp(sl.P3, 0f, 10f);
+                    double lpHz = sl.CustomPedal.ToneMinHz + (sl.CustomPedal.ToneMaxHz - sl.CustomPedal.ToneMinHz) * tNorm;
+                    st.F0L.SetLowPass(sr, Math.Clamp(lpHz, 450.0, 14000.0), 0.707);
+                    st.F1L.SetPeaking(sr, Math.Clamp(sl.CustomPedal.MidPeakHz, 200f, 3500f), 0.95, Math.Clamp(sl.CustomPedal.MidPeakDb * cScale, -12.0, 12.0));
+                    st.F2L.SetHighShelf(sr, 2800.0, (tNorm - 0.45) * 6.5, 0.75);
+                    break;
+                }
+                case BlockOp.CustomAmp:
+                {
+                    st.F0L.SetHighPass(sr, Math.Clamp(sl.CustomAmp.PreampCathodeHz * 0.45, 35.0, 260.0), 0.707);
+                    st.F1L.SetPeaking(sr, Math.Clamp(sl.CustomAmp.VoicingMidHz, 280f, 2800f), 0.92, sl.CustomAmp.VoicingMidDb);
+                    st.F2L.SetHighShelf(sr, 3400.0, sl.CustomAmp.HighShelfDb, 0.75);
+                    break;
+                }
                 case BlockOp.CabIr:
-                    // 독립 듀얼-캐비넷 Partitioned FFT 컨볼버 풀 배정 + 듀얼 가상 마이킹 + LowCut/HighCut
-                    st.CabPoolIdx = (cabIdx++) % _cabPool.Length;
-                    if (modelChanged || st.CabPoolIdx != prevCabIdx)
-                        _cabPool[st.CabPoolIdx].Reset();
+                case BlockOp.CustomCab:
                     st.F0L.SetHighPass(sr, Math.Clamp(sl.P0 > 10f ? sl.P0 : 80f, 20f, 400f), 0.707);
                     st.F1L.SetLowPass(sr, Math.Clamp(sl.P1 > 500f ? sl.P1 : 9500f, 1500f, 18000f), 0.707);
                     st.F0R.SetHighPass(sr, Math.Clamp(sl.P0 > 10f ? sl.P0 : 80f, 20f, 400f), 0.707);
                     st.F1R.SetLowPass(sr, Math.Clamp(sl.P1 > 500f ? sl.P1 : 9500f, 1500f, 18000f), 0.707);
-                    if (sl.CabMic.DualEnabled)
+                    if (sl.CabMic.DualEnabled && st.CabPoolIdx >= 0 && st.CabPoolIdx < _cabPool.Length)
                     {
                         var cu = _cabPool[st.CabPoolIdx];
                         ConfigureMicVoicing(sr, sl.CabMic.MicAType, sl.CabMic.MicAX, sl.CabMic.MicADist,
@@ -1169,7 +1546,6 @@ public sealed partial class SignalChainEngine
                     st.F4R.SetHighShelf(sr, 5500.0, Math.Clamp(sl.P4, -12f, 12f), 0.75);
                     break;
                 case BlockOp.EqBossGe7:
-                    // BOSS GE-7: 100, 200, 400, 800, 1.6k, 3.2k, 6.4kHz (+/-15dB)
                     st.F0L.SetPeaking(sr, 100.0, 1.4, Math.Clamp(sl.P0, -15f, 15f));
                     st.F1L.SetPeaking(sr, 200.0, 1.4, Math.Clamp(sl.P1, -15f, 15f));
                     st.F2L.SetPeaking(sr, 400.0, 1.4, Math.Clamp(sl.P2, -15f, 15f));
@@ -1193,34 +1569,7 @@ public sealed partial class SignalChainEngine
                     st.F1R.SetPeaking(sr, Math.Clamp(sl.P1 > 50f ? sl.P1 : 800f, 80f, 8000f), Math.Clamp(sl.P3 > 0.2f ? sl.P3 : 1.2f, 0.3f, 8f), Math.Clamp(sl.P2, -12f, 12f));
                     st.F2R.SetLowPass(sr, Math.Clamp(sl.P4 > 500f ? sl.P4 : 12000f, 1200f, 18000f), 0.707);
                     break;
-                case BlockOp.DlyAnalog:
-                case BlockOp.DlyBossDm2w:
-                case BlockOp.DlyDigital:
-                case BlockOp.DlyBossDd3t:
-                case BlockOp.DlyTimeLine:
-                    if (dlyIdx < _delayPool.Length)
-                    {
-                        st.DelayPoolIdx = dlyIdx++;
-                        if (modelChanged || st.DelayPoolIdx != prevDlyIdx)
-                            _delayPool[st.DelayPoolIdx].Reset();
-                    }
-                    break;
-                case BlockOp.RevSpring:
-                case BlockOp.RevHall:
-                case BlockOp.RevPlate:
-                case BlockOp.RevBlueSky:
-                case BlockOp.RevBossRv6:
-                    if (revIdx < _reverbPool.Length)
-                    {
-                        st.ReverbPoolIdx = revIdx++;
-                        if (modelChanged || st.ReverbPoolIdx != prevRevIdx)
-                            _reverbPool[st.ReverbPoolIdx].Reset();
-                    }
-                    break;
-            }
         }
-
-        _appliedVersion = ver;
     }
 
     /// <summary>
@@ -1392,11 +1741,20 @@ public sealed partial class SignalChainEngine
             case BlockOp.OdBossBd2:
             case BlockOp.DistBossMt2:
             case BlockOp.DistBossHm2:
+            case BlockOp.CustomPedal:
                 ProcessNonlinearPedal4x(st, bufL, bufR, n, ref sl);
+                break;
+
+            case BlockOp.CustomSpice:
+                ProcessCustomSpice(idx, st, bufL, bufR, n, ref sl);
                 break;
 
             case BlockOp.AmpWhiteBox:
                 ProcessWhiteBoxAmp(st, bufL, bufR, n, host, ref sl);
+                break;
+
+            case BlockOp.CustomAmp:
+                ProcessCustomAmp(st, bufL, bufR, n, host, ref sl);
                 break;
 
             case BlockOp.AmpJc120:
@@ -1408,7 +1766,11 @@ public sealed partial class SignalChainEngine
                 break;
 
             case BlockOp.CabIr:
-                ProcessCabBlock(st, bufL, bufR, n, host, ref sl);
+                ProcessCabBlock(st, bufL, bufR, n, host, ref sl, overridePartIr: null);
+                break;
+
+            case BlockOp.CustomCab:
+                ProcessCabBlock(st, bufL, bufR, n, host, ref sl, overridePartIr: _activeSnapshot.CustomCabIrs[idx]);
                 break;
 
             case BlockOp.EqGraphic5:
@@ -1526,6 +1888,24 @@ public sealed partial class SignalChainEngine
                         isPlate: mode == 1 || mode == 3,
                         shimmerAmt: mode == 3 ? 0.45f : 0f);
                 }
+                break;
+
+            case BlockOp.PitchCapo:
+                if (st.PitchPoolIdx >= 0)
+                    _pitchPool[st.PitchPoolIdx].ProcessPitchShift(bufL, bufR, n, semitones: sl.P0, detuneCents: sl.P1, mixPct: sl.P2, levelDb: sl.P3);
+                break;
+
+            case BlockOp.PitchWhammy:
+                if (st.PitchPoolIdx >= 0)
+                {
+                    float sweptSemis = (Math.Clamp(sl.P0, 0f, 100f) / 100f) * Math.Clamp(sl.P1, -24f, 24f);
+                    _pitchPool[st.PitchPoolIdx].ProcessPitchShift(bufL, bufR, n, semitones: sweptSemis, detuneCents: 0f, mixPct: sl.P2, levelDb: sl.P3);
+                }
+                break;
+
+            case BlockOp.PitchOctaver:
+                if (st.PitchPoolIdx >= 0)
+                    _pitchPool[st.PitchPoolIdx].ProcessOctaver(bufL, bufR, n, dryPct: sl.P0, subOctPct: sl.P1, upOctPct: sl.P2, toneKnob: sl.P3, levelDb: sl.P4);
                 break;
         }
     }

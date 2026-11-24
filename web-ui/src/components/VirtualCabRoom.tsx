@@ -10,6 +10,9 @@ import {
 } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
+import { Toggle } from "@/components/ui/toggle"
+import { Hint } from "@/components/ui/tooltip"
+import { useI18n } from "@/lib/i18n"
 import type { CabMicConfigDto } from "@/types/rig"
 
 export const DEFAULT_CAB_MIC_CONFIG: CabMicConfigDto = {
@@ -45,6 +48,7 @@ interface VirtualCabRoomProps {
 }
 
 export const VirtualCabRoom: React.FC<VirtualCabRoomProps> = ({ config, onChange }) => {
+  const { tx } = useI18n()
   const cfg: CabMicConfigDto = config ?? DEFAULT_CAB_MIC_CONFIG
   const svgRef = useRef<SVGSVGElement | null>(null)
   const [draggingMic, setDraggingMic] = useState<"A" | "B" | null>(null)
@@ -53,9 +57,6 @@ export const VirtualCabRoom: React.FC<VirtualCabRoomProps> = ({ config, onChange
     onChange({ ...cfg, ...partial })
   }
 
-  // Speaker cone coordinates in 240x150 viewBox:
-  // X: 36 (Cap Center, x=0) .. 216 (Cone Edge, x=1)
-  // Y: 22 (Close on grille, dist=0) .. 132 (Room distance, dist=1)
   const toSvgX = (normX: number) => 36 + Math.max(0, Math.min(1, normX)) * 180
   const toSvgY = (normDist: number) => 22 + Math.max(0, Math.min(1, normDist)) * 110
 
@@ -81,13 +82,15 @@ export const VirtualCabRoom: React.FC<VirtualCabRoomProps> = ({ config, onChange
   const micBYSvg = toSvgY(cfg.micBDist)
 
   return (
-    <div className="flex items-stretch gap-3 p-2.5 bg-background/55 border-l border-border min-w-[660px] flex-1">
-      {/* Left: 2D Interactive Speaker Cone & Dual Mic Placement Canvas */}
-      <div className="w-[238px] shrink-0 flex flex-col justify-between gap-1.5">
+    <div className="flex items-stretch gap-3 p-2.5 bg-background border-l border-border min-w-[620px] flex-1">
+      {/* Left: 2D Interactive Speaker Cone Radar */}
+      <div className="w-[232px] shrink-0 flex flex-col justify-between gap-1.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            <Mic className="w-3.5 h-3.5 text-amber-400" />
-            <span className="text-[11px] font-bold tracking-wide text-foreground">VIRTUAL CAB ROOM</span>
+            <Mic className="size-3.5 text-signal-warn" strokeWidth={1.5} />
+            <span className="font-mono text-[10px] font-bold tracking-wider text-foreground">
+              VIRTUAL CAB ROOM
+            </span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] font-mono text-muted-foreground">
@@ -103,14 +106,13 @@ export const VirtualCabRoom: React.FC<VirtualCabRoomProps> = ({ config, onChange
         <svg
           ref={svgRef}
           viewBox="0 0 240 150"
-          className="w-full h-[142px] rounded-md bg-[#0d1017] border border-border/80 select-none touch-none cursor-crosshair"
+          className="w-full h-[142px] rounded-sm oled-dot-grid border border-oled-border select-none touch-none cursor-crosshair"
           onPointerMove={(e) => {
             if (draggingMic) updateMicFromPointer(e.clientX, e.clientY, draggingMic)
           }}
           onPointerUp={() => setDraggingMic(null)}
           onPointerCancel={() => setDraggingMic(null)}
         >
-          {/* Distance Grid Lines */}
           {[0.25, 0.5, 0.75].map((r) => (
             <line
               key={`h-${r}`}
@@ -118,7 +120,7 @@ export const VirtualCabRoom: React.FC<VirtualCabRoomProps> = ({ config, onChange
               y1={toSvgY(r)}
               x2="228"
               y2={toSvgY(r)}
-              stroke="rgba(255,255,255,0.06)"
+              stroke="rgba(242,239,233,0.1)"
               strokeDasharray="3 3"
             />
           ))}
@@ -129,27 +131,39 @@ export const VirtualCabRoom: React.FC<VirtualCabRoomProps> = ({ config, onChange
               y1="14"
               x2={toSvgX(c)}
               y2="138"
-              stroke="rgba(255,255,255,0.06)"
+              stroke="rgba(242,239,233,0.1)"
               strokeDasharray="3 3"
             />
           ))}
 
-          {/* Speaker Cone Acoustic Reference */}
-          <ellipse cx="36" cy="77" rx="184" ry="62" fill="rgba(255,255,255,0.025)" stroke="rgba(255,255,255,0.14)" />
-          <ellipse cx="36" cy="77" rx="122" ry="44" fill="none" stroke="rgba(255,255,255,0.08)" />
-          <ellipse cx="36" cy="77" rx="42" ry="22" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.22)" />
+          <ellipse
+            cx="36"
+            cy="77"
+            rx="184"
+            ry="62"
+            fill="rgba(242,239,233,0.03)"
+            stroke="rgba(242,239,233,0.22)"
+          />
+          <ellipse cx="36" cy="77" rx="122" ry="44" fill="none" stroke="rgba(242,239,233,0.12)" />
+          <ellipse
+            cx="36"
+            cy="77"
+            rx="42"
+            ry="22"
+            fill="rgba(242,239,233,0.06)"
+            stroke="rgba(242,239,233,0.3)"
+          />
 
-          {/* Axis Labels */}
-          <text x="26" y="13" fill="rgba(255,255,255,0.45)" fontSize="8" fontFamily="monospace">
+          <text x="26" y="13" fill="rgba(242,239,233,0.55)" fontSize="8" fontFamily="monospace">
             CAP
           </text>
-          <text x="196" y="13" fill="rgba(255,255,255,0.45)" fontSize="8" fontFamily="monospace">
+          <text x="196" y="13" fill="rgba(242,239,233,0.55)" fontSize="8" fontFamily="monospace">
             EDGE
           </text>
-          <text x="4" y="25" fill="rgba(255,255,255,0.4)" fontSize="7" fontFamily="monospace">
+          <text x="4" y="25" fill="rgba(242,239,233,0.45)" fontSize="7" fontFamily="monospace">
             0"
           </text>
-          <text x="4" y="134" fill="rgba(255,255,255,0.4)" fontSize="7" fontFamily="monospace">
+          <text x="4" y="134" fill="rgba(242,239,233,0.45)" fontSize="7" fontFamily="monospace">
             12"
           </text>
 
@@ -171,9 +185,9 @@ export const VirtualCabRoom: React.FC<VirtualCabRoomProps> = ({ config, onChange
               setDraggingMic(null)
             }}
           >
-            <circle r="13" fill="rgba(245, 158, 11, 0.18)" stroke="#f59e0b" strokeWidth="1.6" />
-            <circle r="4" fill="#fbbf24" />
-            <text y="-16" textAnchor="middle" fill="#fbbf24" fontSize="8.5" fontWeight="bold" fontFamily="monospace">
+            <circle r="13" fill="rgba(255, 159, 10, 0.2)" stroke="var(--signal-warn)" strokeWidth="1.6" />
+            <circle r="4" fill="var(--signal-warn)" />
+            <text y="-16" textAnchor="middle" fill="var(--signal-warn)" fontSize="8.5" fontWeight="bold" fontFamily="monospace">
               A·{MIC_MODELS[cfg.micAType]?.short ?? "57"}
             </text>
           </g>
@@ -196,25 +210,22 @@ export const VirtualCabRoom: React.FC<VirtualCabRoomProps> = ({ config, onChange
               setDraggingMic(null)
             }}
           >
-            <circle r="13" fill="rgba(52, 211, 153, 0.18)" stroke="#34d399" strokeWidth="1.6" />
-            <circle r="4" fill="#6ee7b7" />
-            <text y="22" textAnchor="middle" fill="#6ee7b7" fontSize="8.5" fontWeight="bold" fontFamily="monospace">
+            <circle r="13" fill="rgba(44, 230, 116, 0.18)" stroke="var(--signal-ok)" strokeWidth="1.6" />
+            <circle r="4" fill="var(--signal-ok)" />
+            <text y="22" textAnchor="middle" fill="var(--signal-ok)" fontSize="8.5" fontWeight="bold" fontFamily="monospace">
               B·{MIC_MODELS[cfg.micBType]?.short ?? "121"}
             </text>
           </g>
         </svg>
 
-        <div className="flex items-center justify-between gap-1">
+        <div className="grid grid-cols-3 gap-1">
           {[
             {
-              label: "SM57+R121",
-              val: {
-                ...DEFAULT_CAB_MIC_CONFIG,
-                dualEnabled: true,
-              },
+              label: "57+121",
+              val: { ...DEFAULT_CAB_MIC_CONFIG, dualEnabled: true },
             },
             {
-              label: "Haas Wide",
+              label: "HAAS",
               val: {
                 ...DEFAULT_CAB_MIC_CONFIG,
                 dualEnabled: true,
@@ -231,7 +242,7 @@ export const VirtualCabRoom: React.FC<VirtualCabRoomProps> = ({ config, onChange
               },
             },
             {
-              label: "Tight Edge",
+              label: "EDGE",
               val: {
                 ...DEFAULT_CAB_MIC_CONFIG,
                 dualEnabled: true,
@@ -247,59 +258,58 @@ export const VirtualCabRoom: React.FC<VirtualCabRoomProps> = ({ config, onChange
               },
             },
           ].map((preset) => (
-            <button
+            <Button
               key={preset.label}
               type="button"
+              size="xs"
+              variant="keycap"
               onClick={() => onChange(preset.val)}
-              className="flex-1 h-5 rounded bg-secondary/75 hover:bg-accent border border-border text-[9px] font-mono text-muted-foreground hover:text-foreground transition-colors"
             >
               {preset.label}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
 
       {/* Right: Mic A, Mic B & Blend/Haas Controls */}
-      <div className="flex-1 grid grid-cols-3 gap-2.5 text-[11px]">
+      <div className="flex-1 grid grid-cols-3 gap-2 text-[11px]">
         {/* Mic A Column */}
-        <div className="rounded-md border border-amber-500/25 bg-card/60 p-2 flex flex-col justify-between gap-1.5">
+        <div className="rounded-sm border border-border bg-card p-2 flex flex-col justify-between gap-1.5">
           <div className="flex items-center justify-between">
-            <span className="font-bold text-amber-300 text-[11px]">MIC A</span>
-            <div className="flex items-center gap-1">
-              <Button
-                type="button"
-                size="sm"
-                variant={cfg.micAPhaseInv ? "default" : "secondary"}
-                className="h-5 px-1.5 text-[10px] font-mono"
-                onClick={() => patch({ dualEnabled: true, micAPhaseInv: !cfg.micAPhaseInv })}
-                title="Mic A 위상 반전 (Phase Invert Ø)"
+            <span className="font-mono font-bold text-signal-warn text-[11px]">MIC A</span>
+            <Hint content={tx("Mic A 위상 반전 (Ø)", "Mic A Phase Invert (Ø)")}>
+              <Toggle
+                size="xs"
+                variant="keycap"
+                pressed={cfg.micAPhaseInv}
+                onPressedChange={(v) => patch({ dualEnabled: true, micAPhaseInv: v })}
               >
                 Ø
-              </Button>
-            </div>
+              </Toggle>
+            </Hint>
           </div>
           <Select
             value={String(cfg.micAType)}
             onValueChange={(v) => patch({ dualEnabled: true, micAType: Number(v) })}
           >
-            <SelectTrigger className="h-6 text-[10px]">
+            <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {MIC_MODELS.map((m) => (
-                <SelectItem key={m.id} value={String(m.id)} className="text-xs">
+                <SelectItem key={m.id} value={String(m.id)}>
                   {m.name}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-          <div className="space-y-1">
-            <div className="flex justify-between text-[10px] font-mono text-muted-foreground">
+          <div className="space-y-1.5 font-mono tabular-nums">
+            <div className="flex justify-between text-[10px] text-muted-foreground">
               <span>POS {Math.round(cfg.micAX * 100)}%</span>
               <span>DIST {Math.round(cfg.micADist * 12)}"</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-[9px] font-mono text-muted-foreground w-7">PAN</span>
+              <span className="text-[9px] text-muted-foreground w-6">PAN</span>
               <Slider
                 value={[Math.round(cfg.micAPan * 100)]}
                 min={-100}
@@ -307,12 +317,16 @@ export const VirtualCabRoom: React.FC<VirtualCabRoomProps> = ({ config, onChange
                 step={5}
                 onValueChange={([v]) => patch({ dualEnabled: true, micAPan: v / 100 })}
               />
-              <span className="text-[9px] font-mono w-7 text-right">
-                {cfg.micAPan === 0 ? "C" : cfg.micAPan < 0 ? `L${Math.round(-cfg.micAPan * 100)}` : `R${Math.round(cfg.micAPan * 100)}`}
+              <span className="text-[9px] w-7 text-right">
+                {cfg.micAPan === 0
+                  ? "C"
+                  : cfg.micAPan < 0
+                    ? `L${Math.round(-cfg.micAPan * 100)}`
+                    : `R${Math.round(cfg.micAPan * 100)}`}
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-[9px] font-mono text-muted-foreground w-7">LVL</span>
+              <span className="text-[9px] text-muted-foreground w-6">LVL</span>
               <Slider
                 value={[Math.round(cfg.micALevelDb * 10)]}
                 min={-180}
@@ -320,7 +334,7 @@ export const VirtualCabRoom: React.FC<VirtualCabRoomProps> = ({ config, onChange
                 step={5}
                 onValueChange={([v]) => patch({ dualEnabled: true, micALevelDb: v / 10 })}
               />
-              <span className="text-[9px] font-mono w-7 text-right">
+              <span className="text-[9px] w-7 text-right">
                 {cfg.micALevelDb > 0 ? `+${cfg.micALevelDb.toFixed(1)}` : cfg.micALevelDb.toFixed(1)}
               </span>
             </div>
@@ -328,42 +342,42 @@ export const VirtualCabRoom: React.FC<VirtualCabRoomProps> = ({ config, onChange
         </div>
 
         {/* Mic B Column */}
-        <div className="rounded-md border border-emerald-500/25 bg-card/60 p-2 flex flex-col justify-between gap-1.5">
+        <div className="rounded-sm border border-border bg-card p-2 flex flex-col justify-between gap-1.5">
           <div className="flex items-center justify-between">
-            <span className="font-bold text-emerald-300 text-[11px]">MIC B</span>
-            <Button
-              type="button"
-              size="sm"
-              variant={cfg.micBPhaseInv ? "default" : "secondary"}
-              className="h-5 px-1.5 text-[10px] font-mono"
-              onClick={() => patch({ dualEnabled: true, micBPhaseInv: !cfg.micBPhaseInv })}
-              title="Mic B 위상 반전 (Phase Invert Ø)"
-            >
-              Ø
-            </Button>
+            <span className="font-mono font-bold text-signal-ok text-[11px]">MIC B</span>
+            <Hint content={tx("Mic B 위상 반전 (Ø)", "Mic B Phase Invert (Ø)")}>
+              <Toggle
+                size="xs"
+                variant="keycap"
+                pressed={cfg.micBPhaseInv}
+                onPressedChange={(v) => patch({ dualEnabled: true, micBPhaseInv: v })}
+              >
+                Ø
+              </Toggle>
+            </Hint>
           </div>
           <Select
             value={String(cfg.micBType)}
             onValueChange={(v) => patch({ dualEnabled: true, micBType: Number(v) })}
           >
-            <SelectTrigger className="h-6 text-[10px]">
+            <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {MIC_MODELS.map((m) => (
-                <SelectItem key={m.id} value={String(m.id)} className="text-xs">
+                <SelectItem key={m.id} value={String(m.id)}>
                   {m.name}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-          <div className="space-y-1">
-            <div className="flex justify-between text-[10px] font-mono text-muted-foreground">
+          <div className="space-y-1.5 font-mono tabular-nums">
+            <div className="flex justify-between text-[10px] text-muted-foreground">
               <span>POS {Math.round(cfg.micBX * 100)}%</span>
               <span>DIST {Math.round(cfg.micBDist * 12)}"</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-[9px] font-mono text-muted-foreground w-7">PAN</span>
+              <span className="text-[9px] text-muted-foreground w-6">PAN</span>
               <Slider
                 value={[Math.round(cfg.micBPan * 100)]}
                 min={-100}
@@ -371,12 +385,16 @@ export const VirtualCabRoom: React.FC<VirtualCabRoomProps> = ({ config, onChange
                 step={5}
                 onValueChange={([v]) => patch({ dualEnabled: true, micBPan: v / 100 })}
               />
-              <span className="text-[9px] font-mono w-7 text-right">
-                {cfg.micBPan === 0 ? "C" : cfg.micBPan < 0 ? `L${Math.round(-cfg.micBPan * 100)}` : `R${Math.round(cfg.micBPan * 100)}`}
+              <span className="text-[9px] w-7 text-right">
+                {cfg.micBPan === 0
+                  ? "C"
+                  : cfg.micBPan < 0
+                    ? `L${Math.round(-cfg.micBPan * 100)}`
+                    : `R${Math.round(cfg.micBPan * 100)}`}
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-[9px] font-mono text-muted-foreground w-7">LVL</span>
+              <span className="text-[9px] text-muted-foreground w-6">LVL</span>
               <Slider
                 value={[Math.round(cfg.micBLevelDb * 10)]}
                 min={-180}
@@ -384,7 +402,7 @@ export const VirtualCabRoom: React.FC<VirtualCabRoomProps> = ({ config, onChange
                 step={5}
                 onValueChange={([v]) => patch({ dualEnabled: true, micBLevelDb: v / 10 })}
               />
-              <span className="text-[9px] font-mono w-7 text-right">
+              <span className="text-[9px] w-7 text-right">
                 {cfg.micBLevelDb > 0 ? `+${cfg.micBLevelDb.toFixed(1)}` : cfg.micBLevelDb.toFixed(1)}
               </span>
             </div>
@@ -392,25 +410,25 @@ export const VirtualCabRoom: React.FC<VirtualCabRoomProps> = ({ config, onChange
         </div>
 
         {/* Blend & Haas Delay Column */}
-        <div className="rounded-md border border-border bg-card/60 p-2 flex flex-col justify-between gap-2">
+        <div className="rounded-sm border border-border bg-card p-2 flex flex-col justify-between gap-2">
           <div className="flex items-center justify-between">
-            <span className="font-bold text-foreground text-[11px]">MIX · HAAS</span>
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              className="h-5 w-5"
-              onClick={() => onChange({ ...DEFAULT_CAB_MIC_CONFIG, dualEnabled: cfg.dualEnabled })}
-              title="마이킹 기본값 초기화"
-            >
-              <RotateCcw className="w-3 h-3" />
-            </Button>
+            <span className="font-mono font-bold text-foreground text-[11px]">MIX · HAAS</span>
+            <Hint content={tx("마이킹 기본값 초기화", "Reset dual-mic settings")}>
+              <Button
+                type="button"
+                size="icon-xs"
+                variant="ghost"
+                onClick={() => onChange({ ...DEFAULT_CAB_MIC_CONFIG, dualEnabled: cfg.dualEnabled })}
+              >
+                <RotateCcw className="size-3" />
+              </Button>
+            </Hint>
           </div>
 
-          <div className="space-y-1">
-            <div className="flex justify-between text-[10px] font-mono">
-              <span className="text-amber-300">A {Math.round((1 - cfg.blend) * 100)}%</span>
-              <span className="text-emerald-300">B {Math.round(cfg.blend * 100)}%</span>
+          <div className="space-y-1 font-mono tabular-nums">
+            <div className="flex justify-between text-[10px]">
+              <span className="text-signal-warn">A {Math.round((1 - cfg.blend) * 100)}%</span>
+              <span className="text-signal-ok">B {Math.round(cfg.blend * 100)}%</span>
             </div>
             <Slider
               value={[Math.round(cfg.blend * 100)]}
@@ -421,10 +439,10 @@ export const VirtualCabRoom: React.FC<VirtualCabRoomProps> = ({ config, onChange
             />
           </div>
 
-          <div className="space-y-1">
-            <div className="flex justify-between text-[10px] font-mono">
-              <span className="text-muted-foreground">MIC B HAAS</span>
-              <span className="text-cyan-300">{cfg.micBDelayMs.toFixed(1)} ms</span>
+          <div className="space-y-1 font-mono tabular-nums">
+            <div className="flex justify-between text-[10px]">
+              <span className="text-muted-foreground">HAAS DELAY</span>
+              <span className="text-primary">{cfg.micBDelayMs.toFixed(1)} ms</span>
             </div>
             <Slider
               value={[Math.round(cfg.micBDelayMs * 10)]}
@@ -435,8 +453,11 @@ export const VirtualCabRoom: React.FC<VirtualCabRoomProps> = ({ config, onChange
             />
           </div>
 
-          <div className="text-[9px] text-muted-foreground leading-tight">
-            콘 위 마이크를 드래그해 Cap(밝음)↔Edge(부드러움)·거리를 조절하세요.
+          <div className="text-[10px] text-muted-foreground leading-tight">
+            {tx(
+              "스피커 콘 위 마이크를 드래그해 Cap↔Edge와 거리를 조절하세요.",
+              "Drag mics across the speaker cone to adjust Cap↔Edge & distance."
+            )}
           </div>
         </div>
       </div>

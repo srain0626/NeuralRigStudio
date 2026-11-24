@@ -1,4 +1,4 @@
-import type { ChainSlotDto, DeviceCategoryId, SceneSnapshotDto, SignalChainConfigDto } from "@/types/rig"
+import type { ChainSlotDto, CustomDeviceSpecDto, DeviceCategoryId, SceneSnapshotDto, SignalChainConfigDto } from "@/types/rig"
 
 export interface DeviceParamDef {
   index: number
@@ -17,8 +17,12 @@ export interface DeviceModelDef {
   id: string
   name: string
   shortName: string
+  originalName?: string
+  aliases?: string[]
   category: DeviceCategoryId
   categoryLabel: string
+  schematicSummary?: string
+  schematicSourceUrl?: string
   params: DeviceParamDef[]
 }
 
@@ -30,15 +34,16 @@ export interface CategoryMeta {
 }
 
 export const CATEGORIES: CategoryMeta[] = [
-  { id: "amp", label: "AMP", colorVar: "var(--cat-amp)", hex: "#ef233c" },
-  { id: "nam", label: "NEURAL CAPTURE", colorVar: "var(--cat-nam)", hex: "#e4e4e7" },
-  { id: "cab", label: "CAB", colorVar: "var(--cat-cab)", hex: "#7c5cff" },
-  { id: "drive", label: "OVERDRIVE", colorVar: "var(--cat-drive)", hex: "#f97316" },
-  { id: "delay", label: "DELAY", colorVar: "var(--cat-delay)", hex: "#14b8a6" },
-  { id: "reverb", label: "REVERB", colorVar: "var(--cat-reverb)", hex: "#2dd4bf" },
-  { id: "mod", label: "MODULATION", colorVar: "var(--cat-mod)", hex: "#22c55e" },
-  { id: "eq", label: "EQ", colorVar: "var(--cat-eq)", hex: "#3b82f6" },
-  { id: "dyn", label: "DYNAMICS", colorVar: "var(--cat-dyn)", hex: "#94a3b8" },
+  { id: "amp", label: "AMP", colorVar: "var(--cat-amp)", hex: "#D93829" },
+  { id: "nam", label: "NEURAL CAPTURE", colorVar: "var(--cat-nam)", hex: "#9E9A91" },
+  { id: "cab", label: "CAB", colorVar: "var(--cat-cab)", hex: "#4353FF" },
+  { id: "drive", label: "OVERDRIVE", colorVar: "var(--cat-drive)", hex: "#D96B18" },
+  { id: "delay", label: "DELAY", colorVar: "var(--cat-delay)", hex: "#0E8A7D" },
+  { id: "reverb", label: "REVERB", colorVar: "var(--cat-reverb)", hex: "#2B8A6E" },
+  { id: "mod", label: "MODULATION", colorVar: "var(--cat-mod)", hex: "#2E8B57" },
+  { id: "eq", label: "EQ", colorVar: "var(--cat-eq)", hex: "#2563EB" },
+  { id: "dyn", label: "DYNAMICS", colorVar: "var(--cat-dyn)", hex: "#64748B" },
+  { id: "pitch", label: "PITCH", colorVar: "var(--cat-pitch)", hex: "#C83E7B" },
 ]
 
 export const CATEGORY_MAP: Record<DeviceCategoryId, CategoryMeta> = Object.fromEntries(
@@ -62,22 +67,28 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
     id: "amp_plexi",
     name: "Brit Plexi 100 Bright",
     shortName: "Plexi 100",
+    originalName: "Marshall 1959SLP Super Lead 100W Plexi",
+    aliases: ["Marshall", "1959SLP", "Plexi", "Super Lead", "마샬", "플렉시"],
     category: "amp",
     categoryLabel: "Guitar Amp",
     params: AMP_PARAMS.map((p) => (p.index === 7 ? { ...p, defaultVal: 1 } : p.index === 0 ? { ...p, defaultVal: 6.2 } : p)),
   },
   {
     id: "amp_2203",
-    name: "Marshall JCM800 (2203)",
-    shortName: "JCM800",
+    name: "Brit 800 Lead (2203)",
+    shortName: "Brit 800",
+    originalName: "Marshall JCM800 2203",
+    aliases: ["Marshall", "JCM800", "JCM 800", "2203", "마샬"],
     category: "amp",
     categoryLabel: "Guitar Amp",
     params: AMP_PARAMS.map((p) => (p.index === 0 ? { ...p, defaultVal: 6.8 } : p.index === 2 ? { ...p, defaultVal: 6.2 } : p)),
   },
   {
     id: "amp_twin",
-    name: "US Clean Twin",
-    shortName: "US Twin",
+    name: "US Blackface Twin 85",
+    shortName: "US Twin 85",
+    originalName: "Fender '65 Twin Reverb",
+    aliases: ["Fender", "Twin Reverb", "US Clean Twin", "Blackface", "펜더", "트윈리버브", "트윈"],
     category: "amp",
     categoryLabel: "Guitar Amp",
     params: AMP_PARAMS.map((p) => (p.index === 0 ? { ...p, defaultVal: 3.2 } : p.index === 2 ? { ...p, defaultVal: 4.5 } : p)),
@@ -86,22 +97,28 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
     id: "amp_1star",
     name: "CA 1Star Clean 100W",
     shortName: "CA 1Star",
+    originalName: "Mesa/Boogie Lone Star Classic",
+    aliases: ["Mesa", "Mesa/Boogie", "Lone Star", "Lonestar", "메사", "메사부기", "론스타"],
     category: "amp",
     categoryLabel: "Guitar Amp",
     params: AMP_PARAMS.map((p) => (p.index === 0 ? { ...p, defaultVal: 3.8 } : p.index === 5 ? { ...p, defaultVal: 4.5 } : p)),
   },
   {
     id: "amp_slo100",
-    name: "SLO 100 Lead",
-    shortName: "SLO 100",
+    name: "US Super Lead 100",
+    shortName: "US Super 100",
+    originalName: "Soldano SLO-100 Super Lead Overdrive",
+    aliases: ["Soldano", "SLO-100", "SLO100", "SLO 100", "솔다노"],
     category: "amp",
     categoryLabel: "Guitar Amp",
     params: AMP_PARAMS.map((p) => (p.index === 0 ? { ...p, defaultVal: 6.5 } : p.index === 6 ? { ...p, defaultVal: 6.0 } : p)),
   },
   {
     id: "amp_5153",
-    name: "5153 Red High-Gain",
-    shortName: "5153 Red",
+    name: "Panama 53 Red Lead",
+    shortName: "Panama 53",
+    originalName: "EVH 5150 III 100W Red",
+    aliases: ["EVH", "Peavey", "5150", "5153", "5150 III", "피비"],
     category: "amp",
     categoryLabel: "Guitar Amp",
     params: AMP_PARAMS.map((p) =>
@@ -110,8 +127,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "amp_jc120",
-    name: "Roland JC-120 Jazz Chorus",
-    shortName: "JC-120",
+    name: "JP Stereo Jazz 120",
+    shortName: "JP Jazz 120",
+    originalName: "Roland JC-120 Jazz Chorus",
+    aliases: ["Roland", "JC-120", "JC120", "Jazz Chorus", "롤랜드", "재즈코러스", "재즈 코러스"],
     category: "amp",
     categoryLabel: "Guitar Amp",
     params: [
@@ -125,8 +144,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "amp_ac30",
-    name: "VOX AC30 Top Boost",
-    shortName: "AC30 TB",
+    name: "Brit Chime 30 Top Boost",
+    shortName: "Brit Chime",
+    originalName: "VOX AC30 Top Boost",
+    aliases: ["VOX", "AC30", "AC-30", "Top Boost", "복스"],
     category: "amp",
     categoryLabel: "Guitar Amp",
     params: AMP_PARAMS.map((p) =>
@@ -135,8 +156,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "amp_dsl",
-    name: "Marshall JCM2000 DSL",
-    shortName: "JCM2000",
+    name: "Brit 2000 Dual Super",
+    shortName: "Brit 2000",
+    originalName: "Marshall JCM2000 DSL100",
+    aliases: ["Marshall", "JCM2000", "JCM 2000", "DSL", "DSL100", "마샬"],
     category: "amp",
     categoryLabel: "Guitar Amp",
     params: AMP_PARAMS.map((p) =>
@@ -145,8 +168,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "amp_recto",
-    name: "Mesa/Boogie Dual Rectifier",
-    shortName: "Dual Recto",
+    name: "CA Dual Treadplate",
+    shortName: "CA Tread",
+    originalName: "Mesa/Boogie Dual Rectifier",
+    aliases: ["Mesa", "Mesa/Boogie", "Dual Rectifier", "Rectifier", "Recto", "메사", "메사부기", "듀얼렉티파이어", "렉티파이어", "렉티"],
     category: "amp",
     categoryLabel: "Guitar Amp",
     params: AMP_PARAMS.map((p) =>
@@ -155,8 +180,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "amp_be100",
-    name: "Friedman BE-100",
-    shortName: "BE-100",
+    name: "LA Brown Eye 100",
+    shortName: "Brown Eye",
+    originalName: "Friedman BE-100",
+    aliases: ["Friedman", "BE-100", "BE100", "Brown Eye", "프리드먼"],
     category: "amp",
     categoryLabel: "Guitar Amp",
     params: AMP_PARAMS.map((p) =>
@@ -169,6 +196,8 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
     id: "nam_capture",
     name: "NAM Neural Capture",
     shortName: "NAM",
+    originalName: "Neural Amp Modeler (.nam)",
+    aliases: ["NAM", "Neural Amp Modeler", "Neural Capture", "뉴럴캡처"],
     category: "nam",
     categoryLabel: "Neural Capture",
     params: [
@@ -181,8 +210,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   // ── CAB ──
   {
     id: "cab_v30",
-    name: "4x12 V30 Modern",
+    name: "4x12 Brit Vintage 30",
     shortName: "4x12 V30",
+    originalName: "4x12 Celestion Vintage 30",
+    aliases: ["Celestion", "Vintage 30", "V30", "4x12 V30", "셀레스천", "빈티지30"],
     category: "cab",
     categoryLabel: "Cabinet",
     params: [
@@ -195,6 +226,8 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
     id: "cab_custom",
     name: "Custom WAV IR",
     shortName: "Custom IR",
+    originalName: "Custom External WAV Cabinet IR",
+    aliases: ["Custom IR", "WAV IR", "커스텀 IR"],
     category: "cab",
     categoryLabel: "Cabinet IR",
     params: [
@@ -205,8 +238,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "cab_jc120",
-    name: "2x12 JC-120 Open Back",
-    shortName: "2x12 JC120",
+    name: "2x12 JP Stereo Jazz Open",
+    shortName: "2x12 Jazz",
+    originalName: "Roland JC-120 2x12 Open Back",
+    aliases: ["Roland", "JC-120", "JC120", "2x12 JC-120", "롤랜드", "재즈코러스"],
     category: "cab",
     categoryLabel: "Cabinet",
     params: [
@@ -217,8 +252,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "cab_alnico",
-    name: "2x12 VOX Alnico Blue",
+    name: "2x12 Brit Alnico Blue",
     shortName: "2x12 Blue",
+    originalName: "2x12 VOX Celestion Alnico Blue",
+    aliases: ["VOX", "AC30", "Celestion", "Alnico Blue", "복스", "알니코 블루", "알니코"],
     category: "cab",
     categoryLabel: "Cabinet",
     params: [
@@ -229,8 +266,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "cab_1960a",
-    name: "Marshall 1960A (G12T-75)",
-    shortName: "1960A",
+    name: "4x12 Brit 60A Angled (75W)",
+    shortName: "4x12 60A",
+    originalName: "Marshall 1960A (Celestion G12T-75)",
+    aliases: ["Marshall", "1960A", "G12T-75", "G12T75", "마샬"],
     category: "cab",
     categoryLabel: "Cabinet",
     params: [
@@ -241,8 +280,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "cab_1960bv",
-    name: "Marshall 1960BV (4x12 V30)",
-    shortName: "1960BV",
+    name: "4x12 Brit 60BV Straight",
+    shortName: "4x12 60BV",
+    originalName: "Marshall 1960BV (4x12 Vintage 30)",
+    aliases: ["Marshall", "1960BV", "V30", "마샬"],
     category: "cab",
     categoryLabel: "Cabinet",
     params: [
@@ -253,8 +294,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "cab_mesa412",
-    name: "Mesa/Boogie Rectifier 4x12",
-    shortName: "Recto 4x12",
+    name: "4x12 CA Oversized Treadplate",
+    shortName: "Tread 4x12",
+    originalName: "Mesa/Boogie Rectifier Oversized 4x12",
+    aliases: ["Mesa", "Mesa/Boogie", "Rectifier 4x12", "Recto 4x12", "메사", "렉티파이어"],
     category: "cab",
     categoryLabel: "Cabinet",
     params: [
@@ -265,8 +308,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "cab_jensen112",
-    name: "1x12 Fender Jensen Open",
-    shortName: "1x12 Jensen",
+    name: "1x12 US Vintage Open Back",
+    shortName: "1x12 US",
+    originalName: "1x12 Fender Jensen C12N Open Back",
+    aliases: ["Fender", "Jensen", "C12N", "1x12 Fender", "펜더", "젠센"],
     category: "cab",
     categoryLabel: "Cabinet",
     params: [
@@ -279,8 +324,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   // ── OVERDRIVE / DISTORTION / FUZZ (Famous Pedals) ──
   {
     id: "od_ts808",
-    name: "Green 808 (TS808)",
+    name: "Green Screamer 808",
     shortName: "Green 808",
+    originalName: "Ibanez TS808 Tube Screamer",
+    aliases: ["Ibanez", "TS808", "TS-808", "Tube Screamer", "Green 808", "아이바네즈", "튜브스크리머", "튜브 스크리머"],
     category: "drive",
     categoryLabel: "Overdrive",
     params: [
@@ -291,8 +338,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "od_ts9",
-    name: "Ibanez TS9 Tube Screamer",
-    shortName: "TS9",
+    name: "Green Screamer 9",
+    shortName: "Green 9",
+    originalName: "Ibanez TS9 Tube Screamer",
+    aliases: ["Ibanez", "TS9", "TS-9", "Tube Screamer", "아이바네즈", "튜브스크리머", "티에스9"],
     category: "drive",
     categoryLabel: "Overdrive",
     params: [
@@ -303,8 +352,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "od_janray",
-    name: "Vemuram Jan Ray",
-    shortName: "Jan Ray",
+    name: "Tokyo Brass Ray OD",
+    shortName: "Brass Ray",
+    originalName: "Vemuram Jan Ray",
+    aliases: ["Vemuram", "Jan Ray", "JanRay", "베무람", "잔레이", "잰레이"],
     category: "drive",
     categoryLabel: "Overdrive",
     params: [
@@ -317,8 +368,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "od_puresky",
-    name: "Caline Pure Sky",
-    shortName: "Pure Sky",
+    name: "Azure Sky Transparent OD",
+    shortName: "Azure Sky",
+    originalName: "Caline CP-12 Pure Sky (Timmy)",
+    aliases: ["Caline", "Pure Sky", "CP-12", "Timmy", "칼라인", "퓨어스카이", "티미"],
     category: "drive",
     categoryLabel: "Overdrive",
     params: [
@@ -330,8 +383,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "od_bbpreamp",
-    name: "Xotic BB Preamp",
-    shortName: "BB Preamp",
+    name: "Blues Box Preamp",
+    shortName: "Blues Box",
+    originalName: "Xotic BB Preamp",
+    aliases: ["Xotic", "BB Preamp", "BB프리앰프", "엑조틱"],
     category: "drive",
     categoryLabel: "Overdrive",
     params: [
@@ -343,8 +398,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "od_ocd",
-    name: "Fulltone OCD",
-    shortName: "OCD",
+    name: "Compulsive MOSFET Drive",
+    shortName: "MOSFET OD",
+    originalName: "Fulltone OCD",
+    aliases: ["Fulltone", "OCD", "Obsessive Compulsive Drive", "풀톤", "오씨디"],
     category: "drive",
     categoryLabel: "Overdrive",
     params: [
@@ -356,8 +413,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "dist_rat2",
-    name: "ProCo RAT 2",
-    shortName: "RAT 2",
+    name: "Black Rodent MK2",
+    shortName: "Rodent MK2",
+    originalName: "ProCo RAT 2",
+    aliases: ["ProCo", "RAT 2", "RAT2", "랫2", "랫", "프로코"],
     category: "drive",
     categoryLabel: "Distortion",
     params: [
@@ -368,8 +427,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "dist_ecstasy",
-    name: "Bogner Ecstasy Red",
-    shortName: "Ecstasy Red",
+    name: "Euro Euphoria Red",
+    shortName: "Euphoria",
+    originalName: "Bogner Ecstasy Red",
+    aliases: ["Bogner", "Ecstasy Red", "XTC Red", "보그너", "엑스터시"],
     category: "drive",
     categoryLabel: "Distortion",
     params: [
@@ -382,8 +443,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "boost_microamp",
-    name: "MXR Micro Amp",
-    shortName: "Micro Amp",
+    name: "White Micro Boost",
+    shortName: "Micro Boost",
+    originalName: "MXR M133 Micro Amp",
+    aliases: ["MXR", "Micro Amp", "M133", "마이크로앰프", "마이크로 앰프"],
     category: "drive",
     categoryLabel: "Boost",
     params: [
@@ -392,8 +455,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "od_klon",
-    name: "Mythic Centaur (Klon)",
-    shortName: "Centaur",
+    name: "Mythic Gold Centaur",
+    shortName: "Gold Centaur",
+    originalName: "Klon Centaur",
+    aliases: ["Klon", "Centaur", "Klon Centaur", "Mythic Centaur", "클론", "센타우르"],
     category: "drive",
     categoryLabel: "Overdrive",
     params: [
@@ -404,8 +469,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "dist_rat",
-    name: "Rodent Dist (RAT)",
-    shortName: "Rodent",
+    name: "Vintage Rodent 308",
+    shortName: "Rodent 308",
+    originalName: "ProCo Vintage RAT (LM308)",
+    aliases: ["ProCo", "RAT", "Vintage RAT", "LM308", "Rodent Dist", "랫"],
     category: "drive",
     categoryLabel: "Distortion",
     params: [
@@ -416,8 +483,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "fuzz_bigmuff",
-    name: "Big Pi Fuzz (Muff)",
-    shortName: "Big Pi",
+    name: "NYC Big Pi Sustainer",
+    shortName: "NYC Big Pi",
+    originalName: "Electro-Harmonix Big Muff Pi",
+    aliases: ["EHX", "Electro-Harmonix", "Big Muff", "Big Muff Pi", "Muff", "Big Pi Fuzz", "빅머프", "머프"],
     category: "drive",
     categoryLabel: "Fuzz",
     params: [
@@ -428,8 +497,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "od_sd1",
-    name: "BOSS SD-1 Super OverDrive",
-    shortName: "BOSS SD-1",
+    name: "Compact Yellow Super OD",
+    shortName: "Super OD",
+    originalName: "BOSS SD-1 Super OverDrive",
+    aliases: ["BOSS", "SD-1", "SD1", "Super OverDrive", "BOSS SD-1", "보스", "슈퍼 오버드라이브", "슈퍼오버드라이브"],
     category: "drive",
     categoryLabel: "Overdrive",
     params: [
@@ -440,8 +511,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "od_bd2",
-    name: "BOSS BD-2 Blues Driver",
-    shortName: "BOSS BD-2",
+    name: "Compact Sapphire Blues OD",
+    shortName: "Blues OD",
+    originalName: "BOSS BD-2 Blues Driver",
+    aliases: ["BOSS", "BD-2", "BD2", "Blues Driver", "BOSS BD-2", "보스", "블루스 드라이버", "블루스드라이버"],
     category: "drive",
     categoryLabel: "Overdrive",
     params: [
@@ -452,8 +525,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "dist_ds1",
-    name: "BOSS DS-1 Distortion",
-    shortName: "BOSS DS-1",
+    name: "Compact Orange Dist 78",
+    shortName: "Orange Dist",
+    originalName: "BOSS DS-1 Distortion",
+    aliases: ["BOSS", "DS-1", "DS1", "Distortion", "BOSS DS-1", "보스", "디스토션"],
     category: "drive",
     categoryLabel: "Distortion",
     params: [
@@ -464,8 +539,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "dist_mt2",
-    name: "BOSS MT-2 Metal Zone",
-    shortName: "BOSS MT-2",
+    name: "Compact Obsidian Metal Zone",
+    shortName: "Obsidian MT",
+    originalName: "BOSS MT-2 Metal Zone",
+    aliases: ["BOSS", "MT-2", "MT2", "Metal Zone", "BOSS MT-2", "보스", "메탈존", "메탈 존"],
     category: "drive",
     categoryLabel: "Distortion",
     params: [
@@ -479,8 +556,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "dist_hm2",
-    name: "BOSS HM-2 Heavy Metal",
-    shortName: "BOSS HM-2",
+    name: "Compact Swedish Chainsaw",
+    shortName: "Chainsaw",
+    originalName: "BOSS HM-2 Heavy Metal",
+    aliases: ["BOSS", "HM-2", "HM2", "Heavy Metal", "BOSS HM-2", "Chainsaw", "보스", "헤비메탈", "체인소"],
     category: "drive",
     categoryLabel: "Distortion",
     params: [
@@ -492,8 +571,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "boost_ep",
-    name: "Xotic EP Booster",
-    shortName: "EP Booster",
+    name: "Echo Pre FET Booster",
+    shortName: "Echo Boost",
+    originalName: "Xotic EP Booster",
+    aliases: ["Xotic", "EP Booster", "Echoplex", "엑조틱", "EP부스터", "이피부스터"],
     category: "drive",
     categoryLabel: "Boost",
     params: [
@@ -503,8 +584,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "boost_rc",
-    name: "Xotic RC Booster",
-    shortName: "RC Booster",
+    name: "Pure Clean EQ Booster",
+    shortName: "Pure Boost",
+    originalName: "Xotic RC Booster",
+    aliases: ["Xotic", "RC Booster", "엑조틱", "RC부스터", "알씨부스터"],
     category: "drive",
     categoryLabel: "Boost",
     params: [
@@ -516,8 +599,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "od_bluesbreaker",
-    name: "Marshall Bluesbreaker MK1",
-    shortName: "Bluesbreaker",
+    name: "Brit Monarch Blues MK1",
+    shortName: "Monarch MK1",
+    originalName: "Marshall Bluesbreaker MK1",
+    aliases: ["Marshall", "Bluesbreaker", "BB-1", "마샬", "블루스브레이커"],
     category: "drive",
     categoryLabel: "Overdrive",
     params: [
@@ -528,8 +613,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "dist_guvnor",
-    name: "Marshall Guv'nor MK1",
-    shortName: "Guv'nor",
+    name: "Brit Governor LED Dist",
+    shortName: "Governor",
+    originalName: "Marshall The Guv'nor MK1",
+    aliases: ["Marshall", "Guv'nor", "Guvnor", "마샬", "구브너", "거브너"],
     category: "drive",
     categoryLabel: "Distortion",
     params: [
@@ -542,8 +629,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "fuzz_face",
-    name: "Dallas Fuzz Face (Ge/Si)",
-    shortName: "Fuzz Face",
+    name: "Round Smile Fuzz (Ge/Si)",
+    shortName: "Smile Fuzz",
+    originalName: "Dallas-Arbiter Fuzz Face (Ge/Si)",
+    aliases: ["Dallas", "Arbiter", "Dunlop", "Fuzz Face", "AC128", "BC108", "퍼즈페이스", "퍼즈 페이스"],
     category: "drive",
     categoryLabel: "Fuzz",
     params: [
@@ -555,8 +644,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "boost_rangemaster",
-    name: "Dallas Rangemaster (OC44)",
-    shortName: "Rangemaster",
+    name: "Brit OC44 Treble Master",
+    shortName: "OC44 Boost",
+    originalName: "Dallas Rangemaster (OC44)",
+    aliases: ["Dallas", "Rangemaster", "OC44", "Treble Booster", "레인지마스터", "트레블 부스터"],
     category: "drive",
     categoryLabel: "Treble Boost",
     params: [
@@ -566,8 +657,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "dist_plus",
-    name: "MXR Distortion+",
-    shortName: "Distortion+",
+    name: "Mustard Dist Plus",
+    shortName: "Mustard+",
+    originalName: "MXR M104 Distortion+",
+    aliases: ["MXR", "Distortion+", "Dist+", "M104", "디스토션 플러스", "디스토션플러스"],
     category: "drive",
     categoryLabel: "Distortion",
     params: [
@@ -577,8 +670,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "od_boxofrock",
-    name: "ZVEX Box of Rock (JTM45)",
-    shortName: "Box of Rock",
+    name: "Brit 45 Rock Box",
+    shortName: "Brit 45 Box",
+    originalName: "ZVEX Box of Rock (JTM45)",
+    aliases: ["ZVEX", "Box of Rock", "JTM45", "지벡스", "박스오브락"],
     category: "drive",
     categoryLabel: "Overdrive",
     params: [
@@ -591,8 +686,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   // ── DELAY ──
   {
     id: "dly_dm2w",
-    name: "BOSS DM-2W Delay",
-    shortName: "BOSS DM-2W",
+    name: "Compact Crimson BBD Delay",
+    shortName: "Crimson BBD",
+    originalName: "BOSS DM-2W Waza Delay",
+    aliases: ["BOSS", "DM-2W", "DM2W", "DM-2", "DM2", "BOSS DM-2W", "보스", "아날로그 딜레이"],
     category: "delay",
     categoryLabel: "Delay",
     params: [
@@ -604,8 +701,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "dly_dd3t",
-    name: "BOSS DD-3T Digital Delay",
-    shortName: "BOSS DD-3T",
+    name: "Compact White Digital Delay",
+    shortName: "White Dly",
+    originalName: "BOSS DD-3T Digital Delay",
+    aliases: ["BOSS", "DD-3T", "DD3T", "DD-3", "DD3", "BOSS DD-3T", "보스", "디지털 딜레이"],
     category: "delay",
     categoryLabel: "Delay",
     params: [
@@ -618,6 +717,8 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
     id: "dly_analog",
     name: "Analog BBD Delay",
     shortName: "Analog Dly",
+    originalName: "Analog BBD Bucket-Brigade Delay",
+    aliases: ["Analog Delay", "BBD", "아날로그 딜레이"],
     category: "delay",
     categoryLabel: "Delay",
     params: [
@@ -631,6 +732,8 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
     id: "dly_digital",
     name: "Digital Stereo Delay",
     shortName: "Stereo Dly",
+    originalName: "Digital Stereo Ping-Pong Delay",
+    aliases: ["Digital Delay", "Stereo Delay", "디지털 딜레이"],
     category: "delay",
     categoryLabel: "Delay",
     params: [
@@ -643,8 +746,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
 
   {
     id: "dly_timeline",
-    name: "Strymon TimeLine",
-    shortName: "TimeLine",
+    name: "Horizon Studio Delay",
+    shortName: "Horizon Dly",
+    originalName: "Strymon TimeLine",
+    aliases: ["Strymon", "TimeLine", "스트라이몬", "타임라인"],
     category: "delay",
     categoryLabel: "Delay",
     params: [
@@ -659,8 +764,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   // ── REVERB ──
   {
     id: "rev_bluesky",
-    name: "Strymon blueSky",
-    shortName: "blueSky",
+    name: "Celestial Shimmer Reverb",
+    shortName: "Celestial",
+    originalName: "Strymon blueSky",
+    aliases: ["Strymon", "blueSky", "Blue Sky", "Shimmer", "스트라이몬", "블루스카이"],
     category: "reverb",
     categoryLabel: "Reverb",
     params: [
@@ -673,8 +780,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "rev_rv6",
-    name: "BOSS RV-6 Reverb",
-    shortName: "BOSS RV-6",
+    name: "Compact Slate Multi Reverb",
+    shortName: "Slate Rev",
+    originalName: "BOSS RV-6 Reverb",
+    aliases: ["BOSS", "RV-6", "RV6", "BOSS RV-6", "보스", "리버브"],
     category: "reverb",
     categoryLabel: "Reverb",
     params: [
@@ -686,8 +795,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "rev_spring",
-    name: "Spring Reverb",
-    shortName: "Spring",
+    name: "Vintage Tank Spring Reverb",
+    shortName: "Spring Tank",
+    originalName: "Accutronics 3-Spring Tank Reverb",
+    aliases: ["Spring Reverb", "Accutronics", "스프링 리버브"],
     category: "reverb",
     categoryLabel: "Reverb",
     params: [
@@ -700,6 +811,8 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
     id: "rev_hall",
     name: "Hall Ambient Reverb",
     shortName: "Hall Rev",
+    originalName: "Concert Hall Ambient Reverb",
+    aliases: ["Hall Reverb", "홀 리버브"],
     category: "reverb",
     categoryLabel: "Reverb",
     params: [
@@ -713,6 +826,8 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
     id: "rev_plate",
     name: "Plate Studio Reverb",
     shortName: "Plate Rev",
+    originalName: "EMT 140 Studio Plate Reverb",
+    aliases: ["Plate Reverb", "EMT 140", "플레이트 리버브"],
     category: "reverb",
     categoryLabel: "Reverb",
     params: [
@@ -725,8 +840,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   // ── MODULATION ──
   {
     id: "mod_ce2",
-    name: "BOSS CE-2 Chorus",
-    shortName: "BOSS CE-2",
+    name: "Compact Sky Analog Chorus",
+    shortName: "Sky Chorus",
+    originalName: "BOSS CE-2 Chorus",
+    aliases: ["BOSS", "CE-2", "CE2", "BOSS CE-2", "Chorus", "보스", "코러스"],
     category: "mod",
     categoryLabel: "Modulation",
     params: [
@@ -737,8 +854,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "mod_dc2w",
-    name: "BOSS DC-2W Dimension C",
-    shortName: "BOSS DC-2W",
+    name: "Compact Violet Dimension",
+    shortName: "Dimension",
+    originalName: "BOSS DC-2W Dimension C",
+    aliases: ["BOSS", "DC-2W", "DC2W", "DC-2", "BOSS DC-2W", "Dimension C", "보스", "디멘션"],
     category: "mod",
     categoryLabel: "Modulation",
     params: [
@@ -748,8 +867,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "mod_bf2",
-    name: "BOSS BF-2 Flanger",
-    shortName: "BOSS BF-2",
+    name: "Compact Magenta Jet Flanger",
+    shortName: "Jet Flanger",
+    originalName: "BOSS BF-2 Flanger",
+    aliases: ["BOSS", "BF-2", "BF2", "BOSS BF-2", "Flanger", "보스", "플랜저"],
     category: "mod",
     categoryLabel: "Modulation",
     params: [
@@ -761,8 +882,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "mod_phase90",
-    name: "Phase 90 Phaser",
-    shortName: "Phase 90",
+    name: "Orange Script 90 Phaser",
+    shortName: "Script 90",
+    originalName: "MXR M101 Phase 90",
+    aliases: ["MXR", "Phase 90", "Phase90", "M101", "페이즈90", "페이즈 90", "페이저"],
     category: "mod",
     categoryLabel: "Modulation",
     params: [
@@ -774,8 +897,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "mod_tremolo",
-    name: "Optical Tremolo",
+    name: "Optical CdS Tremolo",
     shortName: "Tremolo",
+    originalName: "Optical Photoresistor Tremolo",
+    aliases: ["Optical Tremolo", "Tremolo", "트레몰로"],
     category: "mod",
     categoryLabel: "Modulation",
     params: [
@@ -786,8 +911,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "mod_smallclone",
-    name: "EHX Small Clone Chorus",
-    shortName: "Small Clone",
+    name: "Grunge BBD Analog Chorus",
+    shortName: "Grunge Cho",
+    originalName: "Electro-Harmonix Small Clone",
+    aliases: ["EHX", "Electro-Harmonix", "Small Clone", "스몰클론", "스몰 클론"],
     category: "mod",
     categoryLabel: "Modulation",
     params: [
@@ -798,8 +925,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "mod_univibe",
-    name: "Shin-ei Uni-Vibe (1968)",
-    shortName: "Uni-Vibe",
+    name: "Psychedelic 68 Optical Vibe",
+    shortName: "68 Vibe",
+    originalName: "Shin-ei Uni-Vibe (1968)",
+    aliases: ["Shin-ei", "Uni-Vibe", "Univibe", "유니바이브"],
     category: "mod",
     categoryLabel: "Modulation",
     params: [
@@ -812,8 +941,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   // ── EQ ──
   {
     id: "eq_crybaby",
-    name: "Dunlop Cry Baby GCB-95 Wah",
-    shortName: "Cry Baby",
+    name: "Classic Vocal 95 Wah",
+    shortName: "Vocal 95",
+    originalName: "Dunlop Cry Baby GCB-95 Wah",
+    aliases: ["Dunlop", "Cry Baby", "Crybaby", "GCB-95", "GCB95", "Wah", "크라이베이비", "와우"],
     category: "eq",
     categoryLabel: "Wah / Filter",
     params: [
@@ -825,8 +956,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "eq_ge7",
-    name: "BOSS GE-7 Graphic EQ",
-    shortName: "BOSS GE-7",
+    name: "Compact Cream 7-Band EQ",
+    shortName: "Cream 7-EQ",
+    originalName: "BOSS GE-7 Graphic EQ",
+    aliases: ["BOSS", "GE-7", "GE7", "BOSS GE-7", "Equalizer", "Graphic EQ", "보스", "이퀄라이저"],
     category: "eq",
     categoryLabel: "EQ",
     params: [
@@ -842,8 +975,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "eq_graphic5",
-    name: "Graphic 5-Band EQ",
+    name: "Studio Graphic 5-Band EQ",
     shortName: "5-Band EQ",
+    originalName: "Mesa Mark-Style 5-Band Graphic EQ",
+    aliases: ["5-Band EQ", "Graphic EQ", "5밴드 EQ"],
     category: "eq",
     categoryLabel: "EQ",
     params: [
@@ -857,8 +992,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "eq_parametric",
-    name: "Parametric EQ",
+    name: "Studio Parametric EQ",
     shortName: "Param EQ",
+    originalName: "Studio 3-Band Parametric Equalizer",
+    aliases: ["Parametric EQ", "파라메트릭 EQ"],
     category: "eq",
     categoryLabel: "EQ",
     params: [
@@ -875,6 +1012,8 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
     id: "gate_adaptive",
     name: "Adaptive Noise Gate",
     shortName: "Gate",
+    originalName: "Adaptive Hysteresis Noise Gate",
+    aliases: ["Noise Gate", "Gate", "노이즈 게이트", "게이트"],
     category: "dyn",
     categoryLabel: "Dynamics",
     params: [
@@ -885,8 +1024,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "comp_sp",
-    name: "Xotic SP Compressor",
-    shortName: "SP Comp",
+    name: "Mini OTA Blend Compressor",
+    shortName: "OTA Comp",
+    originalName: "Xotic SP Compressor",
+    aliases: ["Xotic", "SP Compressor", "SP Comp", "엑조틱", "SP컴프"],
     category: "dyn",
     categoryLabel: "Compressor",
     params: [
@@ -897,8 +1038,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "comp_orangesqueezer",
-    name: "Dan Armstrong Orange Squeezer",
-    shortName: "Orange Sqz",
+    name: "Citrus JFET Squeezer",
+    shortName: "Citrus Sqz",
+    originalName: "Dan Armstrong Orange Squeezer",
+    aliases: ["Dan Armstrong", "Orange Squeezer", "오렌지 스퀴저", "오렌지스퀴저"],
     category: "dyn",
     categoryLabel: "Compressor",
     params: [
@@ -910,8 +1053,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "comp_cs3",
-    name: "BOSS CS-3 Comp Sustainer",
-    shortName: "BOSS CS-3",
+    name: "Compact Cyan VCA Sustainer",
+    shortName: "Cyan Comp",
+    originalName: "BOSS CS-3 Compression Sustainer",
+    aliases: ["BOSS", "CS-3", "CS3", "BOSS CS-3", "Comp Sustainer", "보스", "컴프레서"],
     category: "dyn",
     categoryLabel: "Compressor",
     params: [
@@ -923,8 +1068,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "comp_dyna",
-    name: "Dyna Comp",
-    shortName: "Dyna Comp",
+    name: "Red Script Studio Comp",
+    shortName: "Red Comp",
+    originalName: "MXR M102 Dyna Comp",
+    aliases: ["MXR", "Dyna Comp", "DynaComp", "M102", "다이나컴프", "다이나 컴프"],
     category: "dyn",
     categoryLabel: "Compressor",
     params: [
@@ -936,8 +1083,10 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
   },
   {
     id: "comp_1176",
-    name: "1176 Studio Comp",
-    shortName: "1176 Comp",
+    name: "FET 76 Limiting Amplifier",
+    shortName: "FET 76",
+    originalName: "UREI 1176LN Studio FET Compressor",
+    aliases: ["1176", "1176LN", "UREI", "Universal Audio", "1176 컴프"],
     category: "dyn",
     categoryLabel: "Compressor",
     params: [
@@ -947,11 +1096,168 @@ export const DEVICE_CATALOG: DeviceModelDef[] = [
       { index: 3, label: "MIX", unit: "%", min: 0, max: 100, step: 1, defaultVal: 85 },
     ],
   },
+
+  // ── PITCH ──
+  {
+    id: "pitch_capo",
+    name: "Poly Virtual Capo",
+    shortName: "Poly Capo",
+    originalName: "Polyphonic Drop / Virtual Capo",
+    aliases: ["DigiTech Drop", "Virtual Capo", "Capo", "카포", "드롭", "다운튜닝"],
+    category: "pitch",
+    categoryLabel: "Pitch Shifter",
+    params: [
+      { index: 0, label: "SEMITONES", unit: "st", min: -12, max: 12, step: 1, defaultVal: -2 },
+      { index: 1, label: "DETUNE", unit: "ct", min: -50, max: 50, step: 1, defaultVal: 0 },
+      { index: 2, label: "MIX", unit: "%", min: 0, max: 100, step: 1, defaultVal: 100 },
+      { index: 3, label: "LEVEL", unit: "dB", min: -12, max: 12, step: 0.1, defaultVal: 0 },
+    ],
+  },
+  {
+    id: "pitch_whammy",
+    name: "Red Expression Pitch Bender",
+    shortName: "Pitch Bend",
+    originalName: "DigiTech Whammy",
+    aliases: ["DigiTech", "Whammy", "Poly Whammy Pedal", "와미", "와미 페달"],
+    category: "pitch",
+    categoryLabel: "Pitch Shifter",
+    params: [
+      { index: 0, label: "PEDAL", unit: "%", min: 0, max: 100, step: 0.5, defaultVal: 0 },
+      { index: 1, label: "INTERVAL", unit: "st", min: -24, max: 24, step: 1, defaultVal: 12 },
+      { index: 2, label: "MIX", unit: "%", min: 0, max: 100, step: 1, defaultVal: 100 },
+      { index: 3, label: "LEVEL", unit: "dB", min: -12, max: 12, step: 0.1, defaultVal: 0 },
+    ],
+  },
+  {
+    id: "pitch_octaver",
+    name: "Poly Sub/Up Octaver",
+    shortName: "Octaver",
+    originalName: "Polyphonic Sub/Up Octaver (POG/OC-5)",
+    aliases: ["BOSS OC-5", "OC-3", "EHX POG", "Octaver", "옥타버"],
+    category: "pitch",
+    categoryLabel: "Pitch Shifter",
+    params: [
+      { index: 0, label: "DRY", unit: "%", min: 0, max: 100, step: 1, defaultVal: 80 },
+      { index: 1, label: "SUB -1 OCT", unit: "%", min: 0, max: 100, step: 1, defaultVal: 65 },
+      { index: 2, label: "UP +1 OCT", unit: "%", min: 0, max: 100, step: 1, defaultVal: 45 },
+      { index: 3, label: "TONE", min: 0, max: 10, step: 0.1, defaultVal: 5.5 },
+      { index: 4, label: "LEVEL", unit: "dB", min: -12, max: 12, step: 0.1, defaultVal: 0 },
+    ],
+  },
 ]
 
 export const DEVICE_MAP: Record<string, DeviceModelDef> = Object.fromEntries(
   DEVICE_CATALOG.map((d) => [d.id, d])
 )
+
+const BUILTIN_DEVICE_CATALOG: DeviceModelDef[] = [...DEVICE_CATALOG]
+
+function buildCustomDeviceDef(spec: CustomDeviceSpecDto): DeviceModelDef {
+  const cat = (spec.category === "amp" || spec.category === "cab" ? spec.category : "drive") as DeviceCategoryId
+  const labels = spec.paramLabels ?? []
+  const defs = spec.defaults ?? []
+
+  let params: DeviceParamDef[]
+  const spiceKnobs = spec.spiceCircuit?.knobs
+  if (spiceKnobs && spiceKnobs.length > 0) {
+    params = [...spiceKnobs]
+      .sort((a, b) => a.index - b.index)
+      .map((k) => ({
+        index: Math.max(0, Math.min(7, k.index)),
+        label: k.label || `P${k.index}`,
+        unit: k.unit || undefined,
+        min: typeof k.min === "number" ? k.min : 0,
+        max: typeof k.max === "number" ? k.max : k.isSwitch ? 1 : 10,
+        step: k.isSwitch ? 1 : 0.1,
+        defaultVal: typeof k.default === "number" ? k.default : defs[k.index] ?? 5,
+        kind: k.isSwitch ? "toggle" : "knob",
+      }))
+  } else if (cat === "amp") {
+    params = AMP_PARAMS.map((p) => ({
+      ...p,
+      label: labels[p.index] || p.label,
+      defaultVal: typeof defs[p.index] === "number" ? defs[p.index] : p.defaultVal,
+    }))
+  } else if (cat === "cab") {
+    params = [
+      { index: 0, label: labels[0] || "LOW CUT", unit: "Hz", min: 20, max: 350, step: 5, defaultVal: defs[0] ?? 78 },
+      { index: 1, label: labels[1] || "HIGH CUT", unit: "Hz", min: 2000, max: 16000, step: 100, defaultVal: defs[1] ?? 9600 },
+      { index: 2, label: labels[2] || "LEVEL", unit: "dB", min: -12, max: 12, step: 0.1, defaultVal: defs[2] ?? 0 },
+    ]
+  } else {
+    const count = Math.max(3, Math.min(4, labels.length || 4))
+    params = Array.from({ length: count }, (_, idx) => ({
+      index: idx,
+      label: labels[idx] || (idx === 0 ? "DRIVE" : idx === 1 ? "TONE" : idx === 2 ? "LEVEL" : "CHAR"),
+      min: 0,
+      max: 10,
+      step: 0.1,
+      defaultVal: defs[idx] ?? 5.0,
+    }))
+  }
+
+  return {
+    id: spec.id,
+    name: spec.name,
+    shortName: spec.shortName || spec.name.slice(0, 12),
+    originalName: spec.originalName || spec.name,
+    aliases: spec.aliases ?? [],
+    category: cat,
+    categoryLabel: spec.categoryLabel || "Custom Schematic",
+    schematicSummary: spec.schematicSummary,
+    schematicSourceUrl: spec.schematicSourceUrl,
+    params,
+  }
+}
+
+export function compactSearchToken(s?: string): string {
+  return (s ?? "").toLowerCase().replace(/[\s\-_/'().]+/g, "")
+}
+
+export function getDeviceSearchKeywords(d: DeviceModelDef): string {
+  const raw = [
+    d.name,
+    d.shortName,
+    d.originalName ?? "",
+    ...(d.aliases ?? []),
+    d.categoryLabel,
+    d.id,
+    d.schematicSummary ?? "",
+  ].join(" ")
+  const compact = [
+    compactSearchToken(d.name),
+    compactSearchToken(d.shortName),
+    compactSearchToken(d.originalName),
+    ...(d.aliases ?? []).map(compactSearchToken),
+    compactSearchToken(d.id),
+  ].join(" ")
+  return `${raw} ${compact}`
+}
+
+export function matchesDeviceSearch(d: DeviceModelDef, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  const haystack = getDeviceSearchKeywords(d).toLowerCase()
+  const tokens = q.split(/\s+/).filter(Boolean)
+  return tokens.every((t) => {
+    const ct = compactSearchToken(t)
+    return haystack.includes(t) || (ct.length > 0 && haystack.includes(ct))
+  })
+}
+
+export function registerCustomDevices(specs?: CustomDeviceSpecDto[] | null): number {
+  const customList = (specs ?? []).filter((s) => Boolean(s?.id)).map(buildCustomDeviceDef)
+  DEVICE_CATALOG.length = 0
+  DEVICE_CATALOG.push(...BUILTIN_DEVICE_CATALOG, ...customList)
+
+  for (const k of Object.keys(DEVICE_MAP)) {
+    delete DEVICE_MAP[k]
+  }
+  for (const d of DEVICE_CATALOG) {
+    DEVICE_MAP[d.id] = d
+  }
+  return DEVICE_CATALOG.length
+}
 
 export function createDefaultParams(modelId: string): number[] {
   const arr = [0, 0, 0, 0, 0, 0, 0, 0]
@@ -1054,73 +1360,75 @@ function makePreset(
 }
 
 export const FACTORY_PRESETS: SignalChainConfigDto[] = [
-  makePreset("1A", "Beast Lead", 1, 1, 5, 0.42, [
-    { index: 0, modelId: "gate_adaptive", overrides: { 0: -56, 1: 110, 2: 75 } },
-    { index: 1, modelId: "od_ts808", overrides: { 0: 3.5, 1: 5.8, 2: 6.4 } },
-    { index: 2, modelId: "amp_plexi", overrides: { 0: 6.4, 1: 5.2, 2: 5.8, 3: 6.0, 4: 5.6, 5: 3.5, 6: 5.5, 7: 1 } },
-    { index: 3, modelId: "cab_v30", overrides: { 0: 80, 1: 9500, 2: 0 } },
-    { index: 5, modelId: "dly_digital", overrides: { 0: 410, 1: 34, 2: 18, 3: 24 } },
-    { index: 6, modelId: "rev_hall", overrides: { 0: 56, 1: 44, 2: 24, 3: 26 } },
-    { index: 8, modelId: "eq_graphic5", enabled: true, overrides: { 0: 1.0, 1: -1.5, 2: 2.0, 3: 1.5, 4: 0.5 } },
-    { index: 9, modelId: "mod_ce2", enabled: true, overrides: { 0: 1.0, 1: 42, 2: 38 } },
+  makePreset("1A", "Velvet Neo-Soul Clean", 1, 1, 5, 0.45, [
+    { index: 0, modelId: "comp_sp", overrides: { 0: 54, 1: 5.6, 2: 1 } },
+    { index: 1, modelId: "od_janray", overrides: { 0: 3.2, 1: 5.0, 2: 6.2, 3: 4.2, 4: 5.6 } },
+    { index: 2, modelId: "amp_jc120", overrides: { 0: 4.6, 1: 4.8, 2: 5.4, 3: 6.4, 4: 5.5, 7: 1 } },
+    { index: 3, modelId: "cab_jc120", overrides: { 0: 65, 1: 12200, 2: 0 } },
+    { index: 5, modelId: "dly_dd3t", overrides: { 0: 360, 1: 30, 2: 22 } },
+    { index: 6, modelId: "rev_bluesky", overrides: { 0: 64, 1: 22, 2: 34, 3: 28, 4: 22 } },
+    { index: 9, modelId: "mod_dc2w", overrides: { 0: 2, 1: 62 } },
   ]),
-  makePreset("1B", "Brit Plexi Crunch", 0, 2, 5, 0.4, [
-    { index: 0, modelId: "gate_adaptive", overrides: { 0: -64 } },
-    { index: 1, modelId: "od_klon", overrides: { 0: 4.0, 1: 5.8, 2: 6.0 } },
-    { index: 2, modelId: "amp_plexi", overrides: { 0: 5.8, 1: 5.0, 2: 6.2, 3: 5.8, 4: 6.2, 5: 4.5, 6: 5.4, 7: 1 } },
-    { index: 3, modelId: "cab_v30" },
-    { index: 5, modelId: "rev_spring", overrides: { 0: 45, 1: 40, 2: 22 } },
+  makePreset("1B", "Golden Edge of Breakup", 0, 2, 5, 0.4, [
+    { index: 0, modelId: "comp_orangesqueezer", overrides: { 0: 5.6, 1: 5.6, 2: 5.2, 3: 90 } },
+    { index: 1, modelId: "od_klon", overrides: { 0: 4.2, 1: 6.0, 2: 6.2 } },
+    { index: 2, modelId: "amp_twin", overrides: { 0: 4.4, 1: 5.4, 2: 5.4, 3: 6.2, 4: 5.8, 5: 4.0, 6: 5.5, 7: 1 } },
+    { index: 3, modelId: "cab_jensen112", overrides: { 0: 70, 1: 11400, 2: 0 } },
+    { index: 5, modelId: "dly_analog", overrides: { 0: 370, 1: 32, 2: 52, 3: 24 } },
+    { index: 6, modelId: "rev_spring", overrides: { 0: 52, 1: 42, 2: 24 } },
   ]),
-  makePreset("1C", "US Clean Dream", 0, 2, 5, 0.45, [
-    { index: 0, modelId: "comp_dyna", overrides: { 0: 4.2, 1: 5.6, 2: 14, 3: 85 } },
-    { index: 2, modelId: "amp_twin", overrides: { 0: 3.0, 1: 5.4, 2: 4.6, 3: 6.2, 4: 5.5, 5: 2.5, 6: 5.5, 7: 1 } },
-    { index: 3, modelId: "cab_v30", overrides: { 0: 65, 1: 11500, 2: 0.5 } },
-    { index: 4, modelId: "mod_ce2", overrides: { 0: 0.9, 1: 52, 2: 46 } },
-    { index: 5, modelId: "dly_analog", overrides: { 0: 380, 1: 36, 2: 52, 3: 28 } },
-    { index: 6, modelId: "rev_hall", overrides: { 0: 68, 1: 40, 2: 30, 3: 32 } },
+  makePreset("1C", "Brit 800 Arena Crunch", 0, 2, 5, 0.4, [
+    { index: 0, modelId: "gate_adaptive", overrides: { 0: -60, 1: 110, 2: 75 } },
+    { index: 1, modelId: "od_sd1", overrides: { 0: 4.0, 1: 5.6, 2: 6.4 } },
+    { index: 2, modelId: "amp_2203", overrides: { 0: 6.8, 1: 5.4, 2: 6.4, 3: 5.8, 4: 5.8, 5: 4.0, 6: 5.8, 7: 0 } },
+    { index: 3, modelId: "cab_1960a", overrides: { 0: 85, 1: 9800, 2: 0 } },
+    { index: 5, modelId: "dly_dm2w", overrides: { 0: 360, 1: 30, 2: 22, 3: 1 } },
+    { index: 6, modelId: "rev_plate", overrides: { 0: 48, 1: 34, 2: 20 } },
   ]),
-  makePreset("1D", "Modern Djent 5153", 0, 2, 5, 0.4, [
+  makePreset("1D", "Tokyo Anime Pop-Rock", 0, 2, 5, 0.4, [
+    { index: 0, modelId: "comp_sp", overrides: { 0: 45, 1: 5.4, 2: 0 } },
+    { index: 1, modelId: "od_ts9", overrides: { 0: 3.6, 1: 6.0, 2: 6.4 } },
+    { index: 2, modelId: "amp_ac30", overrides: { 0: 5.6, 1: 4.8, 2: 6.0, 3: 6.6, 4: 5.8, 5: 4.0, 6: 6.0, 7: 1 } },
+    { index: 3, modelId: "cab_alnico", overrides: { 0: 75, 1: 11000, 2: 0 } },
+    { index: 5, modelId: "dly_timeline", overrides: { 0: 390, 1: 30, 2: 24, 3: 22, 4: 0 } },
+    { index: 6, modelId: "rev_bluesky", overrides: { 0: 54, 1: 18, 2: 38, 3: 22, 4: 0 } },
+  ]),
+  makePreset("2A", "Tight Modern Djent", 0, 2, 5, 0.4, [
     { index: 0, modelId: "gate_adaptive", overrides: { 0: -48, 1: 75, 2: 45 } },
-    { index: 1, modelId: "od_ts808", overrides: { 0: 1.5, 1: 6.5, 2: 7.5 } },
-    { index: 2, modelId: "amp_5153", overrides: { 0: 7.4, 1: 4.8, 2: 5.2, 3: 6.4, 4: 5.2, 5: 2.0, 6: 6.2, 7: 1 } },
-    { index: 3, modelId: "cab_v30", overrides: { 0: 95, 1: 8800, 2: 0 } },
+    { index: 1, modelId: "od_ts808", overrides: { 0: 1.4, 1: 6.6, 2: 7.8 } },
+    { index: 2, modelId: "amp_5153", overrides: { 0: 7.4, 1: 4.8, 2: 5.4, 3: 6.4, 4: 5.2, 5: 2.0, 6: 6.2, 7: 1 } },
+    { index: 3, modelId: "cab_mesa412", overrides: { 0: 95, 1: 9000, 2: 0 } },
     { index: 4, modelId: "eq_graphic5", overrides: { 0: 1.5, 1: -2.0, 2: 1.5, 3: 2.0, 4: 1.0 } },
-    { index: 6, modelId: "rev_plate", overrides: { 0: 38, 1: 35, 2: 14 } },
+    { index: 6, modelId: "rev_plate", overrides: { 0: 36, 1: 35, 2: 14 } },
   ]),
-  makePreset("2A", "JCM 800 Classic Rock", 0, 2, 5, 0.4, [
-    { index: 0, modelId: "gate_adaptive", overrides: { 0: -60 } },
-    { index: 1, modelId: "od_sd1", overrides: { 0: 4.2, 1: 5.6, 2: 6.2 } },
-    { index: 2, modelId: "amp_2203", overrides: { 0: 6.8, 1: 5.5, 2: 6.4, 3: 5.8, 4: 5.8, 5: 4.0, 6: 5.8, 7: 0 } },
-    { index: 3, modelId: "cab_v30" },
-    { index: 5, modelId: "dly_analog", overrides: { 0: 340, 1: 28, 2: 45, 3: 20 } },
-    { index: 6, modelId: "rev_plate", overrides: { 0: 48, 1: 32, 2: 20 } },
-  ]),
-  makePreset("2B", "Fuzz Stoner Wall", 0, 2, 5, 0.4, [
-    { index: 1, modelId: "fuzz_bigmuff", overrides: { 0: 7.2, 1: 5.4, 2: 5.2 } },
-    { index: 2, modelId: "amp_plexi", overrides: { 0: 4.8, 1: 6.2, 2: 5.8, 3: 5.2, 4: 6.0, 5: 5.5, 6: 4.8, 7: 0 } },
-    { index: 3, modelId: "cab_v30", overrides: { 0: 65, 1: 8200, 2: 0 } },
-    { index: 4, modelId: "mod_phase90", overrides: { 0: 0.65, 1: 68, 2: 38, 3: 48 } },
-    { index: 6, modelId: "rev_spring", overrides: { 0: 55, 1: 42, 2: 26 } },
-  ]),
-  makePreset("2C", "NAM Capture Rig", 0, 2, 5, 0.4, [
-    { index: 0, modelId: "gate_adaptive", overrides: { 0: -56 } },
-    { index: 1, modelId: "od_ts808", enabled: false, overrides: { 0: 2.5, 1: 6.0, 2: 6.5 } },
-    { index: 2, modelId: "nam_capture", overrides: { 0: 0, 1: 0, 2: 100 } },
-    { index: 3, modelId: "cab_custom", overrides: { 0: 80, 1: 10000, 2: 0 } },
-    { index: 5, modelId: "dly_digital", overrides: { 0: 400, 1: 30, 2: 15, 3: 22 } },
-    { index: 6, modelId: "rev_hall", overrides: { 0: 52, 1: 42, 2: 20, 3: 22 } },
-  ]),
-  makePreset("2D", "Ambient Shimmer", 1, 2, 6, 0.55, [
+  makePreset("2B", "Cathedral Shimmer Wash", 1, 2, 6, 0.55, [
     { index: 0, modelId: "comp_1176", overrides: { 0: 4.8, 1: 5.4, 2: 4, 3: 80 } },
-    { index: 1, modelId: "boost_ep", overrides: { 0: 3.2, 1: 1 } },
-    { index: 2, modelId: "amp_1star", overrides: { 0: 3.4, 1: 5.2, 2: 5.0, 3: 6.0, 4: 5.5, 5: 4.0, 6: 5.6, 7: 1 } },
+    { index: 1, modelId: "boost_ep", overrides: { 0: 3.4, 1: 1 } },
+    { index: 2, modelId: "amp_1star", overrides: { 0: 3.6, 1: 5.2, 2: 5.0, 3: 6.2, 4: 5.6, 5: 4.0, 6: 5.8, 7: 1 } },
     { index: 3, modelId: "cab_v30", overrides: { 0: 70, 1: 12000, 2: 0 } },
-    { index: 5, modelId: "dly_digital", overrides: { 0: 520, 1: 48, 2: 35, 3: 36 } },
-    { index: 6, modelId: "rev_hall", overrides: { 0: 82, 1: 35, 2: 40, 3: 42 } },
-    { index: 9, modelId: "mod_ce2", overrides: { 0: 0.75, 1: 62, 2: 55 } },
+    { index: 5, modelId: "dly_timeline", overrides: { 0: 480, 1: 46, 2: 34, 3: 36, 4: 1 } },
+    { index: 6, modelId: "rev_bluesky", overrides: { 0: 84, 1: 28, 2: 30, 3: 44, 4: 48 } },
+    { index: 9, modelId: "mod_smallclone", overrides: { 0: 0.75, 1: 1, 2: 54 } },
     { index: 10, modelId: "mod_tremolo", overrides: { 0: 3.8, 1: 38, 2: 0 } },
   ]),
-  makePreset("3A", "BOSS Blues & Dimension", 0, 2, 5, 0.45, [
+  makePreset("2C", "LA Hot-Rod Brown Lead", 1, 1, 5, 0.40, [
+    { index: 0, modelId: "gate_adaptive", overrides: { 0: -54, 1: 95, 2: 60 } },
+    { index: 1, modelId: "od_bbpreamp", overrides: { 0: 3.8, 1: 4.8, 2: 6.0, 3: 6.4 } },
+    { index: 2, modelId: "amp_be100", overrides: { 0: 6.8, 1: 5.2, 2: 6.4, 3: 6.0, 4: 5.6, 5: 3.5, 6: 5.8, 7: 1 } },
+    { index: 3, modelId: "cab_1960bv", overrides: { 0: 80, 1: 9600, 2: 0 } },
+    { index: 5, modelId: "dly_digital", overrides: { 0: 410, 1: 32, 2: 20, 3: 24 } },
+    { index: 6, modelId: "rev_hall", overrides: { 0: 56, 1: 42, 2: 22, 3: 26 } },
+    { index: 9, modelId: "eq_parametric", overrides: { 0: 80, 1: 1200, 2: 2.5, 3: 1.3, 4: 10500 } },
+  ]),
+  makePreset("2D", "Psychedelic '68 Fuzz", 0, 2, 5, 0.4, [
+    { index: 0, modelId: "eq_crybaby", overrides: { 0: 54, 1: 40, 2: 6.2, 3: 100 } },
+    { index: 1, modelId: "fuzz_face", overrides: { 0: 8.0, 1: 5.0, 2: 5.8, 3: 0 } },
+    { index: 2, modelId: "amp_plexi", overrides: { 0: 6.2, 1: 5.4, 2: 6.4, 3: 6.0, 4: 6.2, 5: 4.8, 6: 5.6, 7: 1 } },
+    { index: 3, modelId: "cab_1960bv", overrides: { 0: 80, 1: 9600, 2: 0 } },
+    { index: 4, modelId: "mod_univibe", overrides: { 0: 1.7, 1: 72, 2: 0 } },
+    { index: 6, modelId: "rev_spring", overrides: { 0: 52, 1: 42, 2: 24 } },
+  ]),
+  makePreset("3A", "Compact Blues & Dimension", 0, 2, 5, 0.45, [
     { index: 0, modelId: "comp_cs3", overrides: { 0: 5.5, 1: 5.8, 2: 4.5, 3: 4.8 } },
     { index: 1, modelId: "od_bd2", overrides: { 0: 4.8, 1: 5.5, 2: 5.8 } },
     { index: 2, modelId: "amp_twin", overrides: { 0: 3.8, 1: 5.2, 2: 5.4, 3: 5.8, 4: 5.8, 5: 3.5, 6: 5.5, 7: 1 } },
@@ -1129,7 +1437,7 @@ export const FACTORY_PRESETS: SignalChainConfigDto[] = [
     { index: 5, modelId: "dly_dm2w", overrides: { 0: 350, 1: 36, 2: 26, 3: 1 } },
     { index: 6, modelId: "rev_spring", overrides: { 0: 50, 1: 40, 2: 24 } },
   ]),
-  makePreset("3B", "BOSS Metal Zone Rig", 0, 2, 5, 0.4, [
+  makePreset("3B", "Obsidian Metal Zone Rig", 0, 2, 5, 0.4, [
     { index: 0, modelId: "gate_adaptive", overrides: { 0: -50, 1: 80, 2: 50 } },
     { index: 1, modelId: "dist_mt2", overrides: { 0: 7.4, 1: 3.0, 2: 3.5, 3: -4.5, 4: 900, 5: 5.4 } },
     { index: 2, modelId: "amp_twin", overrides: { 0: 2.5, 1: 5.0, 2: 5.0, 3: 5.0, 4: 5.5, 5: 2.0, 6: 5.0, 7: 0 } },
@@ -1153,7 +1461,7 @@ export const FACTORY_PRESETS: SignalChainConfigDto[] = [
     { index: 5, modelId: "dly_timeline", overrides: { 0: 390, 1: 30, 2: 24, 3: 22, 4: 0 } },
     { index: 6, modelId: "rev_bluesky", overrides: { 0: 52, 1: 18, 2: 40, 3: 22, 4: 0 } },
   ]),
-  makePreset("4C", "J-Rock Live House DSL", 0, 2, 5, 0.4, [
+  makePreset("4C", "J-Rock Live House 2000", 0, 2, 5, 0.4, [
     { index: 0, modelId: "gate_adaptive", overrides: { 0: -56, 1: 100, 2: 65 } },
     { index: 1, modelId: "od_ocd", overrides: { 0: 4.6, 1: 5.8, 2: 6.0, 3: 1 } },
     { index: 2, modelId: "amp_dsl", overrides: { 0: 6.6, 1: 5.2, 2: 6.2, 3: 6.0, 4: 5.8, 5: 3.5, 6: 6.2, 7: 0 } },

@@ -1,78 +1,75 @@
-# Antigravity AI MCP Integration Guide
+# Universal AI MCP Integration Guide (`neuralrig-mcp`)
 
-NeuralRig Studio features direct integration with **Google Antigravity** via the Model Context Protocol (MCP). Through this adapter, AI agents can inspect your rig state, examine your connected guitar's acoustic profile, and craft customized analog-accurate guitar tones directly from natural language prompts.
-
----
-
-## 1. Overview
-
-The integration consists of:
-- **`NeuralRigMcp.exe`**: A standalone single-file MCP server communicating over standard I/O (JSON-RPC).
-- **`NeuralRigStudio_McpPipe_v1`**: A fast, local Windows Named Pipe IPC bridge between `NeuralRigMcp` and the running `NeuralRigStudio` application.
+NeuralRig Studio exposes its live DSP/MNA SPICE engine over the **Model Context Protocol (MCP)** through both the native Windows binary (`NeuralRigMcp.exe`) and the zero-dependency npm wrapper (`packages/neuralrig-mcp`).
 
 ---
 
-## 2. Setting Up in Antigravity
+## 1. One-Command Setup Across 7 AI Providers
 
-Add the `neuralrig` MCP server to your Antigravity configuration file (e.g., `~/.gemini/antigravity/mcp_servers.json` or your project `.gemini/config`):
+Run the interactive or single-flag installer via `npx`:
 
-```json
-{
-  "mcpServers": {
-    "neuralrig": {
-      "command": "C:\\path\\to\\NeuralRigStudio\\bin\\Release\\net10.0-windows\\win-x64\\publish\\NeuralRigMcp.exe",
-      "args": []
-    }
-  }
-}
+```bash
+# Configure all supported AI tools automatically
+npx -y neuralrig-mcp install --client all
+
+# Or target an individual provider
+npx -y neuralrig-mcp install --client claude-desktop
+npx -y neuralrig-mcp install --client claude-code
+npx -y neuralrig-mcp install --client cursor
+npx -y neuralrig-mcp install --client windsurf
+npx -y neuralrig-mcp install --client codex
+npx -y neuralrig-mcp install --client gemini
+npx -y neuralrig-mcp install --client antigravity
 ```
 
-Or when running from source:
-```json
-{
-  "mcpServers": {
-    "neuralrig": {
-      "command": "dotnet",
-      "args": ["run", "--project", "C:\\path\\to\\NeuralRigStudio\\tools\\NeuralRigMcp\\NeuralRigMcp.csproj", "-c", "Release"]
-    }
-  }
-}
+Diagnose native binary resolution (`NeuralRigMcp.exe`) and live Named Pipe (`\\.\pipe\NeuralRigStudio_McpPipe_v1`) status:
+
+```bash
+npx -y neuralrig-mcp doctor
 ```
 
 ---
 
-## 3. Available MCP Tools
+## 2. Config Targets Written by `neuralrig-mcp`
 
-| Tool Name | Description | Key Parameters |
+| Client ID | Target Path | Format |
 |:---|:---|:---|
-| `neuralrig_get_catalog` | Returns the complete catalog of all 72 available pedals, amps, cabs, and utility devices with parameter schemas. | `category` (optional) |
-| `neuralrig_get_state` | Retrieves the current live state: active preset, 16 slot device assignments, parameter values, active scene, tempo BPM, and routing mode. | None |
-| `neuralrig_get_guitar_profiles` | Retrieves all saved guitar DI profiles, including detected pickup type, noise floor, harmonic richness, and suggested trim/gate. | None |
-| `neuralrig_generate_tone` | Uses the built-in circuit tone architect (auto-calibrated to active guitar DI profile) to generate or refine a 16-slot rig preset. | `prompt`, `guitarProfileId` (optional), `autoSave` (optional) |
-| `neuralrig_set_preset` | Applies a complete 16-slot preset JSON structure directly to the live studio. | `presetName`, `slots`, `tempoBpm` (optional), `autoSave` (optional) |
-| `neuralrig_update_slot` | Modifies device selection, enabled status, tempo sync division, or parameters for a specific slot in the 2x8 matrix. | `slotIndex` (0..15), `modelId`, `enabled`, `syncDivision` (0..5), `params` |
-| `neuralrig_switch_scene` | Switches the active scene (A..H), routing mode, parallel mix, or global tempo BPM. | `sceneIndex` (0..7), `routingMode` (0..1), `parallelMix`, `tempoBpm` |
+| `claude-desktop` | `%APPDATA%\Claude\claude_desktop_config.json` (Win) / `~/Library/Application Support/Claude/...` | JSON (`mcpServers`) |
+| `claude-code` | `~/.claude.json` | JSON (`mcpServers`) |
+| `cursor` | `~/.cursor/mcp.json` | JSON (`mcpServers`) |
+| `windsurf` | `~/.codeium/windsurf/mcp_config.json` | JSON (`mcpServers`) |
+| `codex` | `~/.codex/config.toml` | TOML (`[mcp_servers.neuralrig]`) |
+| `gemini` | `~/.gemini/settings.json` | JSON (`mcpServers`) |
+| `antigravity` | `~/.gemini/antigravity/mcp_config.json` | JSON (`mcpServers`) |
 
 ---
 
-## 4. Example Prompts for Antigravity
+## 3. Available MCP Tools (`tools/NeuralRigMcp/Program.cs`)
 
-You can simply converse with Antigravity inside your workspace or IDE:
+| Tool Name | Purpose | Key Parameters |
+|:---|:---|:---|
+| `neuralrig_get_catalog` | Search catalog using either safe UI aliases or original hardware names (`TS808`, `SD-1`, `JCM800`, Korean aliases). | `category`, `query` |
+| `neuralrig_get_state` | Read active preset, 16 slots, 8 scenes, tempo BPM, routing mode, ASIO/WASAPI status, and custom gear. | None |
+| `neuralrig_get_guitar_profiles` | Retrieve calibrated Guitar DI profiles (pickup type, hum floor, suggested trim & gate). | None |
+| `neuralrig_generate_tone` | Generate/refine a 16-slot signal chain from natural language calibrated to the active guitar profile. | `prompt`, `guitarProfileId`, `autoSave` |
+| `neuralrig_set_preset` | Replace the full 16-slot signal chain and optional scenes live. | `presetName`, `slots`, `tempoBpm`, `autoSave` |
+| `neuralrig_update_slot` | Modify model ID, bypass, tempo sync division (`0..5`), or params for a single slot (`0..15`). | `slotIndex`, `modelId`, `enabled`, `syncDivision`, `params` |
+| `neuralrig_switch_scene` | Switch active scene (`0..7`), routing (`Serial`/`ParallelSplit`), mix, or BPM. | `sceneIndex`, `routingMode`, `parallelMix`, `tempoBpm` |
+| `neuralrig_get_spice_guide` | Return MNA SPICE netlist schema (`R,C,L,POT,SW,D,Q,J,M,U,T`), anti-hallucination rules, and verified TS808 reference netlist. | None |
+| `neuralrig_list_spice_models` | Query built-in & custom `.MODEL` library; pass `checkParts` to detect missing parts requiring datasheet research. | `kind`, `checkParts` |
+| `neuralrig_register_spice_model` | Register a datasheet-verified semiconductor/op-amp/triode `.MODEL` (`datasheetUrl` mandatory). | `name`, `kind`, `polarity`, `datasheetUrl`, `params` |
+| `neuralrig_simulate_spice` | Run offline `.OP`, `.AC`, `.TRAN`, and `0 B` RT allocation check on a SPICE netlist or acoustic cabinet curve without modifying live audio. | `spiceCircuit` / `cabAcoustic`, `knobs`, `testFreqHz`, `testAmplitude` |
+| `neuralrig_commit_spice_device` | Validate, persist, and hot-deploy custom SPICE or Cab IR gear into `CustomDeviceRegistry` & running Studio UI. | `id`, `name`, `category`, `schematicSourceUrl`, `spiceCircuit` / `cabAcoustic`, `slotIndex` |
+| `neuralrig_delete_custom_device` | Remove a `custom_*` device from Studio catalog and disk registry. | `modelId` |
 
-### Example 1: Artist Tone Recreation
-> *"Can you make me a dream-pop tone inspired by The 1975, using chorus, tape delay, and a clean Fender-style amp?"*
+Also exposes MCP Resource `neuralrig://guides/spice-authoring` and Prompt `add_gear_from_schematic`.
 
-**What happens:**
-Antigravity queries the device catalog via `neuralrig_get_catalog`, constructs an optimal signal chain (Compressor -> CE-2 Chorus -> AB763 Twin Clean Preamp -> 1x12 Jensen Cab -> Tape Echo -> Shimmer Reverb), and loads it into your running studio in real time.
+---
 
-### Example 2: Matching Tone to Your Specific Guitar
-> *"Check my guitar profile and optimize an edge-of-breakup blues lead tone for my Stratocaster."*
+## 4. Strict Schematic Anti-Hallucination Workflow
 
-**What happens:**
-Antigravity calls `neuralrig_get_guitar_profiles`, sees that your guitar is a *Vintage Single-Coil* with a measured noise floor of -49.5 dBFS and recommended trim of +9.0 dB. It automatically sets the noise gate threshold to -54 dBFS, applies an input trim, and builds a Plexi/TS808 crunch tone tuned specifically for single-coil clarity.
-
-### Example 3: Fine-Tuning in Live Session
-> *"The distortion has too much harsh top end. Lower the treble and mid frequency on slot (row 0, col 2) and boost the power amp sag."*
-
-**What happens:**
-Antigravity calls `neuralrig_update_slot` with target parameter values, immediately adjusting the sound without any audio dropout or click.
+1. Call `neuralrig_get_spice_guide` before constructing a netlist.
+2. Search the web for genuine schematics & component datasheets. If no verifiable schematic exists for the requested gear, stop and report clearly that no authentic schematic could be verified.
+3. Verify component coverage with `neuralrig_list_spice_models(checkParts=...)` and register any missing semiconductor models with official datasheet URLs.
+4. Validate `.OP` DC bias, `.AC` transfer curve, `.TRAN` 4x harmonics, and `RtAllocBytes == 0` via `neuralrig_simulate_spice`.
+5. Commit via `neuralrig_commit_spice_device` so the new gear appears in the Signal Chain catalog and Community Gear Hub.

@@ -92,6 +92,9 @@ public sealed partial class SignalChainEngine
             case BlockOp.OdBoxOfRock:
                 SchematicPedalDsp.ProcessBoxOfRock4x(ref st.Circuit, buf4, fs4, sl.P0);
                 break;
+            case BlockOp.CustomPedal:
+                SchematicPedalDsp.ProcessCustomSchematicPedal4x(ref st.Circuit, buf4, fs4, sl.P0, sl.P3, in sl.CustomPedal);
+                break;
         }
 
         st.Os4x.Downsample(_monoTmp.AsSpan(0, n), n, _os2x, _os4x);
@@ -122,6 +125,7 @@ public sealed partial class SignalChainEngine
             BlockOp.BoostRangemaster => 0.90f,
             BlockOp.DistPlus => 0.26f + 1.65f * (Math.Clamp(sl.P1, 0f, 10f) / 10f),
             BlockOp.OdBoxOfRock => 0.28f + 1.80f * (Math.Clamp(sl.P2, 0f, 10f) / 10f),
+            BlockOp.CustomPedal => 0.28f + 1.75f * (Math.Clamp(sl.P2, 0f, 10f) / 10f),
             _ => 1.0f,
         };
         if (!st.SmoothReady)
@@ -239,6 +243,16 @@ public sealed partial class SignalChainEngine
                 }
                 break;
             }
+            case BlockOp.CustomPedal:
+            {
+                for (int i = 0; i < n; i++)
+                {
+                    st.SmoothOutGain += alpha * (targetOutG - st.SmoothOutGain);
+                    float y = st.F2L.Process(st.F1L.Process(st.F0L.Process(_monoTmp[i]))) * st.SmoothOutGain;
+                    bufL[i] = y; bufR[i] = y;
+                }
+                break;
+            }
         }
     }
 
@@ -340,6 +354,63 @@ public sealed partial class SignalChainEngine
         }
     }
 
+    private void ProcessCustomAmp(SlotDspState st, Span<float> bufL, Span<float> bufR, int n, ToneProcessor host, ref CompiledSlot sl)
+    {
+        var amp = (st.AmpPoolIdx >= 0 && st.AmpPoolIdx < _ampPool.Length) ? _ampPool[st.AmpPoolIdx] : host.WhiteBox;
+        WhiteBoxChannel ch = sl.CustomAmp.BaseAmpChannel switch
+        {
+            0 => WhiteBoxChannel.Clean,
+            2 => WhiteBoxChannel.HighGain,
+            _ => WhiteBoxChannel.Plexi,
+        };
+        bool bright = sl.P7 > 0.5f;
+        float depth = sl.CustomAmp.BaseAmpChannel == 2 ? 6.0f : 5.0f;
+
+        amp.ApplyChainAmpParams(
+            ch,
+            bright,
+            preGain: sl.P0,
+            bass: sl.P1,
+            mid: sl.P2,
+            treble: sl.P3,
+            master: sl.P4,
+            sag: sl.P5,
+            presence: sl.P6,
+            depth: depth);
+
+        for (int i = 0; i < n; i++)
+            _monoTmp[i] = 0.5f * (bufL[i] + bufR[i]);
+
+        amp.ProcessFullAmp(_monoTmp.AsSpan(0, n), n, includePowerAmp: true);
+
+        for (int i = 0; i < n; i++)
+        {
+            float v = st.F2L.Process(st.F1L.Process(st.F0L.Process(_monoTmp[i])));
+            bufL[i] = v;
+            bufR[i] = v;
+        }
+    }
+
+    private void ProcessCustomSpice(int idx, SlotDspState st, Span<float> bufL, Span<float> bufR, int n, ref CompiledSlot sl)
+    {
+        var spiceRt = _activeSnapshot.CustomSpiceSlots[idx];
+        if (spiceRt == null) return;
+
+        for (int i = 0; i < n; i++)
+            _monoTmp[i] = 0.5f * (bufL[i] + bufR[i]);
+
+        var buf4 = st.Os4x.Upsample(_monoTmp.AsSpan(0, n), n, _os2x, _os4x);
+        spiceRt.ProcessBlock4x(buf4, sl.P0, sl.P1, sl.P2, sl.P3, sl.P4, sl.P5, sl.P6, sl.P7);
+        st.Os4x.Downsample(_monoTmp.AsSpan(0, n), n, _os2x, _os4x);
+
+        for (int i = 0; i < n; i++)
+        {
+            float v = _monoTmp[i];
+            bufL[i] = v;
+            bufR[i] = v;
+        }
+    }
+
     private void ProcessNamBlock(Span<float> bufL, Span<float> bufR, int n, ToneProcessor host, ref CompiledSlot sl)
     {
         float inGain = MathF.Pow(10f, Math.Clamp(sl.P0, -12f, 12f) / 20f);
@@ -368,16 +439,16 @@ public sealed partial class SignalChainEngine
         }
     }
 
-    private void ProcessCabBlock(SlotDspState st, Span<float> bufL, Span<float> bufR, int n, ToneProcessor host, ref CompiledSlot sl)
+    private void ProcessCabBlock(SlotDspState st, Span<float> bufL, Span<float> bufR, int n, ToneProcessor host, ref CompiledSlot sl, PartitionedIr? overridePartIr = null)
     {
         float targetGain = MathF.Pow(10f, Math.Clamp(sl.P2, -12f, 12f) / 20f);
         float alpha = 1f - MathF.Exp(-1f / MathF.Max(1f, 0.005f * _sampleRate));
         if (!st.SmoothReady) { st.SmoothOutGain = targetGain; st.SmoothReady = true; }
 
         // 최대 16,384탭 Zero-Latency Partitioned FFT 컨볼루션
-        PartitionedIr? partIr = sl.SubModel == 1
+        PartitionedIr? partIr = overridePartIr ?? (sl.SubModel == 1
             ? (host.GetCustomOrProfilePartitionedIr() ?? _cabBank.GetPartitionedIr(0))
-            : _cabBank.GetPartitionedIr(sl.SubModel);
+            : _cabBank.GetPartitionedIr(sl.SubModel));
 
         if (partIr != null && st.CabPoolIdx >= 0 && st.CabPoolIdx < _cabPool.Length)
         {

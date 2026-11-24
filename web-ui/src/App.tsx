@@ -1,49 +1,71 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
-  Activity,
+  BookOpen,
+  Bug,
+  Cloud,
+  Gauge,
+  Globe,
   Guitar,
   Music2,
+  Package,
+  Palette,
   Play,
-  RefreshCw,
-  ScrollText,
+  Search,
+  Shield,
   SlidersHorizontal,
   Square,
-  Usb,
+  Terminal,
   VolumeX,
   Wrench,
 } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
-import { NeuralPulseLogo } from "@/components/CortexIcons"
+import { motion } from "motion/react"
+import { toast } from "sonner"
+import { AdminConsoleDialog } from "@/components/AdminConsoleDialog"
+import { AudioMidiSheet } from "@/components/AudioMidiSheet"
+import { AuthAccountModal } from "@/components/AuthAccountModal"
+import { BenchmarkDialog } from "@/components/BenchmarkDialog"
+import { BugReportDialog } from "@/components/BugReportDialog"
+import { CommandPalette } from "@/components/CommandPalette"
+import { ConsoleLogSheet, type StudioLogEntry } from "@/components/ConsoleLogSheet"
 import { CortexStudio } from "@/components/CortexStudio"
+import { CustomGearGuideDialog } from "@/components/CustomGearGuideDialog"
 import { GuitarAnalyzerDialog } from "@/components/GuitarAnalyzerDialog"
+import { OnboardingTutorialModal } from "@/components/OnboardingTutorialModal"
+import { OtaUpdateModal } from "@/components/OtaUpdateModal"
+import { ToneHubModal } from "@/components/ToneHubModal"
 import { TunerDialog } from "@/components/TunerDialog"
-import { FACTORY_PRESETS } from "@/data/cortexCatalog"
+import { Button } from "@/components/ui/button"
+import { Kbd } from "@/components/ui/kbd"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Separator } from "@/components/ui/separator"
+import { Toaster } from "@/components/ui/sonner"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { Hint } from "@/components/ui/tooltip"
+import {
+  FACTORY_PRESETS,
+  commitActiveScene,
+  createDefaultParams,
+  ensurePresetScenes,
+  registerCustomDevices,
+  switchSceneOnChain,
+  syncScenesOnAssignSlot,
+} from "@/data/cortexCatalog"
 import { studioBridge } from "@/lib/bridge"
+import { useI18n, type StudioLocale } from "@/lib/i18n"
+import { STUDIO_THEMES, useStudioTheme } from "@/lib/theme"
 import type {
   AsioCapabilitiesDto,
   BackingTrackStateDto,
+  CloudStateDto,
+  CustomDeviceSpecDto,
   GuitarAnalysisLiveStateDto,
   GuitarProfileDto,
+  LooperSnapshotDto,
   MidiSnapshotDto,
   ModelProfileSummary,
+  OtaCheckResultDto,
   PresetDef,
+  RecorderReampSnapshotDto,
   SignalChainConfigDto,
   StudioInitSnapshot,
   TelemetryFrame,
@@ -51,31 +73,54 @@ import type {
   WasapiDeviceDto,
 } from "@/types/rig"
 
-interface LogEntry {
-  id: number
-  text: string
-  level: "info" | "success" | "error"
-}
+export type StudioViewId = "grid" | "directory" | "scope"
 
 export default function App() {
-  const [activeView, setActiveView] = useState<"grid" | "directory">("grid")
+  const { locale, setLocale, tx } = useI18n()
+  const { themeId, theme, setThemeId } = useStudioTheme()
+
+  const [activeView, setActiveView] = useState<StudioViewId>("grid")
   const [logsOpen, setLogsOpen] = useState(false)
   const [audioDialogOpen, setAudioDialogOpen] = useState(false)
   const [guitarDialogOpen, setGuitarDialogOpen] = useState(false)
   const [tunerDialogOpen, setTunerDialogOpen] = useState(false)
+  const [toneHubOpen, setToneHubOpen] = useState(false)
+  const [benchOpen, setBenchOpen] = useState(false)
+  const [tutorialOpen, setTutorialOpen] = useState(false)
+  const [gearGuideOpen, setGearGuideOpen] = useState(false)
+  const [authOpen, setAuthOpen] = useState(false)
+  const [bugOpen, setBugOpen] = useState(false)
+  const [otaOpen, setOtaOpen] = useState(false)
+  const [otaInfo, setOtaInfo] = useState<OtaCheckResultDto | null>(null)
+  const [adminOpen, setAdminOpen] = useState(false)
+  const [appVersion, setAppVersion] = useState("3.0.0")
+  const [hasCompletedTutorial, setHasCompletedTutorial] = useState(false)
+  const [cloudState, setCloudState] = useState<CloudStateDto>({
+    mode: "unselected",
+    cloudApiBaseUrl: "",
+    isConfigured: false,
+    isAuthenticated: false,
+    user: null,
+    lastSyncUtc: null,
+    pendingBugReportsCount: 0,
+  })
+  const [customDevices, setCustomDevices] = useState<CustomDeviceSpecDto[]>([])
+  const [commandOpen, setCommandOpen] = useState(false)
+  const [fileDropActive, setFileDropActive] = useState(false)
+
   const [tunerMute, setTunerMute] = useState(false)
   const [tunerRefA4Hz, setTunerRefA4Hz] = useState(440)
-  const [logs, setLogs] = useState<LogEntry[]>([])
+  const [logs, setLogs] = useState<StudioLogEntry[]>([])
   const [guitarProfiles, setGuitarProfiles] = useState<GuitarProfileDto[]>([])
   const [activeGuitarProfileId, setActiveGuitarProfileId] = useState("")
   const [guitarAnalysis, setGuitarAnalysis] = useState<GuitarAnalysisLiveStateDto | null>(null)
 
   const [asioDrivers, setAsioDrivers] = useState<string[]>([])
   const [wasapiDevices, setWasapiDevices] = useState<WasapiDeviceDto[]>([
-    { id: "", label: "시스템 기본 출력 장치" },
+    { id: "", label: "System Default Output" },
   ])
   const [wasapiInputDevices, setWasapiInputDevices] = useState<WasapiDeviceDto[]>([
-    { id: "", label: "시스템 기본 입력 장치 (자동)" },
+    { id: "", label: "System Default Input (Auto)" },
   ])
   const [presets, setPresets] = useState<PresetDef[]>([
     { index: 0, name: "극한 (링 4ms / WASAPI 8~12ms)", ringMs: 4, sharedMs: 12, exclMs: 8 },
@@ -101,10 +146,22 @@ export default function App() {
 
   const [tones, setTones] = useState<ModelProfileSummary[]>([])
   const [selectedToneId, setSelectedToneId] = useState("")
+  const [catalogVersion, setCatalogVersion] = useState(0)
   const [customCabIrName, setCustomCabIrName] = useState("")
-  const [initialChain, setInitialChain] = useState<SignalChainConfigDto>(FACTORY_PRESETS[0])
+
+  const [chain, setChain] = useState<SignalChainConfigDto>(() =>
+    ensurePresetScenes(FACTORY_PRESETS[0])
+  )
   const [savedPresets, setSavedPresets] = useState<SignalChainConfigDto[]>([])
-  const [backingInitState, setBackingInitState] = useState<BackingTrackStateDto | undefined>(undefined)
+  const [selectedSlot, setSelectedSlot] = useState<number>(2)
+
+  const [backingInitState, setBackingInitState] = useState<BackingTrackStateDto | undefined>(
+    undefined
+  )
+  const [looperInitState, setLooperInitState] = useState<LooperSnapshotDto | undefined>(undefined)
+  const [recorderInitState, setRecorderInitState] = useState<
+    RecorderReampSnapshotDto | undefined
+  >(undefined)
   const [midiState, setMidiState] = useState<MidiSnapshotDto>({
     devices: [],
     activeDevice: "",
@@ -115,7 +172,7 @@ export default function App() {
 
   const [isAudioRunning, setIsAudioRunning] = useState(false)
   const [isAudioBusy, setIsAudioBusy] = useState(false)
-  const [audioStatus, setAudioStatus] = useState("대기 중")
+  const [audioStatus, setAudioStatus] = useState("STANDBY")
   const [headerLatencyMs, setHeaderLatencyMs] = useState<number | null>(null)
   const [tuner, setTuner] = useState<TunerSnapshotDto>({
     active: false,
@@ -125,9 +182,90 @@ export default function App() {
     freqHz: 0,
   })
 
+  const syncTimerRef = useRef<number | null>(null)
+
   const addLog = (text: string, level: "info" | "success" | "error" = "info") => {
     const line = text.startsWith("[") ? text : `[${new Date().toLocaleTimeString()}] ${text}`
-    setLogs((prev) => [{ id: Date.now() + Math.random(), text: line, level }, ...prev].slice(0, 120))
+    setLogs((prev) =>
+      [{ id: Date.now() + Math.random(), text: line, level }, ...prev].slice(0, 140)
+    )
+    if (level === "success") toast.success(text)
+    else if (level === "error") toast.error(text)
+  }
+
+  const pushChainToEngine = (
+    next: SignalChainConfigDto,
+    immediate = false,
+    preserveScenes = false
+  ) => {
+    const finalized = preserveScenes ? ensurePresetScenes(next) : commitActiveScene(next)
+    setChain(finalized)
+    if (!studioBridge.isWebView2) return
+    if (syncTimerRef.current !== null) {
+      window.clearTimeout(syncTimerRef.current)
+      syncTimerRef.current = null
+    }
+    const send = () => {
+      studioBridge
+        .invoke("updateSignalChain", finalized)
+        .catch((e) => addLog(`체인 업데이트 실패: ${String(e)}`, "error"))
+    }
+    if (immediate) send()
+    else syncTimerRef.current = window.setTimeout(send, 16)
+  }
+
+  const allPresets = useMemo(() => {
+    const map = new Map<string, SignalChainConfigDto>()
+    for (const p of FACTORY_PRESETS) map.set(p.presetId, p)
+    for (const p of savedPresets) map.set(p.presetId, p)
+    return Array.from(map.values())
+  }, [savedPresets])
+
+  const loadPreset = (preset: SignalChainConfigDto) => {
+    const clone: SignalChainConfigDto = ensurePresetScenes({
+      ...preset,
+      slots: preset.slots.map((s) => ({
+        ...s,
+        params: [...s.params],
+        cabMic: s.cabMic ? { ...s.cabMic } : undefined,
+      })),
+      scenes: preset.scenes?.map((sc) => ({
+        parallelMix: sc.parallelMix,
+        slots: sc.slots.map((sl) => ({
+          enabled: sl.enabled,
+          syncDivision: sl.syncDivision,
+          params: [...sl.params],
+        })),
+      })),
+    })
+    pushChainToEngine(clone, true, true)
+    const firstAmp = clone.slots.findIndex(
+      (s) =>
+        s.modelId.startsWith("amp_") ||
+        s.modelId.startsWith("custom_amp_") ||
+        s.modelId === "nam_capture"
+    )
+    if (firstAmp >= 0) setSelectedSlot(firstAmp)
+    addLog(`${clone.presetId} · ${clone.presetName}`, "info")
+    toast(`${clone.presetId} · ${clone.presetName}`)
+  }
+
+  const assignModelToSlot = (modelId: string, slotIdx: number) => {
+    const nextSlots = chain.slots.map((s) => ({ ...s, params: [...s.params] }))
+    const nextParams = createDefaultParams(modelId)
+    nextSlots[slotIdx] = {
+      index: slotIdx,
+      modelId,
+      namModelId: modelId === "nam_capture" ? selectedToneId || null : undefined,
+      enabled: true,
+      params: nextParams,
+    }
+    setSelectedSlot(slotIdx)
+    pushChainToEngine(
+      syncScenesOnAssignSlot({ ...chain, slots: nextSlots }, slotIdx, modelId, nextParams),
+      true,
+      true
+    )
   }
 
   useEffect(() => {
@@ -149,6 +287,9 @@ export default function App() {
         setSelectedToneId(ev.selectedToneId || "")
       }
     )
+    const unsubCabIr = studioBridge.on<{ customCabIrName?: string }>("cabIrChanged", (ev) => {
+      if (ev?.customCabIrName !== undefined) setCustomCabIrName(ev.customCabIrName)
+    })
     const unsubGuitars = studioBridge.on<{
       guitarProfiles: GuitarProfileDto[]
       activeGuitarProfileId: string
@@ -161,6 +302,41 @@ export default function App() {
     })
     const unsubTunerMute = studioBridge.on<{ mute: boolean }>("tunerMuteChanged", (ev) => {
       if (ev !== undefined) setTunerMute(Boolean(ev.mute))
+    })
+    const unsubCustomDevices = studioBridge.on<{
+      customDevices?: CustomDeviceSpecDto[]
+      addedDevice?: CustomDeviceSpecDto
+    }>("customDevicesChanged", (ev) => {
+      if (ev?.customDevices) {
+        setCustomDevices(ev.customDevices)
+        registerCustomDevices(ev.customDevices)
+        setCatalogVersion((v) => v + 1)
+      }
+      if (ev?.addedDevice?.name) {
+        addLog(`[MCP] ${ev.addedDevice.name} loaded.`, "success")
+      }
+    })
+    const unsubCloud = studioBridge.on<CloudStateDto>("cloudStateChanged", (st) => {
+      if (st) setCloudState(st)
+    })
+    const unsubChain = studioBridge.on<{
+      signalChain?: SignalChainConfigDto
+      savedPresets?: SignalChainConfigDto[]
+      summary?: string
+    }>("signalChainChanged", (ev) => {
+      if (ev?.signalChain) {
+        const nextChain = ensurePresetScenes(ev.signalChain)
+        setChain(nextChain)
+        const firstAmp = nextChain.slots.findIndex(
+          (s) =>
+            s.modelId.startsWith("amp_") ||
+            s.modelId.startsWith("custom_amp_") ||
+            s.modelId === "nam_capture"
+        )
+        if (firstAmp >= 0) setSelectedSlot(firstAmp)
+        addLog(ev.summary ? `[MCP] ${ev.summary}` : "[MCP] Signal chain updated.", "success")
+      }
+      if (ev?.savedPresets) setSavedPresets(ev.savedPresets)
     })
 
     let lastHdrSync = 0
@@ -177,7 +353,15 @@ export default function App() {
         if (f.vis?.tuner) {
           setTuner(f.vis.tuner)
         } else if (!f.running) {
-          setTuner({ active: false, noteName: "--", octave: 0, cents: 0, freqHz: 0, clarity: 0, levelDb: -96 })
+          setTuner({
+            active: false,
+            noteName: "--",
+            octave: 0,
+            cents: 0,
+            freqHz: 0,
+            clarity: 0,
+            levelDb: -96,
+          })
         }
       }
       if (now - lastHdrSync > 120) {
@@ -194,9 +378,9 @@ export default function App() {
         .then((snap) => {
           const loadedAsio = snap.audio.asioDrivers || []
           setAsioDrivers(loadedAsio)
-          setWasapiDevices(snap.audio.wasapiDevices || [{ id: "", label: "시스템 기본 출력 장치" }])
+          setWasapiDevices(snap.audio.wasapiDevices || [{ id: "", label: "System Default Output" }])
           setWasapiInputDevices(
-            snap.audio.wasapiInputDevices || [{ id: "", label: "시스템 기본 입력 장치 (자동)" }]
+            snap.audio.wasapiInputDevices || [{ id: "", label: "System Default Input (Auto)" }]
           )
           if (snap.presets?.length) setPresets(snap.presets)
           if (snap.audio.initialCaps) setCaps(snap.audio.initialCaps)
@@ -226,28 +410,93 @@ export default function App() {
           setTones(snap.tones || [])
           setSelectedToneId(snap.selectedToneId || "")
           setCustomCabIrName(snap.customCabIrName || "")
-          if (snap.signalChain) setInitialChain(snap.signalChain)
+          if (snap.customDevices) {
+            setCustomDevices(snap.customDevices)
+            registerCustomDevices(snap.customDevices)
+            setCatalogVersion((v) => v + 1)
+          }
+          if (snap.appVersion) setAppVersion(snap.appVersion)
+          if (snap.cloudState) setCloudState(snap.cloudState)
+          const tutDone = Boolean(s.hasCompletedTutorial)
+          setHasCompletedTutorial(tutDone)
+          if (!s.hasChosenAuthMode && snap.cloudState?.mode === "unselected") {
+            setAuthOpen(true)
+          } else if (!tutDone) {
+            setTutorialOpen(true)
+          }
+          studioBridge
+            .invoke<OtaCheckResultDto>("checkOtaUpdate")
+            .then((rel) => {
+              if (rel) {
+                setOtaInfo(rel)
+                if (rel.updateAvailable) setOtaOpen(true)
+              }
+            })
+            .catch(() => {})
+          if (snap.signalChain) setChain(ensurePresetScenes(snap.signalChain))
           if (snap.savedPresets) setSavedPresets(snap.savedPresets)
           setGuitarProfiles(snap.guitarProfiles || [])
           setActiveGuitarProfileId(snap.activeGuitarProfileId || "")
           setTunerMute(Boolean(snap.tunerMute))
           if (snap.tunerRefA4Hz) setTunerRefA4Hz(snap.tunerRefA4Hz)
           if (snap.backing) setBackingInitState(snap.backing)
+          if (snap.looper) setLooperInitState(snap.looper)
+          if (snap.recorder) setRecorderInitState(snap.recorder)
           if (snap.midi) setMidiState(snap.midi)
           setIsAudioRunning(snap.isAudioRunning)
         })
-        .catch((e) => addLog(`초기화 오류: ${String(e)}`, "error"))
+        .catch((e) => addLog(`Init error: ${String(e)}`, "error"))
     }
 
     return () => {
       unsubLog()
       unsubAudio()
       unsubTones()
+      unsubCabIr()
       unsubGuitars()
       unsubMidi()
       unsubTunerMute()
+      unsubCustomDevices()
+      unsubCloud()
+      unsubChain()
       unsubTel()
     }
+  }, [])
+
+  const handleManualCheckUpdates = async () => {
+    if (!studioBridge.isWebView2) return
+    try {
+      const res = await studioBridge.invoke<OtaCheckResultDto>("checkOtaUpdate")
+      setOtaInfo(res)
+      if (!res.updateAvailable) {
+        toast.success(tx(`현재 최신 버전(v${res.currentVersion})입니다.`, `You are running the latest version (v${res.currentVersion}).`))
+      }
+      setOtaOpen(true)
+    } catch (e) {
+      toast.error(String(e))
+    }
+  }
+
+  // Global Command Palette Shortcuts: '/' or 'Ctrl+K' / 'Cmd+K'
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase()
+      const isInput =
+        tag === "input" ||
+        tag === "textarea" ||
+        (e.target as HTMLElement | null)?.isContentEditable
+      if ((e.key === "k" || e.key === "K") && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault()
+        setCommandOpen((o) => !o)
+        return
+      }
+      if (!isInput && e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault()
+        setCommandOpen(true)
+      }
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
   }, [])
 
   const probeAsioCaps = async (driver: string) => {
@@ -275,10 +524,14 @@ export default function App() {
       setWasapiDevices(res.wasapiDevices || [])
       if (res.wasapiInputDevices) setWasapiInputDevices(res.wasapiInputDevices)
 
-      const gpDriver = drivers.find((d) => /valeton|gp-?100/i.test(d))
+      const preferredPro = drivers.find((d) => !/realtek/i.test(d))
       let activeDriver = inputDriver
-      if (!activeDriver || !drivers.includes(activeDriver) || (/realtek/i.test(activeDriver) && gpDriver)) {
-        activeDriver = gpDriver || res.initialDriver || drivers[0] || ""
+      if (
+        !activeDriver ||
+        !drivers.includes(activeDriver) ||
+        (/realtek/i.test(activeDriver) && preferredPro)
+      ) {
+        activeDriver = preferredPro || res.initialDriver || drivers[0] || ""
         setInputDriver(activeDriver)
       }
       if (!isAudioRunning && activeDriver) {
@@ -295,7 +548,7 @@ export default function App() {
 
   useEffect(() => {
     if (audioDialogOpen && studioBridge.isWebView2) {
-      if (!isAudioRunning) handleRefreshDevices()
+      if (!isAudioRunning) void handleRefreshDevices()
       studioBridge
         .invoke<MidiSnapshotDto>("refreshMidiDevices")
         .then((m) => m && setMidiState(m))
@@ -309,7 +562,7 @@ export default function App() {
       const res = await studioBridge.invoke<MidiSnapshotDto>("selectMidiDevice", { deviceName })
       if (res) setMidiState(res)
     } catch (e) {
-      addLog(`MIDI 장치 연결 오류: ${String(e)}`, "error")
+      addLog(tx(`MIDI 연결 오류: ${String(e)}`, `MIDI connect error: ${String(e)}`), "error")
     }
   }
 
@@ -319,12 +572,16 @@ export default function App() {
     paramIndex?: number
     sceneIndex?: number
   }) => {
-    if (!studioBridge.isWebView2) return
+    if (!studioBridge.isWebView2) {
+      toast.info(tx("WebView2 오디오 호스트에서 MIDI 학습이 동작합니다.", "MIDI Learn runs inside the desktop host."))
+      return
+    }
     try {
       const res = await studioBridge.invoke<MidiSnapshotDto>("startMidiLearn", req)
       if (res) setMidiState(res)
+      toast.info(tx("MIDI 컨트롤러 페달이나 노브를 움직여 주세요…", "Move a MIDI pedal or knob to bind…"))
     } catch (e) {
-      addLog(`MIDI Learn 시작 실패: ${String(e)}`, "error")
+      addLog(tx(`MIDI Learn 실패: ${String(e)}`, `MIDI Learn failed: ${String(e)}`), "error")
     }
   }
 
@@ -348,21 +605,28 @@ export default function App() {
     try {
       const res = await studioBridge.invoke<MidiSnapshotDto>("clearMidiBinding", req)
       if (res) setMidiState(res)
+      toast.success(tx("MIDI 매핑 해제됨", "MIDI binding cleared"))
     } catch {
       // ignore
     }
   }
 
-  const handleQuickStartGp100 = async (mode: "WASAPI" | "ASIO_DUPLEX") => {
+  const handleQuickStartAutoAudio = async (mode: "WASAPI" | "ASIO_DUPLEX") => {
     if (!studioBridge.isWebView2 || isAudioBusy) return
-    const gpDriver = asioDrivers.find((d) => /valeton|gp-?100/i.test(d)) || "Valeton USB Audio Device"
+    const preferredDriver =
+      (inputDriver && asioDrivers.includes(inputDriver) ? inputDriver : null) ||
+      asioDrivers.find((d) => !/realtek/i.test(d)) ||
+      asioDrivers[0]
+
+    if (!preferredDriver) {
+      await handleQuickStartUniversalWasapi()
+      return
+    }
+
     setInputKind("ASIO")
-    setInputDriver(gpDriver)
-    setChannelMode(1)
-    setInputChannelOffset(0)
+    setInputDriver(preferredDriver)
     setOutputKind(mode)
     setPresetIndex(1)
-    addLog(`[GP-100] Valeton GP-100 원클릭 연결 시작 (${mode === "ASIO_DUPLEX" ? "GP-100 헤드폰 직결" : "PC 스피커/헤드셋"})…`, "info")
     try {
       if (isAudioRunning) {
         await studioBridge.invoke("stopMonitoring")
@@ -374,12 +638,12 @@ export default function App() {
         outputKind?: string
       }>("startMonitoring", {
         inputKind: "ASIO",
-        inputDriver: gpDriver,
+        inputDriver: preferredDriver,
         wasapiInputDeviceId,
         wasapiInputExclusive,
         wasapiInputRaw,
-        channelMode: 1,
-        inputChannelOffset: 0,
+        channelMode,
+        inputChannelOffset,
         asioInBufferSize: bufferSize,
         outputKind: mode,
         wasapiExclusive,
@@ -391,9 +655,9 @@ export default function App() {
       if (res?.inputKind === "WASAPI" || res?.inputKind === "ASIO") setInputKind(res.inputKind)
       if (res?.outputKind) setOutputKind(res.outputKind)
       setAudioDialogOpen(false)
-      addLog(`[GP-100] 연결 완료 (${gpDriver})`, "success")
+      addLog(tx(`ASIO 오디오 연결 완료 (${preferredDriver})`, `ASIO active (${preferredDriver})`), "success")
     } catch (e) {
-      addLog(`GP-100 연결 실패: ${String(e)}`, "error")
+      addLog(tx(`ASIO 연결 실패: ${String(e)}`, `ASIO connect failed: ${String(e)}`), "error")
       setAudioDialogOpen(true)
     }
   }
@@ -405,7 +669,6 @@ export default function App() {
     setInputChannelOffset(0)
     const safeOut = outputKind === "ASIO_DUPLEX" ? "WASAPI" : outputKind
     setOutputKind(safeOut)
-    addLog("[범용 입력] Windows 표준 오디오 입력(WASAPI) 원클릭 시작…", "info")
     try {
       if (isAudioRunning) {
         await studioBridge.invoke("stopMonitoring")
@@ -431,24 +694,28 @@ export default function App() {
       })
       if (res?.outputKind) setOutputKind(res.outputKind)
       setAudioDialogOpen(false)
-      addLog("[범용 입력] 연결 완료", "success")
+      addLog(tx("WASAPI 범용 입력 연결 완료", "Universal WASAPI connected"), "success")
     } catch (e) {
-      addLog(`범용 입력 시작 실패: ${String(e)}`, "error")
+      addLog(tx(`WASAPI 시작 실패: ${String(e)}`, `WASAPI start failed: ${String(e)}`), "error")
       setAudioDialogOpen(true)
     }
   }
 
   const handleToggleAudio = async () => {
-    if (!studioBridge.isWebView2) return
+    if (!studioBridge.isWebView2) {
+      toast.info(tx("웹 프리뷰 모드에서는 시뮬레이션 상태로 표시됩니다.", "Running in browser UI preview mode."))
+      return
+    }
     if (isAudioRunning) {
       try {
         await studioBridge.invoke("stopMonitoring")
       } catch (e) {
-        addLog(`중지 오류: ${String(e)}`, "error")
+        addLog(tx(`중지 오류: ${String(e)}`, `Stop error: ${String(e)}`), "error")
       }
       return
     }
-    const effectiveInKind = inputKind === "ASIO" && !inputDriver && asioDrivers.length === 0 ? "WASAPI" : inputKind
+    const effectiveInKind =
+      inputKind === "ASIO" && !inputDriver && asioDrivers.length === 0 ? "WASAPI" : inputKind
     if (effectiveInKind === "ASIO" && !inputDriver) {
       setAudioDialogOpen(true)
       return
@@ -468,7 +735,8 @@ export default function App() {
         channelMode,
         inputChannelOffset,
         asioInBufferSize: bufferSize,
-        outputKind: effectiveInKind === "WASAPI" && outputKind === "ASIO_DUPLEX" ? "WASAPI" : outputKind,
+        outputKind:
+          effectiveInKind === "WASAPI" && outputKind === "ASIO_DUPLEX" ? "WASAPI" : outputKind,
         wasapiExclusive,
         wasapiDeviceId,
         asioOutDriver,
@@ -478,7 +746,7 @@ export default function App() {
       if (res?.inputDriver) setInputDriver(res.inputDriver)
       if (res?.outputKind) setOutputKind(res.outputKind)
     } catch (e) {
-      addLog(`오디오 시작 실패: ${String(e)}`, "error")
+      addLog(tx(`오디오 시작 실패: ${String(e)}`, `Audio start failed: ${String(e)}`), "error")
       setAudioDialogOpen(true)
     }
   }
@@ -488,7 +756,7 @@ export default function App() {
     try {
       await studioBridge.invoke("openAsioPanel", { driver: inputDriver })
     } catch (e) {
-      addLog(`ASIO 제어판 열기 실패: ${String(e)}`, "error")
+      addLog(tx(`ASIO 제어판 오류: ${String(e)}`, `ASIO CPL error: ${String(e)}`), "error")
     }
   }
 
@@ -497,193 +765,493 @@ export default function App() {
     if (opts.refA4Hz !== undefined) setTunerRefA4Hz(opts.refA4Hz)
     if (!studioBridge.isWebView2) return
     try {
-      const res = await studioBridge.invoke<{ mute: boolean; refA4Hz: number }>("setTunerConfig", opts)
+      const res = await studioBridge.invoke<{ mute: boolean; refA4Hz: number }>(
+        "setTunerConfig",
+        opts
+      )
       if (res) {
         setTunerMute(Boolean(res.mute))
         setTunerRefA4Hz(res.refA4Hz || 440)
       }
     } catch (e) {
-      addLog(`튜너 설정 실패: ${String(e)}`, "error")
+      addLog(tx(`튜너 설정 실패: ${String(e)}`, `Tuner config error: ${String(e)}`), "error")
     }
   }
 
+  const handleGlobalFileDrop = async (files: FileList | null) => {
+    setFileDropActive(false)
+    if (!files || files.length === 0 || !studioBridge.isWebView2) return
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i]
+      if (!/\.(nrig|nam|wav|json)$/i.test(f.name)) {
+        addLog(
+          tx(
+            `지원하지 않는 드롭 형식: ${f.name} (.nrig, .nam, .wav)`,
+            `Unsupported file drop: ${f.name} (.nrig, .nam, .wav)`
+          ),
+          "error"
+        )
+        continue
+      }
+      try {
+        const buf = await f.arrayBuffer()
+        const bytes = new Uint8Array(buf)
+        let binary = ""
+        const chunk = 0x8000
+        for (let off = 0; off < bytes.length; off += chunk) {
+          binary += String.fromCharCode(
+            ...bytes.subarray(off, Math.min(off + chunk, bytes.length))
+          )
+        }
+        const base64Data = btoa(binary)
+        const res = await studioBridge.invoke<{ summary?: string }>("importDroppedFile", {
+          fileName: f.name,
+          base64Data,
+        })
+        addLog(res?.summary || `${f.name} loaded`, "success")
+      } catch (e) {
+        addLog(`${f.name}: ${String(e)}`, "error")
+      }
+    }
+  }
+
+  const activeGuitar = guitarProfiles.find((g) => g.id === activeGuitarProfileId)
+  const inTuneHeader = tuner.active && Math.abs(tuner.cents) <= 3.5
+
   return (
-    <div className="h-screen w-screen overflow-hidden bg-background text-foreground flex flex-col">
-      {/* ── Cortex Control Global Top Header ── */}
-      <header className="h-11 shrink-0 border-b border-border bg-card/90 px-3 flex items-center justify-between gap-3">
-        {/* Left: Neural Pulse Logo */}
-        <div className="flex items-center gap-2.5 min-w-[180px]">
-          <div className="w-7 h-7 rounded-md bg-secondary border border-border flex items-center justify-center text-foreground">
-            <NeuralPulseLogo className="w-4 h-4" />
+    <div
+      className="relative h-screen w-screen overflow-hidden bg-background text-foreground flex flex-col"
+      onDragOver={(e) => {
+        if (e.dataTransfer?.types?.includes("Files")) {
+          e.preventDefault()
+          if (!fileDropActive) setFileDropActive(true)
+        }
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget === e.target) setFileDropActive(false)
+      }}
+      onDrop={(e) => {
+        if (e.dataTransfer?.files?.length) {
+          e.preventDefault()
+          void handleGlobalFileDrop(e.dataTransfer.files)
+        } else {
+          setFileDropActive(false)
+        }
+      }}
+    >
+      <Toaster position="bottom-right" />
+
+      {/* Architectural Full-Bleed Drop Overlay */}
+      {fileDropActive && (
+        <div className="pointer-events-none fixed inset-0 z-50 bg-oled/90 backdrop-blur-xs flex items-center justify-center p-8">
+          <div className="w-full max-w-lg rounded-md border-2 border-dashed border-primary bg-oled-elevated p-8 text-center space-y-2">
+            <Package className="size-10 text-primary mx-auto" strokeWidth={1.5} />
+            <div className="font-display text-sm font-bold tracking-wider uppercase text-oled-foreground">
+              {tx("DROP TO MOUNT // 즉시 파일 로드", "DROP TO MOUNT // INSTANT LOAD")}
+            </div>
+            <div className="font-mono text-xs text-oled-muted">
+              .NRIG BUNDLE · .NAM NEURAL CAPTURE · .WAV CABINET IR
+            </div>
           </div>
-          <span className="text-xs font-bold tracking-wide text-foreground">NEURALRIG</span>
+        </div>
+      )}
+
+      {/* ── ZONE 1: TOP INSTRUMENT CROWN (Single 48px Hardware Bezel) ── */}
+      <header className="h-12 shrink-0 border-b border-border bg-card px-3.5 flex items-center justify-between gap-3">
+        {/* Left: NR//01 Brand Mark + 3-Workspace Navigation + Command Palette Trigger */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="size-2.5 rounded-[1px] bg-primary shrink-0" />
+            <span className="font-display text-sm font-bold tracking-tight text-foreground">
+              NR//01
+            </span>
+          </div>
+
+          <Separator orientation="vertical" />
+
+          <nav className="flex items-center gap-0.5 rounded-sm border border-border bg-secondary p-0.5">
+            {(
+              [
+                { id: "grid", label: "RIG" },
+                { id: "directory", label: "VAULT" },
+                { id: "scope", label: "SCOPE" },
+              ] as const
+            ).map((tab) => {
+              const active = activeView === tab.id
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveView(tab.id)}
+                  className={`relative px-3 py-1 rounded-[2px] font-mono text-[11px] font-bold tracking-wider transition-colors cursor-pointer ${
+                    active
+                      ? "text-background"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {active && (
+                    <motion.span
+                      layoutId="crown-nav-pill"
+                      transition={{ type: "spring", stiffness: 520, damping: 40 }}
+                      className="absolute inset-0 rounded-[2px] bg-foreground"
+                    />
+                  )}
+                  <span className="relative z-10">{tab.label}</span>
+                </button>
+              )
+            })}
+          </nav>
+
+          <Hint
+            content={tx("장비·프리셋·명령어 즉시 검색", "Quick Command Palette")}
+            kbd="/"
+          >
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() => setCommandOpen(true)}
+            >
+              <Search className="size-3" strokeWidth={1.5} />
+              <span className="hidden md:inline font-mono">{tx("검색", "SEARCH")}</span>
+              <Kbd>/</Kbd>
+            </Button>
+          </Hint>
         </div>
 
-        {/* Center: GRID | DIRECTORY Navigation Tabs (Exact Cortex Control Style) */}
-        <nav className="flex items-center h-full gap-1">
-          {(["grid", "directory"] as const).map((tab) => {
-            const active = activeView === tab
-            return (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setActiveView(tab)}
-                className={`relative h-full px-5 text-[11px] font-bold tracking-widest uppercase transition-colors ${
-                  active ? "text-foreground" : "text-muted-foreground hover:text-foreground/80"
-                }`}
-              >
-                {tab}
-                {active && (
-                  <span className="absolute top-0 left-2 right-2 h-[2px] bg-foreground rounded-b-full" />
-                )}
-              </button>
-            )
-          })}
-        </nav>
-
-        {/* Right: MIDI Learn Indicator + Tuner + Live Audio Engine Control + Audio Settings + Logs */}
-        <div className="flex items-center gap-1.5 justify-end min-w-[180px]">
+        {/* Right: MIDI Learn Banner · Tuner OLED · Guitar · Hub · Theme/Lang · Engine · Patchbay · Logs */}
+        <div className="flex items-center gap-1.5">
           {midiState.learning && (
-            <button
-              type="button"
-              onClick={handleCancelMidiLearn}
-              className="h-7 px-2 rounded-md border border-amber-400/70 bg-amber-500/20 text-amber-200 text-[10px] font-mono font-bold animate-pulse cursor-pointer"
-              title="외부 MIDI 페달/스위치를 조작하세요 (클릭하여 취소)"
-            >
-              MIDI LEARN… (취소)
-            </button>
+            <Hint content={tx("클릭해 MIDI Learn 대기 취소", "Cancel MIDI Learn")}>
+              <Button
+                size="xs"
+                variant="signal"
+                onClick={handleCancelMidiLearn}
+              >
+                MIDI LEARN…
+              </Button>
+            </Hint>
           )}
-          {/* Live MPM Chromatic Tuner Pill (Click to Open Studio Tuner) */}
-          <button
-            type="button"
-            onClick={() => setTunerDialogOpen(true)}
-            className={`h-7 px-2.5 rounded-md border flex items-center gap-1.5 text-xs font-mono transition-colors cursor-pointer hover:opacity-90 ${
-              tuner.active && Math.abs(tuner.cents) <= 3.5
-                ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-300"
-                : tuner.active
-                  ? "border-amber-500/40 bg-amber-500/10 text-amber-200"
-                  : "border-border bg-secondary/50 text-muted-foreground hover:text-foreground"
-            }`}
-            title={
+
+          {/* Recessed OLED Inline Chromatic Tuner */}
+          <Hint
+            content={
               tuner.active
-                ? `튜너: ${tuner.freqHz.toFixed(1)} Hz (${tuner.cents > 0 ? "+" : ""}${tuner.cents.toFixed(1)} ct) — 클릭하여 정밀 튜너 열기`
-                : "클릭하여 정밀 크로매틱 튜너 열기"
+                ? `${tuner.freqHz.toFixed(1)} Hz (${tuner.cents > 0 ? "+" : ""}${tuner.cents.toFixed(1)} ct) — ${tx("정밀 튜너 열기", "Open Precision Tuner")}`
+                : tx("정밀 크로매틱 튜너 열기", "Open Chromatic Tuner")
             }
           >
-            {tunerMute ? (
-              <VolumeX className="w-3 h-3 shrink-0 text-destructive" />
-            ) : (
-              <Music2 className="w-3 h-3 shrink-0" />
-            )}
-            <span className="font-bold min-w-[24px] text-center">
-              {tuner.noteName !== "--" ? `${tuner.noteName}${tuner.octave}` : "--"}
-            </span>
-            {tuner.noteName !== "--" && (
-              <span className="text-[10px] opacity-80">
-                {tuner.cents > 0 ? `+${tuner.cents.toFixed(0)}` : tuner.cents.toFixed(0)}ct
-              </span>
-            )}
-          </button>
-
-          {/* My Guitar Analyzer & Saved Profile Button */}
-          {(() => {
-            const activeGuitar = guitarProfiles.find((g) => g.id === activeGuitarProfileId)
-            return (
-              <Button
-                size="sm"
-                variant={activeGuitar ? "secondary" : "ghost"}
-                className="h-7 px-2 text-[11px] gap-1 max-w-[140px]"
-                onClick={() => setGuitarDialogOpen(true)}
-                title={
-                  activeGuitar
-                    ? `활성 기타: ${activeGuitar.name} (${activeGuitar.estimatedPickupType})`
-                    : "기타 음정 가이드 분석 및 프로필 저장"
-                }
-              >
-                <Guitar className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">
-                  {activeGuitar ? activeGuitar.name : "기타 분석"}
-                </span>
-              </Button>
-            )
-          })()}
-
-          {/* Valeton GP-100 1-Click Quick Connect */}
-          {asioDrivers.some((d) => /valeton|gp-?100/i.test(d)) && (
             <Button
-              size="sm"
-              variant={
-                isAudioRunning && inputKind === "ASIO" && /valeton|gp-?100/i.test(inputDriver)
-                  ? "default"
-                  : "secondary"
-              }
-              className="h-7 px-2 text-[11px] font-mono gap-1"
-              disabled={isAudioBusy}
-              onClick={() => {
-                if (isAudioRunning) {
-                  setAudioDialogOpen(true)
-                } else {
-                  handleQuickStartGp100(outputKind === "ASIO_DUPLEX" ? "ASIO_DUPLEX" : "WASAPI")
-                }
-              }}
-              title="Valeton GP-100 원클릭 연결 (모노 In 1 + 저지연)"
+              size="xs"
+              variant="oled"
+              onClick={() => setTunerDialogOpen(true)}
             >
-              <Usb className="w-3 h-3" />
-              GP-100
+              {tunerMute ? (
+                <VolumeX className="size-3 text-signal-hot" strokeWidth={1.5} />
+              ) : (
+                <Music2
+                  className={
+                    inTuneHeader
+                      ? "size-3 text-signal-ok"
+                      : tuner.active
+                        ? "size-3 text-signal-warn"
+                        : "size-3 text-oled-muted"
+                  }
+                  strokeWidth={1.5}
+                />
+              )}
+              <span
+                className={`font-bold tabular-nums min-w-[22px] text-center ${
+                  inTuneHeader
+                    ? "text-signal-ok"
+                    : tuner.active
+                      ? "text-oled-foreground"
+                      : "text-oled-muted"
+                }`}
+              >
+                {tuner.noteName !== "--" ? `${tuner.noteName}${tuner.octave}` : "--"}
+              </span>
+              {tuner.noteName !== "--" && (
+                <span className="text-[10px] tabular-nums text-oled-muted">
+                  {tuner.cents > 0 ? `+${tuner.cents.toFixed(0)}` : tuner.cents.toFixed(0)}ct
+                </span>
+              )}
             </Button>
+          </Hint>
+
+          <Hint
+            content={
+              activeGuitar
+                ? `${tx("활성 기타", "Active Guitar")}: ${activeGuitar.name} (${activeGuitar.estimatedPickupType})`
+                : tx("기타 DI 음향 분석 및 프로필 관리", "Guitar DI Profiler & Calibration")
+            }
+          >
+            <Button
+              size="xs"
+              variant={activeGuitar ? "secondary" : "ghost"}
+              onClick={() => setGuitarDialogOpen(true)}
+            >
+              <Guitar className="size-3.5" strokeWidth={1.5} />
+              <span className="max-w-[110px] truncate hidden lg:inline">
+                {activeGuitar ? activeGuitar.name : tx("기타 프로필", "GUITAR")}
+              </span>
+            </Button>
+          </Hint>
+
+          <Hint
+            content={tx(
+              "Tone Hub · .nrig 번들 · VST3/CLAP DAW 플러그인",
+              "Tone Hub · .nrig Bundles · VST3/CLAP Export"
+            )}
+          >
+            <Button
+              size="xs"
+              variant="keycap"
+              onClick={() => setToneHubOpen(true)}
+            >
+              <Globe className="size-3" strokeWidth={1.5} />
+              <span>HUB · VST3</span>
+            </Button>
+          </Hint>
+
+          <Hint content={tx("하드웨어 유사도 · 지연시간 · 16슬롯 멀티체인 벤치마크", "Hardware Similarity · Latency · 16-Slot Benchmark")}>
+            <Button
+              size="xs"
+              variant="keycap"
+              onClick={() => setBenchOpen(true)}
+            >
+              <Gauge className="size-3" strokeWidth={1.5} />
+              <span>BENCH</span>
+            </Button>
+          </Hint>
+
+          <Hint content={tx("페달·앰프·캐비넷 생성 & npx MCP 가이드", "Custom Pedal/Amp/Cab Creation & npx MCP Guide")}>
+            <Button
+              size="xs"
+              variant="keycap"
+              onClick={() => setGearGuideOpen(true)}
+            >
+              <Wrench className="size-3" strokeWidth={1.5} />
+              <span className="hidden xl:inline">CRAFT</span>
+            </Button>
+          </Hint>
+
+          <Hint content={tx("스튜디오 튜토리얼 (UI & 기능 가이드)", "Studio UI & Feature Tutorial")}>
+            <Button
+              size="xs"
+              variant="keycap"
+              onClick={() => setTutorialOpen(true)}
+            >
+              <BookOpen className="size-3" strokeWidth={1.5} />
+              <span className="hidden xl:inline">GUIDE</span>
+            </Button>
+          </Hint>
+
+          <Hint content={tx("버그 제보 (자동 익명화 로그 전송)", "Report Bug (Auto-Attached Scrubbed Logs)")}>
+            <Button
+              size="xs"
+              variant="keycap"
+              onClick={() => setBugOpen(true)}
+            >
+              <Bug className="size-3" strokeWidth={1.5} />
+              <span className="hidden xl:inline">BUG</span>
+            </Button>
+          </Hint>
+
+          <Hint
+            content={
+              cloudState.isAuthenticated && cloudState.user
+                ? `${cloudState.user.displayName} (${cloudState.user.email})`
+                : tx("Google 클라우드 로그인 · 동기화 · 게스트 설정", "Google Cloud Sign-In & Sync")
+            }
+          >
+            <Button
+              size="xs"
+              variant={cloudState.isAuthenticated ? "secondary" : "keycap"}
+              onClick={() => setAuthOpen(true)}
+            >
+              <Cloud className="size-3" strokeWidth={1.5} />
+              <span className="max-w-[84px] truncate hidden md:inline">
+                {cloudState.isAuthenticated && cloudState.user
+                  ? cloudState.user.displayName
+                  : tx("로그인", "SIGN IN")}
+              </span>
+            </Button>
+          </Hint>
+
+          {cloudState.user?.isAdmin && (
+            <Hint content={tx("어드민 운영 애널리틱스 · OTA 정책 콘솔", "Admin Analytics & OTA Console")}>
+              <Button
+                size="xs"
+                variant="outline"
+                className="border-amber-500/40 text-amber-300"
+                onClick={() => setAdminOpen(true)}
+              >
+                <Shield className="size-3" strokeWidth={1.5} />
+                <span>ADMIN</span>
+              </Button>
+            </Hint>
           )}
 
-          {/* Start / Stop Audio Engine */}
-          <Button
-            size="sm"
-            variant={isAudioRunning ? "destructive" : "secondary"}
-            className="h-7 px-2.5 text-[11px] font-mono gap-1.5"
-            disabled={isAudioBusy}
-            onClick={handleToggleAudio}
-            title={audioStatus}
-          >
-            {isAudioRunning ? <Square className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
-            {isAudioRunning
-              ? headerLatencyMs !== null
-                ? `${headerLatencyMs.toFixed(1)} ms`
-                : "LIVE"
-              : "AUDIO"}
-          </Button>
+          {/* Theme Finish & Language Switcher Popover */}
+          <Popover>
+            <Hint content={tx("섀시 테마 (5종) 및 언어 설정 (KO/EN)", "Chassis Theme & Language (KO/EN)")}>
+              <PopoverTrigger asChild>
+                <Button size="xs" variant="outline">
+                  <span
+                    className="size-2.5 rounded-[1px] border border-border"
+                    style={{ backgroundColor: theme.swatchBg }}
+                  />
+                  <span className="font-mono font-bold">{theme.shortName}</span>
+                  <Separator orientation="vertical" className="h-3" />
+                  <span className="font-mono font-bold">{locale.toUpperCase()}</span>
+                </Button>
+              </PopoverTrigger>
+            </Hint>
+            <PopoverContent align="end" className="w-72 space-y-3">
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <Palette className="size-3" />
+                    {tx("섀시 마감 테마", "CHASSIS FINISH")}
+                  </span>
+                  <span className="font-mono text-[10px] text-muted-foreground">5 FINISHES</span>
+                </div>
+                <div className="space-y-1">
+                  {STUDIO_THEMES.map((t) => {
+                    const active = t.id === themeId
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setThemeId(t.id)}
+                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-sm border text-left transition-colors cursor-pointer ${
+                          active
+                            ? "border-primary bg-secondary"
+                            : "border-border bg-background hover:bg-accent"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="flex items-center rounded-[2px] overflow-hidden border border-border shrink-0">
+                            <span className="w-3 h-4" style={{ backgroundColor: t.swatchBg }} />
+                            <span className="w-2 h-4" style={{ backgroundColor: t.swatchPrimary }} />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="font-display text-xs font-bold truncate">{t.name}</div>
+                            <div className="text-[10px] text-muted-foreground truncate">
+                              {locale === "ko" ? t.taglineKo : t.taglineEn}
+                            </div>
+                          </div>
+                        </div>
+                        {active && (
+                          <span className="font-mono text-[10px] font-bold text-primary shrink-0">
+                            ON
+                          </span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
 
-          {/* Audio I/O Settings Button */}
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-7 w-7"
-            onClick={() => setAudioDialogOpen(true)}
-            title="오디오 I/O 설정 (ASIO / WASAPI)"
-          >
-            <SlidersHorizontal className="w-3.5 h-3.5" />
-          </Button>
+              <Separator />
 
-          {/* Logs Button */}
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-7 w-7"
-            onClick={() => setLogsOpen(true)}
-            title={`시스템 로그 (${logs.length})`}
-          >
-            <ScrollText className="w-3.5 h-3.5" />
-          </Button>
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  {tx("인터페이스 언어", "INTERFACE LANG")}
+                </span>
+                <ToggleGroup
+                  type="single"
+                  size="xs"
+                  variant="keycap"
+                  value={locale}
+                  onValueChange={(v) => {
+                    if (v === "ko" || v === "en") setLocale(v as StudioLocale)
+                  }}
+                >
+                  <ToggleGroupItem value="ko">KO</ToggleGroupItem>
+                  <ToggleGroupItem value="en">EN</ToggleGroupItem>
+                </ToggleGroup>
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          <Hint content={audioStatus}>
+            <Button
+              size="xs"
+              variant={isAudioRunning ? "signal" : "keycap"}
+              disabled={isAudioBusy}
+              onClick={handleToggleAudio}
+            >
+              {isAudioRunning ? (
+                <Square className="size-2.5 fill-current" />
+              ) : (
+                <Play className="size-2.5 fill-current" />
+              )}
+              <span className="tabular-nums">
+                {isAudioRunning
+                  ? headerLatencyMs !== null
+                    ? `LIVE ${headerLatencyMs.toFixed(1)}ms`
+                    : "LIVE"
+                  : "AUDIO"}
+              </span>
+            </Button>
+          </Hint>
+
+          <Hint content={tx("오디오 I/O & MIDI 패치베이 설정", "Audio I/O & MIDI Patchbay")}>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              onClick={() => setAudioDialogOpen(true)}
+            >
+              <SlidersHorizontal className="size-3.5" strokeWidth={1.5} />
+            </Button>
+          </Hint>
+
+          <Hint content={`${tx("시스템 콘솔 로그", "Console Logs")} (${logs.length})`}>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              onClick={() => setLogsOpen(true)}
+            >
+              <Terminal className="size-3.5" strokeWidth={1.5} />
+            </Button>
+          </Hint>
         </div>
       </header>
 
-      {/* ── Main Cortex Studio Workspace ── */}
+      {/* ── Main Studio Workspace (RIG | VAULT | SCOPE) ── */}
       <CortexStudio
         activeView={activeView}
+        catalogVersion={catalogVersion}
         onChangeView={setActiveView}
-        initialChain={initialChain}
-        initialSavedPresets={savedPresets}
+        chain={chain}
+        savedPresets={savedPresets}
+        allPresets={allPresets}
+        selectedSlot={selectedSlot}
+        onSelectSlot={setSelectedSlot}
+        onPushChain={pushChainToEngine}
+        onLoadPreset={loadPreset}
+        onAssignModel={assignModelToSlot}
+        onSavedPresetsChange={setSavedPresets}
         tones={tones}
         selectedToneId={selectedToneId}
         customCabIrName={customCabIrName}
         initialBacking={backingInitState}
+        initialLooper={looperInitState}
+        initialRecorder={recorderInitState}
+        isAudioRunning={isAudioRunning}
+        isAudioBusy={isAudioBusy}
+        guitarProfiles={guitarProfiles}
+        activeGuitarProfileId={activeGuitarProfileId}
+        liveGuitarAnalysis={guitarAnalysis}
+        onLiveGuitarAnalysisChange={setGuitarAnalysis}
+        onGuitarProfilesUpdated={(nextProfiles, nextActiveId) => {
+          setGuitarProfiles(nextProfiles)
+          setActiveGuitarProfileId(nextActiveId)
+        }}
+        onStartAudio={handleToggleAudio}
+        onOpenAudioSettings={() => setAudioDialogOpen(true)}
+        onOpenToneHub={() => setToneHubOpen(true)}
         midiState={midiState}
         onStartMidiLearn={handleStartMidiLearn}
         onClearMidiBinding={handleClearMidiBinding}
@@ -696,501 +1264,108 @@ export default function App() {
         onLog={addLog}
       />
 
-      {/* ── Audio I/O Settings Dialog ── */}
-      <Dialog open={audioDialogOpen} onOpenChange={setAudioDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>범용 오디오 I/O 설정 (ASIO · WASAPI · GP-100)</DialogTitle>
-          </DialogHeader>
+      {/* ── Global Command Palette ('/' or Ctrl+K) ── */}
+      <CommandPalette
+        open={commandOpen}
+        onOpenChange={setCommandOpen}
+        presets={allPresets}
+        activePresetId={chain.presetId}
+        activeScene={chain.activeScene}
+        selectedSlot={selectedSlot}
+        isAudioRunning={isAudioRunning}
+        onSelectView={setActiveView}
+        onLoadPreset={loadPreset}
+        onSelectScene={(sceneIdx) =>
+          pushChainToEngine(switchSceneOnChain(chain, sceneIdx), true, true)
+        }
+        onAssignModel={assignModelToSlot}
+        onToggleAudio={handleToggleAudio}
+        onOpenTuner={() => setTunerDialogOpen(true)}
+        onOpenGuitar={() => setGuitarDialogOpen(true)}
+        onOpenToneHub={() => setToneHubOpen(true)}
+        onOpenBenchmark={() => setBenchOpen(true)}
+        onOpenTutorial={() => setTutorialOpen(true)}
+        onOpenGearGuide={() => setGearGuideOpen(true)}
+        onOpenAuth={() => setAuthOpen(true)}
+        onOpenBugReport={() => setBugOpen(true)}
+        onOpenUpdates={() => void handleManualCheckUpdates()}
+        onOpenAdmin={() => setAdminOpen(true)}
+        isAdmin={Boolean(cloudState.user?.isAdmin)}
+        onOpenAudioSheet={() => setAudioDialogOpen(true)}
+        onOpenLogsSheet={() => setLogsOpen(true)}
+      />
 
-          <div className="space-y-3.5 text-xs">
-            {/* Input Backend Selector: ASIO vs Universal WASAPI */}
-            <div className="grid grid-cols-2 gap-1.5 p-1 rounded-lg bg-secondary/60 border border-border">
-              <button
-                type="button"
-                disabled={isAudioRunning}
-                onClick={() => setInputKind("ASIO")}
-                className={`h-8 rounded-md text-[11px] font-semibold transition-all disabled:opacity-60 ${
-                  inputKind === "ASIO"
-                    ? "bg-card text-foreground shadow border border-border"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                ⚡ ASIO 인터페이스 / GP-100
-              </button>
-              <button
-                type="button"
-                disabled={isAudioRunning}
-                onClick={() => {
-                  setInputKind("WASAPI")
-                  if (outputKind === "ASIO_DUPLEX") setOutputKind("WASAPI")
-                }}
-                className={`h-8 rounded-md text-[11px] font-semibold transition-all disabled:opacity-60 ${
-                  inputKind === "WASAPI"
-                    ? "bg-card text-foreground shadow border border-border"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                🔌 범용 Windows 입력 (WASAPI)
-              </button>
-            </div>
+      {/* ── Slide-Over Audio I/O & MIDI Patchbay Sheet ── */}
+      <AudioMidiSheet
+        open={audioDialogOpen}
+        onOpenChange={setAudioDialogOpen}
+        isAudioRunning={isAudioRunning}
+        isAudioBusy={isAudioBusy}
+        audioStatus={audioStatus}
+        inputKind={inputKind}
+        onInputKindChange={setInputKind}
+        inputDriver={inputDriver}
+        onInputDriverChange={setInputDriver}
+        asioDrivers={asioDrivers}
+        wasapiInputDevices={wasapiInputDevices}
+        wasapiInputDeviceId={wasapiInputDeviceId}
+        onWasapiInputDeviceIdChange={setWasapiInputDeviceId}
+        wasapiInputExclusive={wasapiInputExclusive}
+        onWasapiInputExclusiveChange={setWasapiInputExclusive}
+        wasapiInputRaw={wasapiInputRaw}
+        onWasapiInputRawChange={setWasapiInputRaw}
+        channelMode={channelMode}
+        inputChannelOffset={inputChannelOffset}
+        onChannelMappingChange={(mode, offset) => {
+          setChannelMode(mode)
+          setInputChannelOffset(offset)
+        }}
+        bufferSize={bufferSize}
+        onBufferSizeChange={setBufferSize}
+        outputKind={outputKind}
+        onOutputKindChange={setOutputKind}
+        wasapiDevices={wasapiDevices}
+        wasapiDeviceId={wasapiDeviceId}
+        onWasapiDeviceIdChange={setWasapiDeviceId}
+        wasapiExclusive={wasapiExclusive}
+        onWasapiExclusiveChange={setWasapiExclusive}
+        asioOutDriver={asioOutDriver}
+        onAsioOutDriverChange={setAsioOutDriver}
+        presetIndex={presetIndex}
+        onPresetIndexChange={setPresetIndex}
+        presets={presets}
+        caps={caps}
+        midiState={midiState}
+        onProbeAsioCaps={probeAsioCaps}
+        onRefreshDevices={handleRefreshDevices}
+        onOpenAsioPanel={handleOpenAsioPanel}
+        onQuickStartAutoAudio={handleQuickStartAutoAudio}
+        onQuickStartUniversalWasapi={handleQuickStartUniversalWasapi}
+        onToggleAudio={handleToggleAudio}
+        onSelectMidiDevice={handleSelectMidiDevice}
+        onStartMidiLearn={handleStartMidiLearn}
+        onClearMidiBinding={handleClearMidiBinding}
+      />
 
-            {/* Quick Start Banner (GP-100 + Universal Plug-and-Play) */}
-            {inputKind === "ASIO" ? (
-              <div className="rounded-md border border-border bg-secondary/45 p-3 space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-semibold text-foreground flex items-center gap-1.5">
-                    <Usb className="w-3.5 h-3.5" />
-                    Valeton GP-100 빠른 연결 (범용 ASIO 겸용)
-                  </span>
-                  <Badge
-                    variant={asioDrivers.some((d) => /valeton|gp-?100/i.test(d)) ? "default" : "outline"}
-                    className="text-[10px] font-mono"
-                  >
-                    {asioDrivers.some((d) => /valeton|gp-?100/i.test(d))
-                      ? "GP-100 감지됨"
-                      : `${asioDrivers.length}개 ASIO 드라이버`}
-                  </Badge>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <Button
-                    size="sm"
-                    variant="default"
-                    className="h-7 text-[11px]"
-                    disabled={isAudioBusy}
-                    onClick={() => handleQuickStartGp100("WASAPI")}
-                  >
-                    GP-100 → PC 스피커/헤드셋
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="h-7 text-[11px]"
-                    disabled={isAudioBusy}
-                    onClick={() => handleQuickStartGp100("ASIO_DUPLEX")}
-                  >
-                    GP-100 → 본체 헤드폰 직결
-                  </Button>
-                </div>
-                <p className="text-[10px] text-muted-foreground leading-snug">
-                  Focusrite, Steinberg, Audient, MOTU 등 모든 표준 ASIO 다채널 인터페이스와 GP-100을 동시에 지원합니다. ASIO 드라이버가 없는 USB 기타 케이블/라인인은 상단의 <b>범용 Windows 입력</b> 탭을 선택하세요.
-                </p>
-              </div>
-            ) : (
-              <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-semibold text-emerald-200 flex items-center gap-1.5">
-                    <Usb className="w-3.5 h-3.5" />
-                    범용 플러그앤플레이 입력 (무드라이버 WASAPI)
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="h-6 px-2.5 text-[10px]"
-                    disabled={isAudioBusy}
-                    onClick={handleQuickStartUniversalWasapi}
-                  >
-                    기본 입력으로 즉시 시작
-                  </Button>
-                </div>
-                <p className="text-[10px] text-muted-foreground leading-snug">
-                  별도 ASIO 드라이버 없이 USB 기타 케이블(Rocksmith 등), 클래스 컴플라이언트 오디오 인터페이스, PC 라인인(Line-In)·마이크 단자를 즉시 연결합니다.
-                </p>
-              </div>
-            )}
+      {/* ── Slide-Over System Console Sheet ── */}
+      <ConsoleLogSheet
+        open={logsOpen}
+        onOpenChange={setLogsOpen}
+        logs={logs}
+        onClearLogs={() => setLogs([])}
+      />
 
-            <div className="flex items-center justify-between gap-2">
-              <Badge variant="outline" className="font-mono text-[11px]">
-                <Activity className="w-3 h-3 mr-1" />
-                {audioStatus}
-              </Badge>
-              <div className="flex items-center gap-1.5">
-                <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={handleRefreshDevices}>
-                  <RefreshCw className="w-3 h-3 mr-1" />
-                  새로고침
-                </Button>
-                {inputKind === "ASIO" && (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="h-7 text-xs"
-                    disabled={!inputDriver || isAudioRunning}
-                    onClick={handleOpenAsioPanel}
-                  >
-                    <Wrench className="w-3 h-3 mr-1" />
-                    ASIO 제어판
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            {inputKind === "ASIO" ? (
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-[11px] text-muted-foreground">ASIO 입력 드라이버</Label>
-                  <Select
-                    value={inputDriver || "__none__"}
-                    disabled={isAudioRunning}
-                    onValueChange={(v) => {
-                      if (v === "__none__") return
-                      setInputDriver(v)
-                      setInputChannelOffset(0)
-                      probeAsioCaps(v)
-                    }}
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue placeholder="드라이버 선택" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {asioDrivers.length === 0 ? (
-                        <SelectItem value="__none__">감지된 ASIO 없음 (범용 탭 권장)</SelectItem>
-                      ) : (
-                        asioDrivers.map((d) => (
-                          <SelectItem key={d} value={d}>
-                            {d}
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-[11px] text-muted-foreground">입력 단자 / 채널 선택</Label>
-                  {(() => {
-                    const chNames =
-                      caps?.inputChannels && caps.inputChannels.length > 0
-                        ? caps.inputChannels
-                        : ["In 1", "In 2"]
-                    const selKey = `${channelMode === 0 ? "stereo" : "mono"}:${Math.min(
-                      inputChannelOffset,
-                      Math.max(0, chNames.length - 1)
-                    )}`
-                    return (
-                      <Select
-                        value={selKey}
-                        disabled={isAudioRunning}
-                        onValueChange={(v) => {
-                          const [modeStr, offStr] = v.split(":")
-                          setChannelMode(modeStr === "stereo" ? 0 : 1)
-                          setInputChannelOffset(Math.max(0, Number(offStr) || 0))
-                        }}
-                      >
-                        <SelectTrigger className="h-8 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {chNames.map((nm, idx) => (
-                            <SelectItem key={`mono:${idx}`} value={`mono:${idx}`}>
-                              모노 Ch {idx + 1} ({nm} → 양쪽)
-                            </SelectItem>
-                          ))}
-                          {Array.from({ length: Math.floor(chNames.length / 2) }, (_, pairIdx) => {
-                            const c = pairIdx * 2
-                            return (
-                              <SelectItem key={`stereo:${c}`} value={`stereo:${c}`}>
-                                스테레오 Ch {c + 1}+{c + 2} ({chNames[c]}/{chNames[c + 1]})
-                              </SelectItem>
-                            )
-                          })}
-                        </SelectContent>
-                      </Select>
-                    )
-                  })()}
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-[11px] text-muted-foreground">출력 엔진</Label>
-                  <Select
-                    value={outputKind}
-                    disabled={isAudioRunning}
-                    onValueChange={(v) => setOutputKind(v)}
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="WASAPI">WASAPI (PC 스피커/헤드셋)</SelectItem>
-                      <SelectItem value="ASIO_DUPLEX">ASIO 직결 풀듀플렉스 (인터페이스 출력)</SelectItem>
-                      <SelectItem value="ASIO">별도 제2 ASIO 출력</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-[11px] text-muted-foreground">ASIO 버퍼 크기</Label>
-                  <Select
-                    value={String(bufferSize)}
-                    disabled={isAudioRunning}
-                    onValueChange={(v) => setBufferSize(Number(v))}
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(caps?.bufferSizes?.length ? caps.bufferSizes : [64, 128, 256, 512, 0]).map((sz) => (
-                        <SelectItem key={sz} value={String(sz)}>
-                          {sz === 0 ? "드라이버 기본값" : `${sz} samples`}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <Label className="text-[11px] text-muted-foreground">Windows 오디오 입력 장치 (WASAPI Capture)</Label>
-                  <Select
-                    value={wasapiInputDeviceId || "__default__"}
-                    disabled={isAudioRunning}
-                    onValueChange={(v) => {
-                      setWasapiInputDeviceId(v === "__default__" ? "" : v)
-                      setInputChannelOffset(0)
-                    }}
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {wasapiInputDevices.map((d) => (
-                        <SelectItem key={d.id || "__default__"} value={d.id || "__default__"}>
-                          {d.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-[11px] text-muted-foreground">입력 채널 매핑</Label>
-                    {(() => {
-                      const selDev = wasapiInputDevices.find((d) => d.id === wasapiInputDeviceId)
-                      const maxCh = Math.max(2, selDev?.channels ?? 2)
-                      const selKey = `${channelMode === 0 ? "stereo" : "mono"}:${Math.min(
-                        inputChannelOffset,
-                        maxCh - 1
-                      )}`
-                      return (
-                        <Select
-                          value={selKey}
-                          disabled={isAudioRunning}
-                          onValueChange={(v) => {
-                            const [modeStr, offStr] = v.split(":")
-                            setChannelMode(modeStr === "stereo" ? 0 : 1)
-                            setInputChannelOffset(Math.max(0, Number(offStr) || 0))
-                          }}
-                        >
-                          <SelectTrigger className="h-8 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {Array.from({ length: maxCh }, (_, idx) => (
-                              <SelectItem key={`mono:${idx}`} value={`mono:${idx}`}>
-                                모노 Ch {idx + 1} ({idx === 0 ? "좌→양쪽 권장" : idx === 1 ? "우→양쪽" : `In ${idx + 1}`})
-                              </SelectItem>
-                            ))}
-                            <SelectItem value="stereo:0">스테레오 (Ch 1 + Ch 2)</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      )
-                    })()}
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label className="text-[11px] text-muted-foreground">출력 엔진</Label>
-                    <Select
-                      value={outputKind === "ASIO_DUPLEX" ? "WASAPI" : outputKind}
-                      disabled={isAudioRunning}
-                      onValueChange={(v) => setOutputKind(v)}
-                    >
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="WASAPI">WASAPI (PC 스피커/헤드셋)</SelectItem>
-                        <SelectItem value="ASIO">ASIO 출력 드라이버</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div
-                    className="flex items-center justify-between rounded-md border border-border bg-secondary/40 px-2.5 py-2"
-                    title="Windows 마이크 소음 억제·자동 게인(AGC)을 우회하여 일렉기타 서스테인이 끊기는 현상을 방지합니다."
-                  >
-                    <Label className="text-[11px]">순수 악기 Raw 모드</Label>
-                    <Switch
-                      checked={wasapiInputRaw}
-                      disabled={isAudioRunning}
-                      onCheckedChange={setWasapiInputRaw}
-                    />
-                  </div>
-                  <div
-                    className="flex items-center justify-between rounded-md border border-border bg-secondary/40 px-2.5 py-2"
-                    title="입력 장치를 단독 점유하여 캡처 레이턴시를 최소화합니다 (미지원 시 공유 저지연 자동 폴백)."
-                  >
-                    <Label className="text-[11px]">WASAPI 입력 단독 모드</Label>
-                    <Switch
-                      checked={wasapiInputExclusive}
-                      disabled={isAudioRunning}
-                      onCheckedChange={setWasapiInputExclusive}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {outputKind === "WASAPI" && (
-              <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <Label className="text-[11px] text-muted-foreground">WASAPI 출력 장치</Label>
-                  <Select
-                    value={wasapiDeviceId || "__default__"}
-                    disabled={isAudioRunning}
-                    onValueChange={(v) => setWasapiDeviceId(v === "__default__" ? "" : v)}
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {wasapiDevices.map((d) => (
-                        <SelectItem key={d.id || "__default__"} value={d.id || "__default__"}>
-                          {d.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="flex items-center justify-between rounded-md border border-border bg-secondary/40 px-3 py-2">
-                  <Label className="text-xs">WASAPI 단독 모드 (초저지연)</Label>
-                  <Switch
-                    checked={wasapiExclusive}
-                    disabled={isAudioRunning}
-                    onCheckedChange={setWasapiExclusive}
-                  />
-                </div>
-              </div>
-            )}
-
-            {outputKind === "ASIO" && (
-              <div className="space-y-1.5">
-                <Label className="text-[11px] text-muted-foreground">ASIO 출력 드라이버</Label>
-                <Select
-                  value={asioOutDriver || "__none__"}
-                  disabled={isAudioRunning}
-                  onValueChange={(v) => v !== "__none__" && setAsioOutDriver(v)}
-                >
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue placeholder="출력 드라이버 선택" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {asioDrivers.map((d) => (
-                      <SelectItem key={d} value={d}>
-                        {d}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            <div className="space-y-1.5">
-              <Label className="text-[11px] text-muted-foreground">지연 프리셋</Label>
-              <Select
-                value={String(presetIndex)}
-                disabled={isAudioRunning}
-                onValueChange={(v) => setPresetIndex(Number(v))}
-              >
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {presets.map((p) => (
-                    <SelectItem key={p.index} value={String(p.index)}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* External MIDI Controller & Foot Pedal Section */}
-            <div className="rounded-md border border-border bg-secondary/35 p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-[11px] font-semibold text-foreground">
-                  외부 MIDI 컨트롤러 / 익스프레션 페달
-                </Label>
-                <Badge variant={midiState.connected ? "default" : "outline"} className="text-[10px] font-mono">
-                  {midiState.connected ? `연결됨 (${midiState.bindings.length} 매핑)` : "미연결"}
-                </Badge>
-              </div>
-              <div className="flex items-center gap-2">
-                <Select
-                  value={midiState.activeDevice || "__none__"}
-                  onValueChange={(v) => handleSelectMidiDevice(v)}
-                >
-                  <SelectTrigger className="h-8 text-xs flex-1">
-                    <SelectValue placeholder="MIDI 입력 포트 선택" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">사용 안 함</SelectItem>
-                    {midiState.devices.map((m) => (
-                      <SelectItem key={m} value={m}>
-                        {m}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="h-8 text-[11px]"
-                  onClick={() => handleStartMidiLearn({ targetKind: "tunerMute" })}
-                >
-                  튜너 뮤트 학습
-                </Button>
-              </div>
-              <p className="text-[10px] text-muted-foreground">
-                스튜디오 화면에서 아무 노브(와우 페달 등), Scene A–H, 블록 전원, TAP 버튼을 우클릭하면 즉시 MIDI CC를 학습합니다.
-              </p>
-            </div>
-
-            <div className="pt-2 flex justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setAudioDialogOpen(false)}>
-                닫기
-              </Button>
-              <Button
-                variant={isAudioRunning ? "destructive" : "default"}
-                size="sm"
-                disabled={isAudioBusy}
-                onClick={handleToggleAudio}
-              >
-                {isAudioRunning ? "모니터링 중지" : "모니터링 시작"}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Studio Chromatic Tuner Dialog ── */}
+      {/* ── Precision Strobe Chromatic Tuner Dialog ── */}
       <TunerDialog
         open={tunerDialogOpen}
         onOpenChange={setTunerDialogOpen}
         tuner={tuner}
         isAudioRunning={isAudioRunning}
         isAudioBusy={isAudioBusy}
-        hasGp100={asioDrivers.some((d) => /valeton|gp-?100/i.test(d))}
         tunerMute={tunerMute}
         refA4Hz={tunerRefA4Hz}
         onTunerConfigChange={handleTunerConfigChange}
         onStartAudio={handleToggleAudio}
-        onQuickStartGp100={() =>
-          handleQuickStartGp100(outputKind === "ASIO_DUPLEX" ? "ASIO_DUPLEX" : "WASAPI")
-        }
         onOpenAudioSettings={() => setAudioDialogOpen(true)}
       />
 
@@ -1200,11 +1375,7 @@ export default function App() {
         onOpenChange={setGuitarDialogOpen}
         isAudioRunning={isAudioRunning}
         isAudioBusy={isAudioBusy}
-        hasGp100={asioDrivers.some((d) => /valeton|gp-?100/i.test(d))}
         onStartAudio={handleToggleAudio}
-        onQuickStartGp100={() =>
-          handleQuickStartGp100(outputKind === "ASIO_DUPLEX" ? "ASIO_DUPLEX" : "WASAPI")
-        }
         onOpenAudioSettings={() => setAudioDialogOpen(true)}
         profiles={guitarProfiles}
         activeProfileId={activeGuitarProfileId}
@@ -1217,36 +1388,92 @@ export default function App() {
         onLog={addLog}
       />
 
-      {/* ── Logs Dialog ── */}
-      <Dialog open={logsOpen} onOpenChange={setLogsOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>NeuralRig Studio 로그</DialogTitle>
-          </DialogHeader>
-          <ScrollArea className="h-[360px] rounded-md border border-border bg-muted/40 p-3 font-mono text-xs">
-            {logs.length === 0 ? (
-              <div className="text-muted-foreground">기록된 로그가 없습니다.</div>
-            ) : (
-              <div className="space-y-1">
-                {logs.map((entry) => (
-                  <div
-                    key={entry.id}
-                    className={
-                      entry.level === "error"
-                        ? "text-destructive"
-                        : entry.level === "success"
-                          ? "text-emerald-400"
-                          : "text-foreground/85"
-                    }
-                  >
-                    {entry.text}
-                  </div>
-                ))}
-              </div>
-            )}
-          </ScrollArea>
-        </DialogContent>
-      </Dialog>
+      {/* ── Tone Hub & .nrig Bundle & VST3/CLAP Plugin Center ── */}
+      <ToneHubModal
+        open={toneHubOpen}
+        onOpenChange={setToneHubOpen}
+        cloudState={cloudState}
+        customDevices={customDevices}
+        onRequestLogin={() => setAuthOpen(true)}
+        onLog={addLog}
+      />
+
+      {/* ── Hardware Similarity / Latency / 16-Slot Multi-Chain Benchmark ── */}
+      <BenchmarkDialog
+        open={benchOpen}
+        onOpenChange={setBenchOpen}
+        isAudioRunning={isAudioRunning}
+        onLog={addLog}
+      />
+
+      {/* ── Interactive Onboarding Tutorial (Replayable) ── */}
+      <OnboardingTutorialModal
+        open={tutorialOpen}
+        onOpenChange={setTutorialOpen}
+        onComplete={() => {
+          setHasCompletedTutorial(true)
+          if (studioBridge.isWebView2) {
+            void studioBridge.invoke("updateOnboardingState", { hasCompletedTutorial: true }).catch(() => {})
+          }
+        }}
+        onOpenAudioSheet={() => setAudioDialogOpen(true)}
+        onOpenGearGuide={() => setGearGuideOpen(true)}
+        onOpenBenchmark={() => setBenchOpen(true)}
+      />
+
+      {/* ── Custom Pedal / Amp / Cab Creation & npx MCP Guide ── */}
+      <CustomGearGuideDialog
+        open={gearGuideOpen}
+        onOpenChange={setGearGuideOpen}
+        customDevices={customDevices}
+        onOpenCommunityHub={() => setToneHubOpen(true)}
+      />
+
+      {/* ── Google Cloud Sign-In / Guest Mode / Settings Sync ── */}
+      <AuthAccountModal
+        open={authOpen}
+        onOpenChange={(nextOpen) => {
+          setAuthOpen(nextOpen)
+          if (!nextOpen && !hasCompletedTutorial) {
+            setTutorialOpen(true)
+          }
+        }}
+        cloudState={cloudState}
+        onCloudStateChange={(nextState) => {
+          setCloudState(nextState)
+          if (nextState.mode !== "unselected" && !hasCompletedTutorial) {
+            setTutorialOpen(true)
+          }
+        }}
+        onCheckUpdates={() => void handleManualCheckUpdates()}
+        onLog={addLog}
+      />
+
+      {/* ── Automated Scrubbed-Log Bug Reporter ── */}
+      <BugReportDialog
+        open={bugOpen}
+        onOpenChange={setBugOpen}
+        appVersion={appVersion}
+        cloudState={cloudState}
+        onLog={addLog}
+      />
+
+      {/* ── OTA Software Update (Choice or Mandatory Blocking) ── */}
+      <OtaUpdateModal
+        open={otaOpen}
+        onOpenChange={setOtaOpen}
+        ota={otaInfo}
+        onLog={addLog}
+      />
+
+      {/* ── Admin Analytics & OTA Release Console (Admin Only) ── */}
+      {cloudState.user?.isAdmin && (
+        <AdminConsoleDialog
+          open={adminOpen}
+          onOpenChange={setAdminOpen}
+          onLog={addLog}
+        />
+      )}
     </div>
   )
 }

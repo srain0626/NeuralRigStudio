@@ -1,5 +1,5 @@
-bin/
-obj/
+/bin/
+/obj/
 .vs/
 *.user
 web-ui/node_modules/
@@ -10,6 +10,14 @@ backend/__pycache__/
 *.pyc
 tools/*/bin/
 tools/*/obj/
+src/*/bin/
+src/*/obj/
+cloud/node_modules/
+cloud/.next/
+cloud/.env*.local
+cloud/next-env.d.ts
+packages/*/node_modules/
+packages/*/*.tgz
+dist-release/
 *.tsbuildinfo
-
 *.zip

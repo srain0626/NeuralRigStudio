@@ -5,27 +5,42 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Cpu,
   Download,
   FolderOpen,
   GitBranch,
+  Globe,
   Mic,
-  Music,
-  Pause,
-  Play,
+  Package,
+  PanelLeftClose,
+  PanelLeftOpen,
   Power,
-  Repeat,
+  Radio,
   RotateCcw,
   Save,
   Search,
-  Sparkles,
   Trash2,
   Upload,
-  Volume2,
   X,
 } from "lucide-react"
+import { CategoryVectorIcon } from "@/components/CortexIcons"
+import { CortexGrid } from "@/components/CortexGrid"
+import { CortexKnob, CortexToggleCell } from "@/components/CortexKnob"
+import { GuitarAnalyzerContent } from "@/components/GuitarAnalyzerDialog"
+import { LooperRecorderDeck } from "@/components/LooperRecorderDeck"
+import { VirtualCabRoom } from "@/components/VirtualCabRoom"
+import { VisualizerCanvas } from "@/components/VisualizerCanvas"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
 import { Input } from "@/components/ui/input"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Select,
@@ -34,52 +49,83 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Slider } from "@/components/ui/slider"
-import { CategoryVectorIcon } from "@/components/CortexIcons"
-import { CortexGrid } from "@/components/CortexGrid"
-import { CortexKnob, CortexToggleCell } from "@/components/CortexKnob"
-import { VirtualCabRoom } from "@/components/VirtualCabRoom"
-import { VisualizerCanvas } from "@/components/VisualizerCanvas"
+import { Separator } from "@/components/ui/separator"
+import { Toggle } from "@/components/ui/toggle"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { Hint } from "@/components/ui/tooltip"
 import {
   CATEGORIES,
   CATEGORY_MAP,
   DEVICE_CATALOG,
   DEVICE_MAP,
-  FACTORY_PRESETS,
   SCENE_LABELS,
   TEMPO_SYNC_DIVISIONS,
-  commitActiveScene,
   computeSyncedValueLabel,
   createDefaultParams,
-  ensurePresetScenes,
+  matchesDeviceSearch,
   supportsTempoSync,
   switchSceneOnChain,
   syncScenesOnAssignSlot,
   syncScenesOnSwapSlots,
 } from "@/data/cortexCatalog"
 import { studioBridge } from "@/lib/bridge"
+import { useI18n } from "@/lib/i18n"
 import type {
   BackingTrackStateDto,
   CabMicConfigDto,
   DeviceCategoryId,
+  GuitarAnalysisLiveStateDto,
+  GuitarProfileDto,
+  LooperSnapshotDto,
   MidiSnapshotDto,
   ModelProfileSummary,
+  RecorderReampSnapshotDto,
   SignalChainConfigDto,
   TelemetryFrame,
 } from "@/types/rig"
 
 interface CortexStudioProps {
-  activeView: "grid" | "directory"
-  onChangeView: (view: "grid" | "directory") => void
-  initialChain?: SignalChainConfigDto
-  initialSavedPresets?: SignalChainConfigDto[]
+  activeView: "grid" | "directory" | "scope"
+  catalogVersion?: number
+  onChangeView: (view: "grid" | "directory" | "scope") => void
+  chain: SignalChainConfigDto
+  savedPresets: SignalChainConfigDto[]
+  allPresets: SignalChainConfigDto[]
+  selectedSlot: number
+  onSelectSlot: (idx: number) => void
+  onPushChain: (next: SignalChainConfigDto, immediate?: boolean, preserveScenes?: boolean) => void
+  onLoadPreset: (preset: SignalChainConfigDto) => void
+  onAssignModel: (modelId: string, slotIdx: number) => void
+  onSavedPresetsChange: (presets: SignalChainConfigDto[]) => void
   tones: ModelProfileSummary[]
   selectedToneId: string
   customCabIrName: string
   initialBacking?: BackingTrackStateDto
+  initialLooper?: LooperSnapshotDto
+  initialRecorder?: RecorderReampSnapshotDto
+  isAudioRunning?: boolean
+  isAudioBusy?: boolean
+  guitarProfiles: GuitarProfileDto[]
+  activeGuitarProfileId: string
+  liveGuitarAnalysis: GuitarAnalysisLiveStateDto | null
+  onLiveGuitarAnalysisChange: (next: GuitarAnalysisLiveStateDto | null) => void
+  onGuitarProfilesUpdated: (profiles: GuitarProfileDto[], activeId: string) => void
+  onStartAudio: () => void
+  onOpenAudioSettings: () => void
+  onOpenToneHub: () => void
   midiState?: MidiSnapshotDto
-  onStartMidiLearn?: (req: { targetKind: string; slotIndex?: number; paramIndex?: number; sceneIndex?: number }) => void
-  onClearMidiBinding?: (req: { targetKind: string; slotIndex?: number; paramIndex?: number; sceneIndex?: number }) => void
+  onStartMidiLearn?: (req: {
+    targetKind: string
+    slotIndex?: number
+    paramIndex?: number
+    sceneIndex?: number
+  }) => void
+  onClearMidiBinding?: (req: {
+    targetKind: string
+    slotIndex?: number
+    paramIndex?: number
+    sceneIndex?: number
+  }) => void
   onTonesUpdated: (tones: ModelProfileSummary[], selectedId: string) => void
   onSelectToneId: (id: string) => void
   onCustomCabIrChange: (name: string) => void
@@ -88,13 +134,33 @@ interface CortexStudioProps {
 
 export const CortexStudio: React.FC<CortexStudioProps> = ({
   activeView,
+  catalogVersion = 0,
   onChangeView,
-  initialChain,
-  initialSavedPresets = [],
+  chain,
+  savedPresets,
+  allPresets,
+  selectedSlot,
+  onSelectSlot,
+  onPushChain,
+  onLoadPreset,
+  onAssignModel,
+  onSavedPresetsChange,
   tones,
   selectedToneId,
   customCabIrName,
   initialBacking,
+  initialLooper,
+  initialRecorder,
+  isAudioRunning = false,
+  isAudioBusy = false,
+  guitarProfiles,
+  activeGuitarProfileId,
+  liveGuitarAnalysis,
+  onLiveGuitarAnalysisChange,
+  onGuitarProfilesUpdated,
+  onStartAudio,
+  onOpenAudioSettings,
+  onOpenToneHub,
   midiState,
   onStartMidiLearn,
   onClearMidiBinding,
@@ -103,23 +169,17 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
   onCustomCabIrChange,
   onLog,
 }) => {
-  const [chain, setChain] = useState<SignalChainConfigDto>(() => ensurePresetScenes(initialChain ?? FACTORY_PRESETS[0]))
-  const [savedPresets, setSavedPresets] = useState<SignalChainConfigDto[]>(initialSavedPresets)
-  const [selectedSlot, setSelectedSlot] = useState<number>(2) // Amp slot selected by default
+  const { tx } = useI18n()
+
   const [activeCategory, setActiveCategory] = useState<DeviceCategoryId>("amp")
+  const [catalogCollapsed, setCatalogCollapsed] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [editingName, setEditingName] = useState(false)
+  const [draftName, setDraftName] = useState(chain.presetName)
   const [editingBpm, setEditingBpm] = useState(false)
   const [draftBpm, setDraftBpm] = useState("120")
-
-  const [aiBarOpen, setAiBarOpen] = useState(false)
-  const [aiPrompt, setAiPrompt] = useState("")
-  const [aiBusy, setAiBusy] = useState(false)
-  const [aiSummary, setAiSummary] = useState<string | null>(null)
   const [cabRoomOpen, setCabRoomOpen] = useState(false)
 
-  const searchInputRef = useRef<HTMLInputElement | null>(null)
-  const aiInputRef = useRef<HTMLInputElement | null>(null)
   const tapTimesRef = useRef<number[]>([])
 
   const [meterL, setMeterL] = useState(0)
@@ -139,34 +199,68 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
     }
   )
 
-  const syncTimerRef = useRef<number | null>(null)
+  const [looper, setLooper] = useState<LooperSnapshotDto>(
+    initialLooper ?? {
+      state: "empty",
+      loopLengthFrames: 0,
+      playheadFrames: 0,
+      durationSec: 0,
+      positionSec: 0,
+      progressPct: 0,
+      overdubLayers: 0,
+      canUndo: false,
+      canRedo: false,
+      halfSpeed: false,
+      reverse: false,
+      quantizeSync: true,
+      level: 1.0,
+      sampleRate: 48000,
+      maxDurationSec: 60,
+    }
+  )
+
+  const [recorder, setRecorder] = useState<RecorderReampSnapshotDto>(
+    initialRecorder ?? {
+      recording: false,
+      recordedSec: 0,
+      droppedFrames: 0,
+      lastDryPath: "",
+      lastWetPath: "",
+      lastDryName: "",
+      recordingsDir: "",
+      reampAvailable: false,
+      reampEnabled: false,
+      reampPlaying: false,
+      reampLoop: true,
+      reampPositionSec: 0,
+      reampDurationSec: 0,
+      reampName: "",
+      reampPath: "",
+    }
+  )
 
   useEffect(() => {
-    if (initialChain) setChain(ensurePresetScenes(initialChain))
-  }, [initialChain])
-
-  useEffect(() => {
-    setSavedPresets(initialSavedPresets)
-  }, [initialSavedPresets])
+    setDraftName(chain.presetName)
+  }, [chain.presetName])
 
   useEffect(() => {
     if (initialBacking) setBacking(initialBacking)
   }, [initialBacking])
 
   useEffect(() => {
-    const unsubChain = studioBridge.on<{
-      signalChain?: SignalChainConfigDto
-      savedPresets?: SignalChainConfigDto[]
-      summary?: string
-    }>("signalChainChanged", (ev) => {
-      if (ev?.signalChain) {
-        const nextChain = ensurePresetScenes(ev.signalChain)
-        setChain(nextChain)
-        const firstAmp = nextChain.slots.findIndex((s) => s.modelId.startsWith("amp_") || s.modelId === "nam_capture")
-        if (firstAmp >= 0) setSelectedSlot(firstAmp)
-        onLog(ev.summary ? `[MCP] ${ev.summary}` : "[MCP] Antigravity에서 새 프리셋이 적용되었습니다.", "success")
-      }
-      if (ev?.savedPresets) setSavedPresets(ev.savedPresets)
+    if (initialLooper) setLooper(initialLooper)
+  }, [initialLooper])
+
+  useEffect(() => {
+    if (initialRecorder) setRecorder(initialRecorder)
+  }, [initialRecorder])
+
+  useEffect(() => {
+    const unsubLooper = studioBridge.on<LooperSnapshotDto>("looperStateChanged", (ev) => {
+      if (ev) setLooper(ev)
+    })
+    const unsubRecorder = studioBridge.on<RecorderReampSnapshotDto>("recorderStateChanged", (ev) => {
+      if (ev) setRecorder(ev)
     })
 
     let lastMeter = 0
@@ -179,131 +273,112 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
         setClip(Boolean(f.clip))
       }
       if (f.backing) setBacking(f.backing)
+      if (f.looper) setLooper(f.looper)
+      if (f.recorder) setRecorder(f.recorder)
     })
     return () => {
-      unsubChain()
+      unsubLooper()
+      unsubRecorder()
       unsub()
     }
   }, [])
 
-  // Push signal chain changes to C# real-time engine (auto-commits current Scene A..H snapshot)
-  const pushChainToEngine = (next: SignalChainConfigDto, immediate = false, preserveScenes = false) => {
-    const finalized = preserveScenes ? ensurePresetScenes(next) : commitActiveScene(next)
-    setChain(finalized)
+  const handleLooperCommand = async (cmd: string, value?: boolean | number) => {
+    if (cmd === "level" && typeof value === "number") {
+      setLooper((prev) => ({ ...prev, level: value }))
+    }
     if (!studioBridge.isWebView2) return
-    if (syncTimerRef.current !== null) {
-      window.clearTimeout(syncTimerRef.current)
-      syncTimerRef.current = null
+    try {
+      const snap = await studioBridge.invoke<LooperSnapshotDto>("looperCommand", { cmd, value })
+      if (snap) setLooper(snap)
+    } catch (e) {
+      onLog(tx(`루퍼 제어 실패: ${String(e)}`, `Looper error: ${String(e)}`), "error")
     }
-    const send = () => {
-      studioBridge.invoke("updateSignalChain", finalized).catch((e) => onLog(`체인 업데이트 실패: ${String(e)}`, "error"))
-    }
-    if (immediate) send()
-    else syncTimerRef.current = window.setTimeout(send, 16)
   }
 
-  const allPresets = useMemo(() => {
-    const map = new Map<string, SignalChainConfigDto>()
-    for (const p of FACTORY_PRESETS) map.set(p.presetId, p)
-    for (const p of savedPresets) map.set(p.presetId, p)
-    return Array.from(map.values())
-  }, [savedPresets])
+  const handleRecorderCommand = async (
+    cmd: string,
+    payload?: { value?: boolean | number; path?: string }
+  ) => {
+    if (!studioBridge.isWebView2) return
+    try {
+      const snap = await studioBridge.invoke<RecorderReampSnapshotDto>("recorderCommand", {
+        cmd,
+        ...payload,
+      })
+      if (snap) setRecorder(snap)
+    } catch (e) {
+      onLog(tx(`레코더/리앰핑 오류: ${String(e)}`, `Recorder error: ${String(e)}`), "error")
+    }
+  }
 
   const currentPresetIdx = useMemo(() => {
     const idx = allPresets.findIndex((p) => p.presetId === chain.presetId)
     return idx >= 0 ? idx : 0
   }, [allPresets, chain.presetId])
 
-  const loadPreset = (preset: SignalChainConfigDto) => {
-    const clone: SignalChainConfigDto = ensurePresetScenes({
-      ...preset,
-      slots: preset.slots.map((s) => ({
-        ...s,
-        params: [...s.params],
-        cabMic: s.cabMic ? { ...s.cabMic } : undefined,
-      })),
-      scenes: preset.scenes?.map((sc) => ({
-        parallelMix: sc.parallelMix,
-        slots: sc.slots.map((sl) => ({ enabled: sl.enabled, syncDivision: sl.syncDivision, params: [...sl.params] })),
-      })),
-    })
-    pushChainToEngine(clone, true, true)
-    const firstAmp = clone.slots.findIndex((s) => s.modelId.startsWith("amp_") || s.modelId === "nam_capture")
-    if (firstAmp >= 0) setSelectedSlot(firstAmp)
-    onLog(`[프리셋] ${clone.presetId} ${clone.presetName} 로드`, "info")
-  }
-
   const stepPreset = (delta: number) => {
     if (allPresets.length === 0) return
     const nextIdx = (currentPresetIdx + delta + allPresets.length) % allPresets.length
-    loadPreset(allPresets[nextIdx])
+    onLoadPreset(allPresets[nextIdx])
   }
 
   const handleSavePreset = async () => {
     if (!studioBridge.isWebView2) {
-      setSavedPresets((prev) => {
-        const filtered = prev.filter((p) => p.presetId !== chain.presetId)
-        return [...filtered, chain]
-      })
-      onLog(`[프리셋] ${chain.presetId} ${chain.presetName} 저장됨`, "success")
+      const filtered = savedPresets.filter((p) => p.presetId !== chain.presetId)
+      onSavedPresetsChange([...filtered, chain])
+      onLog(tx(`${chain.presetId} ${chain.presetName} 저장됨`, `Saved ${chain.presetId} ${chain.presetName}`), "success")
       return
     }
     try {
-      const res = await studioBridge.invoke<{ savedPresets: SignalChainConfigDto[] }>("saveUserPreset", chain)
-      if (res?.savedPresets) setSavedPresets(res.savedPresets)
-      onLog(`[프리셋] ${chain.presetId} ${chain.presetName} 저장됨`, "success")
+      const res = await studioBridge.invoke<{ savedPresets: SignalChainConfigDto[] }>(
+        "saveUserPreset",
+        chain
+      )
+      if (res?.savedPresets) onSavedPresetsChange(res.savedPresets)
+      onLog(tx(`${chain.presetId} ${chain.presetName} 저장됨`, `Saved ${chain.presetId} ${chain.presetName}`), "success")
     } catch (e) {
-      onLog(`프리셋 저장 실패: ${String(e)}`, "error")
+      onLog(tx(`프리셋 저장 실패: ${String(e)}`, `Save preset failed: ${String(e)}`), "error")
     }
   }
 
   const handleDeleteUserPreset = async (presetId: string) => {
     if (!studioBridge.isWebView2) {
-      setSavedPresets((prev) => prev.filter((p) => p.presetId !== presetId))
+      onSavedPresetsChange(savedPresets.filter((p) => p.presetId !== presetId))
       return
     }
     try {
-      const res = await studioBridge.invoke<{ savedPresets: SignalChainConfigDto[] }>("deleteUserPreset", { presetId })
-      if (res?.savedPresets) setSavedPresets(res.savedPresets)
+      const res = await studioBridge.invoke<{ savedPresets: SignalChainConfigDto[] }>(
+        "deleteUserPreset",
+        { presetId }
+      )
+      if (res?.savedPresets) onSavedPresetsChange(res.savedPresets)
     } catch (e) {
-      onLog(`프리셋 삭제 실패: ${String(e)}`, "error")
+      onLog(tx(`프리셋 삭제 실패: ${String(e)}`, `Delete preset failed: ${String(e)}`), "error")
     }
   }
 
-  // Slot operations
   const currentSlot = chain.slots[selectedSlot]
   const currentModel = currentSlot?.modelId ? DEVICE_MAP[currentSlot.modelId] : undefined
   const currentCategory = currentModel ? CATEGORY_MAP[currentModel.category] : undefined
 
   const handleSelectSlot = (idx: number) => {
-    setSelectedSlot(idx)
+    onSelectSlot(idx)
     const modelId = chain.slots[idx]?.modelId
     if (modelId && DEVICE_MAP[modelId]) {
       setActiveCategory(DEVICE_MAP[modelId].category)
     }
   }
 
-  const assignModelToSlot = (modelId: string, slotIdx: number) => {
-    const nextSlots = chain.slots.map((s) => ({ ...s, params: [...s.params] }))
-    const nextParams = createDefaultParams(modelId)
-    nextSlots[slotIdx] = {
-      index: slotIdx,
-      modelId,
-      namModelId: modelId === "nam_capture" ? selectedToneId || null : undefined,
-      enabled: true,
-      params: nextParams,
-    }
-    setSelectedSlot(slotIdx)
-    pushChainToEngine(syncScenesOnAssignSlot({ ...chain, slots: nextSlots }, slotIdx, modelId, nextParams), true, true)
-  }
-
   const toggleSlotBypass = (slotIdx: number) => {
     const target = chain.slots[slotIdx]
     if (!target?.modelId) return
     const nextSlots = chain.slots.map((s, i) =>
-      i === slotIdx ? { ...s, enabled: !s.enabled, params: [...s.params] } : { ...s, params: [...s.params] }
+      i === slotIdx
+        ? { ...s, enabled: !s.enabled, params: [...s.params] }
+        : { ...s, params: [...s.params] }
     )
-    pushChainToEngine({ ...chain, slots: nextSlots }, true)
+    onPushChain({ ...chain, slots: nextSlots }, true)
   }
 
   const removeSlotBlock = (slotIdx: number) => {
@@ -313,7 +388,11 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
         ? { index: i, modelId: "", enabled: true, params: [...emptyParams] }
         : { ...s, params: [...s.params] }
     )
-    pushChainToEngine(syncScenesOnAssignSlot({ ...chain, slots: nextSlots }, slotIdx, "", emptyParams), true, true)
+    onPushChain(
+      syncScenesOnAssignSlot({ ...chain, slots: nextSlots }, slotIdx, "", emptyParams),
+      true,
+      true
+    )
   }
 
   const moveOrSwapSlot = (fromIdx: number, toIdx: number) => {
@@ -323,8 +402,8 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
     const b = { ...nextSlots[toIdx], index: fromIdx }
     nextSlots[toIdx] = a
     nextSlots[fromIdx] = b
-    setSelectedSlot(toIdx)
-    pushChainToEngine(syncScenesOnSwapSlots({ ...chain, slots: nextSlots }, fromIdx, toIdx), true, true)
+    onSelectSlot(toIdx)
+    onPushChain(syncScenesOnSwapSlots({ ...chain, slots: nextSlots }, fromIdx, toIdx), true, true)
   }
 
   const updateSlotParam = (slotIdx: number, paramIdx: number, val: number) => {
@@ -334,23 +413,23 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
       p[paramIdx] = val
       return { ...s, params: p }
     })
-    pushChainToEngine({ ...chain, slots: nextSlots }, false)
+    onPushChain({ ...chain, slots: nextSlots }, false)
   }
 
   const updateSlotSyncDivision = (slotIdx: number, syncDivision: number) => {
     const nextSlots = chain.slots.map((s, i) =>
       i === slotIdx ? { ...s, syncDivision, params: [...s.params] } : s
     )
-    pushChainToEngine({ ...chain, slots: nextSlots }, true)
+    onPushChain({ ...chain, slots: nextSlots }, true)
   }
 
   const updateSlotNamModel = (slotIdx: number, namModelId: string) => {
     const nextSlots = chain.slots.map((s, i) =>
       i === slotIdx ? { ...s, namModelId, params: [...s.params] } : s
     )
-    pushChainToEngine({ ...chain, slots: nextSlots }, true)
+    onPushChain({ ...chain, slots: nextSlots }, true)
     if (!selectedToneId) {
-      handleSelectNamModel(namModelId)
+      void handleSelectNamModel(namModelId)
     }
   }
 
@@ -358,7 +437,7 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
     const nextSlots = chain.slots.map((s, i) =>
       i === slotIdx ? { ...s, cabMic, params: [...s.params] } : s
     )
-    pushChainToEngine({ ...chain, slots: nextSlots }, false)
+    onPushChain({ ...chain, slots: nextSlots }, false)
   }
 
   const handleTapTempo = () => {
@@ -370,36 +449,7 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
     if (prev.length >= 2) {
       const avgMs = (prev[prev.length - 1] - prev[0]) / (prev.length - 1)
       const bpm = Math.max(40, Math.min(280, Math.round((60000 / avgMs) * 2) / 2))
-      pushChainToEngine({ ...chain, tempoBpm: bpm }, true, true)
-    }
-  }
-
-  const handleRunAiArchitect = async (overridePrompt?: string) => {
-    const text = (overridePrompt ?? aiPrompt).trim()
-    if (!text || aiBusy) return
-    if (!studioBridge.isWebView2) {
-      onLog("[AI] 데스크톱 앱(WebView2) 연결 상태에서 동작합니다.", "info")
-      return
-    }
-    setAiBusy(true)
-    try {
-      const res = await studioBridge.invoke<{
-        ok: boolean
-        presetName: string
-        summary: string
-        signalChain: SignalChainConfigDto
-        savedPresets?: SignalChainConfigDto[]
-      }>("generateAiTone", { prompt: text, autoSave: false })
-      if (res?.signalChain) {
-        setChain(ensurePresetScenes(res.signalChain))
-        setAiSummary(res.summary)
-        setAiPrompt("")
-      }
-      if (res?.savedPresets) setSavedPresets(res.savedPresets)
-    } catch (e) {
-      onLog(`AI 톤 생성 실패: ${String(e)}`, "error")
-    } finally {
-      setAiBusy(false)
+      onPushChain({ ...chain, tempoBpm: bpm }, true, true)
     }
   }
 
@@ -409,17 +459,16 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
     const nextSlots = chain.slots.map((s, i) =>
       i === slotIdx ? { ...s, params: createDefaultParams(slot.modelId) } : s
     )
-    pushChainToEngine({ ...chain, slots: nextSlots }, true)
+    onPushChain({ ...chain, slots: nextSlots }, true)
   }
 
-  // Native file dialogs (.nam, Custom WAV IR, Backing track)
   const handleSelectNamModel = async (id: string) => {
     onSelectToneId(id)
     if (!studioBridge.isWebView2) return
     try {
       await studioBridge.invoke("selectTone", { id })
     } catch (e) {
-      onLog(`NAM 모델 선택 실패: ${String(e)}`, "error")
+      onLog(tx(`NAM 선택 실패: ${String(e)}`, `NAM select failed: ${String(e)}`), "error")
     }
   }
 
@@ -436,13 +485,13 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
       if (!res?.cancelled && res?.tones) {
         onTonesUpdated(res.tones, res.selectedToneId || "")
         if (res.signalChain) {
-          setChain(ensurePresetScenes(res.signalChain))
+          onPushChain(res.signalChain, true, true)
         } else if (typeof slotIndex === "number" && res.selectedToneId) {
           updateSlotNamModel(slotIndex, res.selectedToneId)
         }
       }
     } catch (e) {
-      onLog(`NAM 가져오기 실패: ${String(e)}`, "error")
+      onLog(tx(`NAM 가져오기 실패: ${String(e)}`, `NAM import failed: ${String(e)}`), "error")
     }
   }
 
@@ -453,7 +502,7 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
     try {
       await studioBridge.invoke("exportNamFile", { toneId: selectedToneId })
     } catch (e) {
-      onLog(`NAM 내보내기 실패: ${String(e)}`, "error")
+      onLog(tx(`NAM 내보내기 실패: ${String(e)}`, `NAM export failed: ${String(e)}`), "error")
     }
   }
 
@@ -466,19 +515,22 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
       }>("deleteTone", { id })
       if (res?.tones) onTonesUpdated(res.tones, res.selectedToneId || "")
     } catch (e) {
-      onLog(`NAM 삭제 실패: ${String(e)}`, "error")
+      onLog(tx(`NAM 삭제 실패: ${String(e)}`, `NAM delete failed: ${String(e)}`), "error")
     }
   }
 
   const handleLoadCabIr = async () => {
     if (!studioBridge.isWebView2) return
     try {
-      const res = await studioBridge.invoke<{ cancelled?: boolean; customCabIrName?: string }>("loadCustomCabIr", {})
+      const res = await studioBridge.invoke<{ cancelled?: boolean; customCabIrName?: string }>(
+        "loadCustomCabIr",
+        {}
+      )
       if (!res?.cancelled && res?.customCabIrName !== undefined) {
         onCustomCabIrChange(res.customCabIrName)
       }
     } catch (e) {
-      onLog(`Cab IR 로드 실패: ${String(e)}`, "error")
+      onLog(tx(`Cab IR 로드 실패: ${String(e)}`, `Cab IR load failed: ${String(e)}`), "error")
     }
   }
 
@@ -488,27 +540,38 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
       await studioBridge.invoke("clearCustomCabIr")
       onCustomCabIrChange("")
     } catch (e) {
-      onLog(`Cab IR 초기화 실패: ${String(e)}`, "error")
+      onLog(tx(`Cab IR 초기화 실패: ${String(e)}`, `Cab IR clear failed: ${String(e)}`), "error")
     }
   }
 
   const handleLoadBacking = async () => {
     if (!studioBridge.isWebView2) return
     try {
-      const res = await studioBridge.invoke<{ cancelled?: boolean; backing?: BackingTrackStateDto }>("loadBackingTrack", {})
+      const res = await studioBridge.invoke<{ cancelled?: boolean; backing?: BackingTrackStateDto }>(
+        "loadBackingTrack",
+        {}
+      )
       if (!res?.cancelled && res?.backing) setBacking(res.backing)
     } catch (e) {
-      onLog(`백킹 트랙 로드 실패: ${String(e)}`, "error")
+      onLog(tx(`백킹 트랙 로드 실패: ${String(e)}`, `Backing load failed: ${String(e)}`), "error")
     }
   }
 
-  const controlBacking = async (patch: { playing?: boolean; loop?: boolean; volume?: number; seekSec?: number }) => {
+  const controlBacking = async (patch: {
+    playing?: boolean
+    loop?: boolean
+    volume?: number
+    seekSec?: number
+  }) => {
     if (!studioBridge.isWebView2) return
     try {
-      const res = await studioBridge.invoke<{ backing: BackingTrackStateDto }>("controlBackingTrack", patch)
+      const res = await studioBridge.invoke<{ backing: BackingTrackStateDto }>(
+        "controlBackingTrack",
+        patch
+      )
       if (res?.backing) setBacking(res.backing)
     } catch (e) {
-      onLog(`백킹 트랙 제어 실패: ${String(e)}`, "error")
+      onLog(tx(`백킹 트랙 제어 실패: ${String(e)}`, `Backing control failed: ${String(e)}`), "error")
     }
   }
 
@@ -518,44 +581,29 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
       const res = await studioBridge.invoke<{ backing: BackingTrackStateDto }>("unloadBackingTrack")
       if (res?.backing) setBacking(res.backing)
     } catch (e) {
-      onLog(`백킹 트랙 해제 실패: ${String(e)}`, "error")
+      onLog(tx(`백킹 트랙 해제 실패: ${String(e)}`, `Backing unload failed: ${String(e)}`), "error")
     }
   }
 
   const categoryModels = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase()
+    const q = searchQuery.trim()
     if (!q) return DEVICE_CATALOG.filter((d) => d.category === activeCategory)
-    return DEVICE_CATALOG.filter(
-      (d) =>
-        d.name.toLowerCase().includes(q) ||
-        d.shortName.toLowerCase().includes(q) ||
-        d.categoryLabel.toLowerCase().includes(q) ||
-        d.id.toLowerCase().includes(q)
-    )
-  }, [activeCategory, searchQuery])
+    return DEVICE_CATALOG.filter((d) => matchesDeviceSearch(d, q))
+  }, [activeCategory, searchQuery, catalogVersion])
 
-  // Global Studio Keyboard Shortcuts (disabled when typing inside inputs)
+  // Global Rig Keyboard Shortcuts (1–8 Scenes, B Bypass, Del Remove, T Tap, Space MR)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase()
-      const isInput = tag === "input" || tag === "textarea" || (e.target as HTMLElement | null)?.isContentEditable
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault()
-        setAiBarOpen((v) => !v)
-        window.setTimeout(() => aiInputRef.current?.focus(), 20)
-        return
-      }
-      if (isInput) return
-      if (e.key === "/") {
-        e.preventDefault()
-        if (activeView !== "grid") onChangeView("grid")
-        window.setTimeout(() => searchInputRef.current?.focus(), 10)
-        return
-      }
-      if (activeView !== "grid") return
+      const isInput =
+        tag === "input" ||
+        tag === "textarea" ||
+        (e.target as HTMLElement | null)?.isContentEditable
+      if (isInput || activeView !== "grid") return
+
       if (e.key >= "1" && e.key <= "8" && !e.ctrlKey && !e.altKey && !e.metaKey) {
         e.preventDefault()
-        pushChainToEngine(switchSceneOnChain(chain, Number(e.key) - 1), true, true)
+        onPushChain(switchSceneOnChain(chain, Number(e.key) - 1), true, true)
       } else if (e.key.toLowerCase() === "b" && !e.ctrlKey && !e.metaKey) {
         e.preventDefault()
         toggleSlotBypass(selectedSlot)
@@ -567,32 +615,75 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
         handleTapTempo()
       } else if (e.key === " " && backing.loaded) {
         e.preventDefault()
-        controlBacking({ playing: !backing.playing })
+        void controlBacking({ playing: !backing.playing })
       }
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
   }, [activeView, chain, selectedSlot, backing.loaded, backing.playing])
 
-  const formatTime = (sec: number) => {
-    const s = Math.max(0, Math.floor(sec))
-    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`
-  }
-
   // ───────────────────────────────────────────────────────────────────────────
-  // DIRECTORY VIEW (Presets, .nam Neural Captures, Cab IR, MR Mixer, Visualizer)
+  // VIEW 2: VAULT (Presets, .nam Neural Captures, Cab IR, Tone Hub & VST3/CLAP)
   // ───────────────────────────────────────────────────────────────────────────
   if (activeView === "directory") {
     return (
       <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 bg-background overflow-hidden">
-        {/* Left: Presets Bank */}
-        <div className="lg:col-span-4 border-r border-border flex flex-col min-h-0 bg-card/40">
-          <div className="h-10 px-4 border-b border-border flex items-center justify-between">
-            <span className="text-xs font-semibold tracking-wider uppercase text-foreground">PRESET BANK</span>
-            <Badge variant="outline" className="text-[10px] font-mono">
-              {allPresets.length} RIGS
-            </Badge>
+        {/* Col 1: Presets Bank */}
+        <div className="lg:col-span-4 border-r border-border flex flex-col min-h-0 bg-card">
+          <div className="h-11 px-4 border-b border-border flex items-center justify-between gap-2 bg-secondary/40">
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-xs font-bold tracking-wider uppercase">PRESET BANK</span>
+              <Badge variant="outline" size="xs">
+                {allPresets.length}
+              </Badge>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button
+                size="xs"
+                variant="keycap"
+                onClick={async () => {
+                  if (!studioBridge.isWebView2) return
+                  try {
+                    const r = await studioBridge.invoke<{ cancelled?: boolean; summary?: string }>(
+                      "importNrigBundle"
+                    )
+                    if (!r?.cancelled && r?.summary) onLog(r.summary, "success")
+                  } catch (e) {
+                    onLog(`.nrig import failed: ${String(e)}`, "error")
+                  }
+                }}
+              >
+                <Upload className="size-3" />
+                .NRIG
+              </Button>
+              <Hint
+                content={tx(
+                  "현재 리그 + .nam + 커스텀 IR을 .nrig 번들로 내보내기",
+                  "Export active rig + .nam + custom IR as .nrig"
+                )}
+              >
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  onClick={async () => {
+                    if (!studioBridge.isWebView2) return
+                    try {
+                      const r = await studioBridge.invoke<{ cancelled?: boolean; name?: string }>(
+                        "exportNrigBundle"
+                      )
+                      if (!r?.cancelled && r?.name) onLog(`[.nrig] ${r.name} exported`, "success")
+                    } catch (e) {
+                      onLog(`.nrig export failed: ${String(e)}`, "error")
+                    }
+                  }}
+                >
+                  <Download className="size-3" />
+                  {tx("내보내기", "EXPORT")}
+                </Button>
+              </Hint>
+            </div>
           </div>
+
           <ScrollArea className="flex-1 p-2">
             <div className="space-y-1">
               {allPresets.map((p) => {
@@ -601,37 +692,34 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                 return (
                   <div
                     key={p.presetId}
-                    className={`flex items-center justify-between px-3 py-2 rounded-md border transition-colors cursor-pointer ${
+                    className={`flex items-center justify-between px-3 py-2 rounded-sm border transition-colors cursor-pointer ${
                       isActive
-                        ? "bg-accent border-foreground/30 text-foreground"
-                        : "bg-transparent border-transparent hover:bg-card text-muted-foreground hover:text-foreground"
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background border-border hover:bg-secondary/60 text-foreground"
                     }`}
                     onClick={() => {
-                      loadPreset(p)
+                      onLoadPreset(p)
                       onChangeView("grid")
                     }}
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <span className="font-mono text-[11px] font-bold text-muted-foreground w-7 shrink-0">
+                      <span className="font-mono text-[11px] font-bold w-8 shrink-0 opacity-80">
                         {p.presetId}
                       </span>
-                      <span className="text-xs font-medium truncate">{p.presetName}</span>
+                      <span className="font-display text-xs font-bold truncate">{p.presetName}</span>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {isUser && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleDeleteUserPreset(p.presetId)
-                          }}
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </Button>
-                      )}
-                    </div>
+                    {isUser && (
+                      <Button
+                        size="icon-xs"
+                        variant="ghost"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void handleDeleteUserPreset(p.presetId)
+                        }}
+                      >
+                        <Trash2 className="size-3" />
+                      </Button>
+                    )}
                   </div>
                 )
               })}
@@ -639,30 +727,35 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
           </ScrollArea>
         </div>
 
-        {/* Middle: Neural Captures (.nam) & Cab IR */}
-        <div className="lg:col-span-4 border-r border-border flex flex-col min-h-0 bg-card/20">
-          <div className="h-10 px-4 border-b border-border flex items-center justify-between">
-            <span className="text-xs font-semibold tracking-wider uppercase text-foreground">NEURAL CAPTURES (.NAM)</span>
+        {/* Col 2: Neural Captures (.nam) & Cab IR */}
+        <div className="lg:col-span-4 border-r border-border flex flex-col min-h-0 bg-background">
+          <div className="h-11 px-4 border-b border-border flex items-center justify-between bg-secondary/35">
+            <span className="font-mono text-xs font-bold tracking-wider uppercase">
+              NEURAL CAPTURES (.NAM)
+            </span>
             <div className="flex items-center gap-1">
-              <Button size="sm" variant="secondary" className="h-6 text-[11px] px-2" onClick={handleImportNam}>
-                <Upload className="w-3 h-3 mr-1" />
-                가져오기
+              <Button size="xs" variant="keycap" onClick={handleImportNam}>
+                <Upload className="size-3" />
+                {tx("가져오기", "IMPORT")}
               </Button>
               <Button
-                size="sm"
+                size="icon-xs"
                 variant="ghost"
-                className="h-6 text-[11px] px-2"
                 disabled={!selectedToneId}
                 onClick={handleExportNam}
               >
-                <Download className="w-3 h-3" />
+                <Download className="size-3" />
               </Button>
             </div>
           </div>
+
           <ScrollArea className="flex-1 p-2">
             {tones.length === 0 ? (
               <div className="p-6 text-center text-xs text-muted-foreground">
-                로드된 `.nam` 파일이 없습니다. 상단 가져오기 버튼으로 공식 Neural Amp Modeler 파일을 추가하세요.
+                {tx(
+                  "로드된 .nam 파일이 없습니다. 가져오기 버튼으로 Neural Amp Modeler 캡처를 추가하세요.",
+                  "No .nam models loaded. Import official Neural Amp Modeler files above."
+                )}
               </div>
             ) : (
               <div className="space-y-1">
@@ -671,29 +764,28 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                   return (
                     <div
                       key={t.id}
-                      onClick={() => handleSelectNamModel(t.id)}
-                      className={`flex items-center justify-between px-3 py-2 rounded-md border cursor-pointer transition-colors ${
+                      onClick={() => void handleSelectNamModel(t.id)}
+                      className={`flex items-center justify-between px-3 py-2 rounded-sm border cursor-pointer transition-colors ${
                         sel
-                          ? "bg-accent border-foreground/30 text-foreground"
-                          : "border-transparent hover:bg-card text-muted-foreground hover:text-foreground"
+                          ? "bg-secondary border-primary text-foreground"
+                          : "border-border bg-card hover:bg-secondary/50 text-foreground"
                       }`}
                     >
                       <div className="min-w-0">
-                        <div className="text-xs font-medium truncate">{t.name}</div>
-                        <div className="text-[10px] font-mono text-muted-foreground">
+                        <div className="text-xs font-bold truncate">{t.name}</div>
+                        <div className="text-[10px] font-mono text-muted-foreground tabular-nums">
                           {t.archPreset} · {t.sampleRate} Hz
                         </div>
                       </div>
                       <Button
-                        size="icon"
+                        size="icon-xs"
                         variant="ghost"
-                        className="h-6 w-6 text-muted-foreground hover:text-destructive shrink-0"
                         onClick={(e) => {
                           e.stopPropagation()
-                          handleDeleteNam(t.id)
+                          void handleDeleteNam(t.id)
                         }}
                       >
-                        <Trash2 className="w-3 h-3" />
+                        <Trash2 className="size-3" />
                       </Button>
                     </div>
                   )
@@ -702,111 +794,91 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
             )}
           </ScrollArea>
 
-          {/* External Cab IR Section */}
-          <div className="border-t border-border p-3 bg-card/50 space-y-2">
+          <div className="border-t border-border p-3.5 bg-card space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                 CUSTOM CAB IR (.WAV)
               </span>
               <div className="flex items-center gap-1">
-                <Button size="sm" variant="secondary" className="h-6 text-[11px] px-2" onClick={handleLoadCabIr}>
-                  <FolderOpen className="w-3 h-3 mr-1" />
-                  IR 열기
+                <Button size="xs" variant="keycap" onClick={handleLoadCabIr}>
+                  <FolderOpen className="size-3" />
+                  {tx("IR 열기", "LOAD IR")}
                 </Button>
                 {customCabIrName && (
-                  <Button size="sm" variant="ghost" className="h-6 text-[11px] px-2" onClick={handleClearCabIr}>
-                    <RotateCcw className="w-3 h-3" />
+                  <Button size="icon-xs" variant="ghost" onClick={handleClearCabIr}>
+                    <RotateCcw className="size-3" />
                   </Button>
                 )}
               </div>
             </div>
-            <div className="text-xs font-mono truncate text-foreground/90 bg-background/60 px-2.5 py-1.5 rounded border border-border">
-              {customCabIrName || "내장 512-tap 4x12 V30 Modern IR"}
+            <div className="text-xs font-mono truncate text-foreground bg-background px-2.5 py-2 rounded-sm border border-border">
+              {customCabIrName || tx("내장 512-tap 4x12 V30 Modern IR", "Built-in 512-tap 4x12 V30 Modern IR")}
             </div>
           </div>
         </div>
 
-        {/* Right: Live Visualizer + MR Backing Track */}
-        <div className="lg:col-span-4 flex flex-col min-h-0 p-3 gap-3 bg-background">
-          <div className="flex-1 min-h-[180px] rounded-lg border border-border bg-card/40 overflow-hidden p-2 flex flex-col">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground px-1 pb-1.5">
-              LIVE SPECTRUM &amp; WAVEFORM
-            </div>
-            <div className="flex-1 min-h-0">
-              <VisualizerCanvas />
-            </div>
-          </div>
-
-          <div className="rounded-lg border border-border bg-card/50 p-3 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                <Music className="w-3.5 h-3.5" />
-                BACKING TRACK (MR)
+        {/* Col 3: Tone Hub & VST3/CLAP Packaging Card */}
+        <div className="lg:col-span-4 flex flex-col min-h-0 p-4 gap-4 bg-background">
+          <Card className="py-4 gap-3">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider">
+                  <Globe className="size-4 text-primary" />
+                  TONE HUB &amp; .NRIG EXCHANGE
+                </CardTitle>
+                <Badge variant="hot" size="xs">
+                  CURATED
+                </Badge>
               </div>
-              <div className="flex items-center gap-1">
-                <Button size="sm" variant="secondary" className="h-6 text-[11px] px-2" onClick={handleLoadBacking}>
-                  <FolderOpen className="w-3 h-3 mr-1" />
-                  MR 열기
-                </Button>
-                {backing.loaded && (
-                  <Button size="icon" variant="ghost" className="h-6 w-6" onClick={unloadBacking}>
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
+            </CardHeader>
+            <CardContent className="space-y-3 text-xs">
+              <p className="text-muted-foreground leading-relaxed">
+                {tx(
+                  "검증된 WaveNet/LSTM/ConvNet 앰프 캡처, 8K 초저지연 캐비넷 IR, 아티스트 .nrig 번들을 원클릭으로 설치하고 적용할 수 있습니다.",
+                  "Browse and install curated WaveNet/LSTM/ConvNet neural models, 8K IRs, and artist .nrig bundles."
                 )}
+              </p>
+              <Button size="sm" variant="signal" className="w-full" onClick={onOpenToneHub}>
+                <Package className="size-3.5" />
+                {tx("Tone Hub 카탈로그 열기", "OPEN TONE HUB CATALOG")}
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card className="py-4 gap-3">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider">
+                  <Cpu className="size-4 text-primary" />
+                  NATIVEAOT DAW PLUGIN
+                </CardTitle>
+                <Badge variant="ok" size="xs">
+                  VST3 + CLAP
+                </Badge>
               </div>
-            </div>
+            </CardHeader>
+            <CardContent className="space-y-3 text-xs">
+              <p className="text-muted-foreground leading-relaxed">
+                {tx(
+                  "현재 구축된 시그널 체인과 .nam 모델을 32개 샘플 정확도 오토메이션을 지원하는 네이티브 VST3/CLAP 플러그인으로 패키징합니다.",
+                  "Package the current rig into a zero-allocation NativeAOT VST3 & CLAP DAW plugin with 32 parameters."
+                )}
+              </p>
+              <Button size="sm" variant="keycap" className="w-full" onClick={onOpenToneHub}>
+                {tx("VST3 / CLAP 내보내기 센터", "OPEN VST3 / CLAP EXPORTER")}
+              </Button>
+            </CardContent>
+          </Card>
 
-            <div className="text-xs truncate text-foreground/90 font-medium">
-              {backing.loaded ? backing.name : "MR 파일이 로드되지 않았습니다"}
+          <div className="mt-auto rounded-sm border border-border bg-oled p-3.5 font-mono text-[11px] text-oled-foreground space-y-1.5">
+            <div className="text-oled-muted text-[10px]">ACTIVE RIG SNAPSHOT</div>
+            <div className="font-bold text-sm">
+              {chain.presetId} · {chain.presetName}
             </div>
-
-            {backing.loaded && (
-              <>
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="icon"
-                    variant="secondary"
-                    className="h-7 w-7 shrink-0"
-                    onClick={() => controlBacking({ playing: !backing.playing })}
-                  >
-                    {backing.playing ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant={backing.loop ? "default" : "ghost"}
-                    className="h-7 w-7 shrink-0"
-                    onClick={() => controlBacking({ loop: !backing.loop })}
-                  >
-                    <Repeat className="w-3.5 h-3.5" />
-                  </Button>
-                  <div className="flex-1">
-                    <Slider
-                      value={[backing.positionSec]}
-                      min={0}
-                      max={Math.max(1, backing.durationSec)}
-                      step={0.5}
-                      onValueChange={([v]) => controlBacking({ seekSec: v })}
-                    />
-                  </div>
-                  <span className="text-[10px] font-mono text-muted-foreground tabular-nums">
-                    {formatTime(backing.positionSec)} / {formatTime(backing.durationSec)}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Volume2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                  <Slider
-                    value={[Math.round(backing.volume * 100)]}
-                    min={0}
-                    max={100}
-                    step={1}
-                    onValueChange={([v]) => controlBacking({ volume: v / 100 })}
-                  />
-                  <span className="text-[10px] font-mono text-muted-foreground w-8 text-right">
-                    {Math.round(backing.volume * 100)}%
-                  </span>
-                </div>
-              </>
-            )}
+            <div className="text-oled-muted tabular-nums">
+              SCENE {SCENE_LABELS[chain.activeScene]} · {Math.round(chain.tempoBpm ?? 120)} BPM ·{" "}
+              {chain.routingMode === 1 ? "PARALLEL" : "SERIAL"}
+            </div>
           </div>
         </div>
       </div>
@@ -814,730 +886,784 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
   }
 
   // ───────────────────────────────────────────────────────────────────────────
-  // MAIN GRID VIEW (Exact Neural DSP Quad Cortex / Cortex Control Workspace)
+  // VIEW 3: SCOPE (Full-Size Acoustic Spectrum Lab + Guitar DI Profiler)
   // ───────────────────────────────────────────────────────────────────────────
+  if (activeView === "scope") {
+    return (
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-3 p-3.5 bg-background overflow-hidden">
+        <div className="lg:col-span-7 flex flex-col min-h-0">
+          <VisualizerCanvas
+            activeToneLabel={customCabIrName || undefined}
+            className="flex-1 min-h-0"
+            canvasClassName="h-full min-h-[340px]"
+          />
+        </div>
+        <div className="lg:col-span-5 flex flex-col min-h-0 rounded-md border border-border bg-card p-3.5 overflow-hidden">
+          <div className="pb-2 mb-2 border-b border-border flex items-center justify-between">
+            <span className="font-mono text-xs font-bold tracking-wider uppercase">
+              GUITAR DI PROFILER
+            </span>
+            <Badge variant="outline" size="xs">
+              {guitarProfiles.length} SAVED
+            </Badge>
+          </div>
+          <GuitarAnalyzerContent
+            isAudioRunning={isAudioRunning}
+            isAudioBusy={isAudioBusy}
+            onStartAudio={onStartAudio}
+            onOpenAudioSettings={onOpenAudioSettings}
+            profiles={guitarProfiles}
+            activeProfileId={activeGuitarProfileId}
+            liveAnalysis={liveGuitarAnalysis}
+            onLiveAnalysisChange={onLiveGuitarAnalysisChange}
+            onProfilesUpdated={onGuitarProfilesUpdated}
+            onLog={onLog}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // VIEW 1: RIG (Collapsible Catalog · Boutique Patchboard · Split Bottom Console)
+  // ───────────────────────────────────────────────────────────────────────────
+  const tapBinding = midiState?.bindings?.find((b) => b.targetKind === "tapTempo")
+
   return (
     <div className="flex-1 min-h-0 flex bg-background overflow-hidden">
-      {/* ── Far-Left Vertical Category Icon Rail ── */}
-      <aside className="w-12 shrink-0 border-r border-border bg-card/80 flex flex-col items-center py-2 gap-1">
-        {CATEGORIES.map((cat) => {
-          const active = activeCategory === cat.id
-          return (
-            <button
-              key={cat.id}
-              type="button"
-              onClick={() => setActiveCategory(cat.id)}
-              className={`relative w-10 h-10 rounded-md flex items-center justify-center transition-colors ${
-                active ? "bg-accent text-foreground" : "text-muted-foreground/65 hover:text-foreground hover:bg-accent/50"
-              }`}
-              title={cat.label}
+      {/* Left Collapsible Editorial Gear Catalog */}
+      {catalogCollapsed ? (
+        <aside className="w-11 shrink-0 border-r border-border bg-card flex flex-col items-center py-2 gap-1.5">
+          <Hint content={tx("장비 카탈로그 펼치기", "Expand Gear Catalog")} side="right">
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              onClick={() => setCatalogCollapsed(false)}
             >
-              {active && (
-                <span
-                  className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full"
-                  style={{ backgroundColor: cat.hex }}
-                />
-              )}
-              <CategoryVectorIcon category={cat.id} className="w-5 h-5" />
-            </button>
-          )
-        })}
-      </aside>
-
-      {/* ── Left Device List Sidebar ── */}
-      <aside className="w-60 shrink-0 border-r border-border bg-card/55 flex flex-col min-h-0">
-        <div className="px-3 py-2 border-b border-border space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold tracking-wider uppercase text-foreground">
-              {searchQuery.trim() ? `검색 결과 (${categoryModels.length})` : CATEGORY_MAP[activeCategory].label}
-            </span>
-            <span
-              className="w-2 h-2 rounded-full"
-              style={{ backgroundColor: CATEGORY_MAP[activeCategory].hex }}
-            />
-          </div>
-          <div className="relative flex items-center">
-            <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-2.5 pointer-events-none" />
-            <input
-              ref={searchInputRef}
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  setSearchQuery("")
-                  e.currentTarget.blur()
-                }
-              }}
-              placeholder="장비 검색 ( / ) 예: TS808, Twin"
-              className="w-full h-7 pl-7 pr-6 rounded-md bg-background/80 border border-border text-[11px] text-foreground placeholder:text-muted-foreground/65 focus:outline-none focus:border-foreground/40"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery("")}
-                className="absolute right-1.5 text-muted-foreground hover:text-foreground"
-                title="검색어 지우기"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
-          </div>
-        </div>
-
-        <ScrollArea className="flex-1">
-          <div className="p-2 space-y-0.5">
-            {categoryModels.length === 0 ? (
-              <div className="py-6 text-center text-[11px] text-muted-foreground">
-                일치하는 장비가 없습니다
-              </div>
-            ) : (
-              categoryModels.map((model) => {
-                const isInSelectedSlot = currentSlot?.modelId === model.id
-                const catColor = CATEGORY_MAP[model.category].hex
+              <PanelLeftOpen className="size-3.5" />
+            </Button>
+          </Hint>
+          <Separator className="w-6" />
+          <ScrollArea className="flex-1 w-full">
+            <div className="flex flex-col items-center gap-1 py-1">
+              {CATEGORIES.map((cat) => {
+                const active = activeCategory === cat.id
                 return (
-                  <button
-                    key={model.id}
-                    type="button"
-                    draggable
-                    onDragStart={(e) => {
-                      e.dataTransfer.setData("application/x-cortex-model", model.id)
-                      e.dataTransfer.effectAllowed = "copy"
-                    }}
-                    onClick={() => assignModelToSlot(model.id, selectedSlot)}
-                    className={`w-full text-left px-2.5 py-1.5 rounded-md text-xs transition-colors flex items-center justify-between gap-2 ${
-                      isInSelectedSlot
-                        ? "bg-emerald-500/15 text-emerald-300 font-semibold border border-emerald-500/30"
-                        : "text-foreground/85 hover:bg-accent hover:text-foreground border border-transparent"
-                    }`}
-                    title="클릭하여 선택된 슬롯에 배치 / 드래그하여 원하는 슬롯에 배치"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span
-                        className="w-1.5 h-1.5 rounded-full shrink-0"
-                        style={{ backgroundColor: catColor }}
-                      />
-                      <span className="truncate">{model.name}</span>
-                    </div>
-                    {searchQuery.trim() && (
-                      <span className="text-[9px] font-mono text-muted-foreground uppercase shrink-0">
-                        {model.categoryLabel}
-                      </span>
-                    )}
-                  </button>
+                  <Hint key={cat.id} content={cat.label} side="right">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveCategory(cat.id)
+                        setCatalogCollapsed(false)
+                      }}
+                      className={`relative w-8 h-8 rounded-sm flex items-center justify-center transition-colors cursor-pointer ${
+                        active
+                          ? "bg-secondary text-foreground border border-border"
+                          : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                      }`}
+                    >
+                      {active && (
+                        <span
+                          className="absolute left-0 top-1 bottom-1 w-[2.5px]"
+                          style={{ backgroundColor: cat.hex }}
+                        />
+                      )}
+                      <CategoryVectorIcon category={cat.id} className="size-4" />
+                    </button>
+                  </Hint>
                 )
-              })
-            )}
-          </div>
-        </ScrollArea>
-
-        <div className="px-3 py-1.5 border-t border-border flex items-center justify-between text-[10px] text-muted-foreground font-mono">
-          <span>SLOT #{selectedSlot + 1} ({selectedSlot < 8 ? "R1" : "R2"})</span>
-          <span title="단축키: 1~8 씬, B 바이패스, T 탭템포, / 검색">1-8 · B · T · /</span>
-        </div>
-      </aside>
-
-      {/* ── Center + Bottom Main Area ── */}
-      <div className="flex-1 min-w-0 flex flex-col min-h-0">
-        {/* ── Preset & Scene Bar (Matches Cortex Control top strip) ── */}
-        <div className="h-12 shrink-0 px-4 border-b border-border bg-card/45 flex items-center justify-between gap-3">
-          {/* Left: Preset Switcher + Name + Save */}
-          <div className="flex items-center gap-1.5 min-w-0">
-            <Button
-              size="icon"
-              variant="secondary"
-              className="h-7 w-7"
-              onClick={() => stepPreset(-1)}
-              title="이전 프리셋"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </Button>
-            <Button
-              size="icon"
-              variant="secondary"
-              className="h-7 w-7"
-              onClick={() => stepPreset(1)}
-              title="다음 프리셋"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </Button>
-
-            <div className="h-7 px-3 rounded-md bg-secondary/80 border border-border flex items-center gap-2 min-w-[200px] max-w-[280px]">
-              <span className="text-xs font-mono font-bold text-muted-foreground">{chain.presetId}</span>
-              {editingName ? (
-                <Input
-                  autoFocus
-                  value={chain.presetName}
-                  onChange={(e) => setChain({ ...chain, presetName: e.target.value })}
-                  onBlur={() => {
-                    setEditingName(false)
-                    pushChainToEngine(chain, true)
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      setEditingName(false)
-                      pushChainToEngine(chain, true)
-                    }
-                  }}
-                  className="h-5 px-1 text-xs border-0 bg-transparent focus-visible:ring-0"
+              })}
+            </div>
+          </ScrollArea>
+        </aside>
+      ) : (
+        <aside className="w-64 shrink-0 border-r border-border bg-card flex flex-col min-h-0">
+          {/* Catalog Top Bar */}
+          <div className="px-3 py-2 border-b border-border space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span
+                  className="size-2 rounded-[1px] shrink-0"
+                  style={{ backgroundColor: CATEGORY_MAP[activeCategory].hex }}
                 />
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setEditingName(true)}
-                  className="text-xs font-semibold text-foreground truncate text-left flex-1"
-                  title="클릭하여 프리셋 이름 변경"
+                <span className="font-mono text-[11px] font-bold tracking-wider uppercase truncate">
+                  {searchQuery.trim()
+                    ? tx(`검색 (${categoryModels.length})`, `MATCH (${categoryModels.length})`)
+                    : CATEGORY_MAP[activeCategory].label}
+                </span>
+              </div>
+              <Hint content={tx("카탈로그 접기", "Collapse Catalog")} side="right">
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  onClick={() => setCatalogCollapsed(true)}
                 >
-                  {chain.presetName}
-                </button>
-              )}
+                  <PanelLeftClose className="size-3.5" />
+                </Button>
+              </Hint>
             </div>
 
-            <Button
-              size="icon"
-              variant="secondary"
-              className="h-7 w-7"
-              onClick={handleSavePreset}
-              title="현재 프리셋 저장"
-            >
-              <Save className="w-3.5 h-3.5" />
-            </Button>
-
-            {/* In-App AI Tone Architect Toggle */}
-            <Button
-              size="sm"
-              variant={aiBarOpen ? "default" : "secondary"}
-              className="h-7 px-2.5 text-[11px] font-semibold gap-1"
-              onClick={() => {
-                setAiBarOpen((v) => !v)
-                if (!aiBarOpen) window.setTimeout(() => aiInputRef.current?.focus(), 20)
-              }}
-              title="인앱 AI 톤 아키텍트 열기 (Ctrl+K)"
-            >
-              <Sparkles className="w-3 h-3 text-amber-400" />
-              AI 톤
-            </Button>
-          </div>
-
-          {/* Right: Global Tempo BPM / Tap + Scene A..H Buttons + Routing Toggle */}
-          <div className="flex items-center gap-2">
-            {/* Global Tempo BPM & Tap */}
-            <div
-              className="h-7 px-2 rounded-md bg-secondary/75 border border-border flex items-center gap-1.5 text-[11px] font-mono"
-              onWheel={(e) => {
-                e.preventDefault()
-                const cur = chain.tempoBpm ?? 120
-                const next = Math.max(40, Math.min(280, cur + (e.deltaY < 0 ? 1 : -1)))
-                pushChainToEngine({ ...chain, tempoBpm: next }, false, true)
-              }}
-              title="글로벌 템포 BPM (클릭하여 직접 입력 / 마우스 휠 미세 조절)"
-            >
-              <Clock className="w-3 h-3 text-muted-foreground" />
-              {editingBpm ? (
-                <input
-                  type="text"
-                  autoFocus
-                  value={draftBpm}
-                  onChange={(e) => setDraftBpm(e.target.value)}
-                  onBlur={() => {
-                    setEditingBpm(false)
-                    const v = Number.parseFloat(draftBpm)
-                    if (!Number.isNaN(v) && Number.isFinite(v)) {
-                      pushChainToEngine({ ...chain, tempoBpm: Math.max(40, Math.min(280, v)) }, true, true)
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") e.currentTarget.blur()
-                    if (e.key === "Escape") setEditingBpm(false)
-                  }}
-                  className="w-10 h-5 px-1 rounded bg-background border border-foreground/40 text-[11px] text-foreground outline-none"
-                />
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDraftBpm(String(Math.round(chain.tempoBpm ?? 120)))
-                    setEditingBpm(true)
-                  }}
-                  className="font-bold text-foreground hover:text-amber-300 tabular-nums"
-                >
-                  {Math.round(chain.tempoBpm ?? 120)}
-                </button>
-              )}
-              <span className="text-[9px] text-muted-foreground">BPM</span>
-              <button
-                type="button"
-                onClick={handleTapTempo}
-                onContextMenu={(e) => {
-                  if (onStartMidiLearn) {
-                    e.preventDefault()
-                    onStartMidiLearn({ targetKind: "tapTempo" })
-                  }
-                }}
-                className="ml-0.5 px-1.5 h-5 rounded bg-background/85 hover:bg-accent border border-border text-[9px] font-bold text-amber-300 transition-colors"
-                title="연속 클릭(또는 T 키)으로 탭 템포 설정 / 우클릭 MIDI CC 학습"
-              >
-                TAP
-              </button>
-            </div>
-
-            <div className="w-px h-5 bg-border mx-0.5" />
-
-            <div className="flex items-center gap-1">
-              {SCENE_LABELS.map((label, idx) => {
-                const isActive = chain.activeScene === idx
-                const sceneBinding = midiState?.bindings?.find((b) => b.targetKind === "scene" && b.sceneIndex === idx)
-                const isSceneLearning =
-                  midiState?.learning?.targetKind === "scene" && midiState?.learning?.sceneIndex === idx
+            {/* Category Micro Chip Grid (5x2) */}
+            <div className="grid grid-cols-5 gap-1">
+              {CATEGORIES.map((cat) => {
+                const active = activeCategory === cat.id && !searchQuery.trim()
                 return (
-                  <button
-                    key={label}
-                    type="button"
-                    onClick={() => pushChainToEngine(switchSceneOnChain(chain, idx), true, true)}
-                    onContextMenu={(e) => {
-                      e.preventDefault()
-                      if (sceneBinding && onClearMidiBinding) {
-                        onClearMidiBinding({ targetKind: "scene", sceneIndex: idx })
-                      } else if (onStartMidiLearn) {
-                        onStartMidiLearn({ targetKind: "scene", sceneIndex: idx })
-                      }
-                    }}
-                    className={`relative w-7 h-7 rounded-[6px] text-xs font-bold transition-all ${
-                      isSceneLearning
-                        ? "ring-2 ring-amber-400 animate-pulse bg-amber-500/20 text-amber-200"
-                        : isActive
-                          ? "text-background shadow-sm"
-                          : "bg-secondary/80 text-muted-foreground hover:text-foreground hover:bg-accent border border-border"
-                    }`}
-                    style={
-                      isActive && !isSceneLearning
-                        ? {
-                            backgroundColor: "var(--cat-scene)",
-                            boxShadow: "0 0 10px rgba(250, 204, 21, 0.35)",
-                          }
-                        : undefined
-                    }
-                    title={`Scene ${label} (단축키 ${idx + 1})${
-                      sceneBinding ? ` · MIDI CC#${sceneBinding.cc} (우클릭 해제)` : " · 우클릭 MIDI 학습"
-                    }`}
-                  >
-                    {label}
-                    {sceneBinding && (
-                      <span className="absolute -bottom-1 right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                    )}
-                  </button>
+                  <Hint key={cat.id} content={cat.label}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchQuery("")
+                        setActiveCategory(cat.id)
+                      }}
+                      className={`relative h-7 rounded-sm border flex items-center justify-center transition-colors cursor-pointer ${
+                        active
+                          ? "bg-foreground text-background border-foreground"
+                          : "bg-background text-muted-foreground border-border hover:text-foreground hover:bg-secondary/60"
+                      }`}
+                    >
+                      <span
+                        className="absolute top-0 inset-x-0 h-[2px]"
+                        style={{ backgroundColor: cat.hex }}
+                      />
+                      <CategoryVectorIcon category={cat.id} className="size-3.5 mt-0.5" />
+                    </button>
+                  </Hint>
                 )
               })}
             </div>
 
-            <div className="w-px h-5 bg-border mx-0.5" />
-
-            {/* Routing Mode Toggle (Parallel Split vs Serial) */}
-            <Button
-              size="sm"
-              variant={chain.routingMode === 1 ? "default" : "secondary"}
-              className="h-7 px-2.5 text-[11px] font-semibold gap-1.5"
-              onClick={() =>
-                pushChainToEngine(
-                  { ...chain, routingMode: chain.routingMode === 1 ? 0 : 1 },
-                  true
-                )
-              }
-              title="직렬(Serial) / 병렬 분기(Parallel Split) 라우팅 전환"
-            >
-              <GitBranch className="w-3.5 h-3.5" />
-              {chain.routingMode === 1 ? "Parallel" : "Serial"}
-            </Button>
-          </div>
-        </div>
-
-        {/* ── Collapsible In-App AI Tone Architect Command Bar ── */}
-        {aiBarOpen && (
-          <div className="px-4 py-2 border-b border-border bg-card/80 flex flex-col gap-1.5">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <div className="relative flex items-center">
+              <Search className="size-3.5 text-muted-foreground absolute left-2.5 pointer-events-none" />
               <Input
-                ref={aiInputRef}
-                value={aiPrompt}
-                disabled={aiBusy}
-                onChange={(e) => setAiPrompt(e.target.value)}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") handleRunAiArchitect()
-                  if (e.key === "Escape") setAiBarOpen(false)
+                  if (e.key === "Escape") {
+                    setSearchQuery("")
+                    e.currentTarget.blur()
+                  }
                 }}
-                placeholder="원하는 사운드를 설명하세요 (예: 존 메이어풍 투명한 블루스 크런치 / 128bpm 점8분 워십 / 지금 톤에서 리버브 더 올려줘)"
-                className="h-7 text-xs flex-1 bg-background/85"
+                placeholder={tx("모델 필터 (예: TS808, Plexi)", "Filter gear (TS808, Plexi)")}
+                className="pl-7 pr-6"
               />
-              <Button
-                size="sm"
-                className="h-7 px-3 text-xs font-semibold"
-                disabled={aiBusy || !aiPrompt.trim()}
-                onClick={() => handleRunAiArchitect()}
-              >
-                {aiBusy ? "설계 중…" : "톤 생성"}
-              </Button>
-              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setAiBarOpen(false)}>
-                <X className="w-3.5 h-3.5" />
-              </Button>
-            </div>
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <div className="flex items-center gap-1 flex-wrap">
-                {[
-                  "존 메이어 스타일 블루스 클린",
-                  "요루시카 J-Pop 스파클 클린",
-                  "126bpm 점8분 앰비언트 워십",
-                  "타이트한 모던 하이게인 메탈",
-                  "현재 톤에서 공간감 조금 더 추가해줘",
-                ].map((chip) => (
-                  <button
-                    key={chip}
-                    type="button"
-                    disabled={aiBusy}
-                    onClick={() => handleRunAiArchitect(chip)}
-                    className="px-2 py-0.5 rounded bg-secondary/70 hover:bg-accent border border-border text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    {chip}
-                  </button>
-                ))}
-              </div>
-              {aiSummary && (
-                <span className="text-[10px] text-emerald-300 truncate max-w-[420px]" title={aiSummary}>
-                  {aiSummary}
-                </span>
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2 text-muted-foreground hover:text-foreground cursor-pointer"
+                >
+                  <X className="size-3" />
+                </button>
               )}
             </div>
           </div>
-        )}
 
-        {/* ── Center 2x8 Cortex Signal Chain Grid ── */}
+          {/* Device List */}
+          <ScrollArea className="flex-1 min-h-0">
+            <div className="p-2 space-y-0.5">
+              {categoryModels.length === 0 ? (
+                <div className="py-8 text-center text-xs text-muted-foreground">
+                  {tx("일치하는 장비가 없습니다", "No matching gear")}
+                </div>
+              ) : (
+                categoryModels.map((model) => {
+                  const isInSelectedSlot = currentSlot?.modelId === model.id
+                  const catColor = CATEGORY_MAP[model.category].hex
+                  return (
+                    <button
+                      key={model.id}
+                      type="button"
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData("application/x-cortex-model", model.id)
+                        e.dataTransfer.effectAllowed = "copy"
+                      }}
+                      onClick={() => onAssignModel(model.id, selectedSlot)}
+                      className={`w-full text-left px-2.5 py-1.5 rounded-sm text-xs transition-colors flex items-center justify-between gap-2 border cursor-pointer ${
+                        isInSelectedSlot
+                          ? "bg-primary/15 text-foreground font-bold border-primary"
+                          : "text-foreground/90 hover:bg-secondary border-transparent"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className="w-1.5 h-3 rounded-[1px] shrink-0"
+                          style={{ backgroundColor: catColor }}
+                        />
+                        <span className="truncate">{model.name}</span>
+                      </div>
+                      {searchQuery.trim() && (
+                        <span className="text-[9px] font-mono text-muted-foreground uppercase shrink-0">
+                          {model.category}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })
+              )}
+            </div>
+          </ScrollArea>
+
+          <div className="px-3 py-1.5 border-t border-border flex items-center justify-between text-[10px] font-mono tabular-nums text-muted-foreground bg-secondary/35">
+            <span>SLOT #{String(selectedSlot + 1).padStart(2, "0")}</span>
+            <span>1-8 · B · T · /</span>
+          </div>
+        </aside>
+      )}
+
+      {/* Center Stage + Split Hardware Console */}
+      <div className="flex-1 min-w-0 flex flex-col min-h-0">
+        {/* Preset Cartridge + BPM + Scene A–H + Routing Bar */}
+        <div className="h-11 shrink-0 px-3.5 border-b border-border bg-card flex items-center justify-between gap-3">
+          {/* Left: Preset Cartridge */}
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Hint content={tx("이전 프리셋", "Previous Preset")}>
+              <Button size="icon-xs" variant="keycap" onClick={() => stepPreset(-1)}>
+                <ChevronLeft className="size-3.5" />
+              </Button>
+            </Hint>
+            <Hint content={tx("다음 프리셋", "Next Preset")}>
+              <Button size="icon-xs" variant="keycap" onClick={() => stepPreset(1)}>
+                <ChevronRight className="size-3.5" />
+              </Button>
+            </Hint>
+
+            <div className="h-7 px-2.5 rounded-sm bg-background border border-border flex items-center gap-2 min-w-[200px] max-w-[280px]">
+              <span className="font-mono text-[11px] font-bold text-primary shrink-0">
+                {chain.presetId}
+              </span>
+              {editingName ? (
+                <Input
+                  autoFocus
+                  value={draftName}
+                  onChange={(e) => setDraftName(e.target.value)}
+                  onBlur={() => {
+                    setEditingName(false)
+                    onPushChain({ ...chain, presetName: draftName }, true)
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      setEditingName(false)
+                      onPushChain({ ...chain, presetName: draftName }, true)
+                    }
+                    if (e.key === "Escape") {
+                      setDraftName(chain.presetName)
+                      setEditingName(false)
+                    }
+                  }}
+                  className="h-5 px-1 border-0 bg-transparent focus-visible:ring-0"
+                />
+              ) : (
+                <Hint content={tx("클릭하여 프리셋 이름 변경", "Click to rename preset")}>
+                  <button
+                    type="button"
+                    onClick={() => setEditingName(true)}
+                    className="font-display text-xs font-bold text-foreground truncate text-left flex-1 cursor-text"
+                  >
+                    {chain.presetName}
+                  </button>
+                </Hint>
+              )}
+            </div>
+
+            <Hint content={tx("현재 프리셋 저장", "Save User Preset")}>
+              <Button size="icon-xs" variant="keycap" onClick={handleSavePreset}>
+                <Save className="size-3" />
+              </Button>
+            </Hint>
+          </div>
+
+          {/* Right: BPM Popover + Scene A–H + Routing Toggle */}
+          <div className="flex items-center gap-2">
+            {/* Global Tempo Popover + TAP */}
+            <div className="flex items-center gap-1">
+              <Popover>
+                <Hint content={tx("글로벌 BPM 설정", "Global Tempo BPM")}>
+                  <PopoverTrigger asChild>
+                    <Button size="xs" variant="outline" className="tabular-nums">
+                      <Clock className="size-3 text-muted-foreground" />
+                      <span>{Math.round(chain.tempoBpm ?? 120)} BPM</span>
+                    </Button>
+                  </PopoverTrigger>
+                </Hint>
+                <PopoverContent className="w-56 space-y-2.5">
+                  <div className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    GLOBAL TEMPO (40–280 BPM)
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={editingBpm ? draftBpm : String(Math.round(chain.tempoBpm ?? 120))}
+                      onFocus={() => {
+                        setDraftBpm(String(Math.round(chain.tempoBpm ?? 120)))
+                        setEditingBpm(true)
+                      }}
+                      onChange={(e) => setDraftBpm(e.target.value)}
+                      onBlur={() => {
+                        setEditingBpm(false)
+                        const v = Number.parseFloat(draftBpm)
+                        if (!Number.isNaN(v) && Number.isFinite(v)) {
+                          onPushChain({ ...chain, tempoBpm: Math.max(40, Math.min(280, v)) }, true, true)
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") e.currentTarget.blur()
+                      }}
+                      className="font-mono tabular-nums"
+                    />
+                    <Button size="sm" variant="signal" onClick={handleTapTempo}>
+                      TAP
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+
+              <ContextMenu>
+                <ContextMenuTrigger asChild>
+                  <span>
+                    <Hint content={tx("연속 클릭 또는 T 키로 탭 템포", "Tap tempo")} kbd="T">
+                      <Button size="xs" variant="keycap" onClick={handleTapTempo}>
+                        TAP
+                      </Button>
+                    </Hint>
+                  </span>
+                </ContextMenuTrigger>
+                <ContextMenuContent>
+                  <ContextMenuItem
+                    onSelect={() => {
+                      if (tapBinding && onClearMidiBinding)
+                        onClearMidiBinding({ targetKind: "tapTempo" })
+                      else if (onStartMidiLearn) onStartMidiLearn({ targetKind: "tapTempo" })
+                    }}
+                  >
+                    <Radio className="size-3.5 text-primary" />
+                    {tapBinding
+                      ? tx(`MIDI CC#${tapBinding.cc} 해제`, `Clear MIDI CC#${tapBinding.cc}`)
+                      : tx("TAP MIDI CC 학습", "Learn TAP MIDI CC")}
+                  </ContextMenuItem>
+                </ContextMenuContent>
+              </ContextMenu>
+            </div>
+
+            <Separator orientation="vertical" />
+
+            {/* Scenes A..H */}
+            <ToggleGroup
+              type="single"
+              size="xs"
+              variant="keycap"
+              value={String(chain.activeScene)}
+              onValueChange={(v) => {
+                if (v !== "") onPushChain(switchSceneOnChain(chain, Number(v)), true, true)
+              }}
+            >
+              {SCENE_LABELS.map((label, idx) => {
+                const sceneBinding = midiState?.bindings?.find(
+                  (b) => b.targetKind === "scene" && b.sceneIndex === idx
+                )
+                return (
+                  <ContextMenu key={label}>
+                    <ContextMenuTrigger asChild>
+                      <span>
+                        <Hint
+                          content={tx(`Scene ${label} 전환`, `Switch Scene ${label}`)}
+                          kbd={String(idx + 1)}
+                        >
+                          <ToggleGroupItem value={String(idx)} className="relative">
+                            {label}
+                            {sceneBinding && (
+                              <span className="absolute -bottom-0.5 right-0.5 size-1 rounded-full bg-signal-ok" />
+                            )}
+                          </ToggleGroupItem>
+                        </Hint>
+                      </span>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent>
+                      <ContextMenuItem
+                        onSelect={() => {
+                          if (sceneBinding && onClearMidiBinding) {
+                            onClearMidiBinding({ targetKind: "scene", sceneIndex: idx })
+                          } else if (onStartMidiLearn) {
+                            onStartMidiLearn({ targetKind: "scene", sceneIndex: idx })
+                          }
+                        }}
+                      >
+                        <Radio className="size-3.5 text-primary" />
+                        {sceneBinding
+                          ? tx(`Scene ${label} MIDI CC#${sceneBinding.cc} 해제`, `Clear Scene ${label} CC#${sceneBinding.cc}`)
+                          : tx(`Scene ${label} MIDI CC 학습`, `Learn Scene ${label} MIDI CC`)}
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
+                )
+              })}
+            </ToggleGroup>
+
+            <Separator orientation="vertical" />
+
+            {/* Serial vs Parallel Routing Toggle */}
+            <Hint
+              content={tx(
+                "직렬(Serial) / 병렬 분기(Parallel) 라우팅 전환",
+                "Toggle Serial / Parallel Split Routing"
+              )}
+            >
+              <Toggle
+                size="sm"
+                variant="keycap"
+                pressed={chain.routingMode === 1}
+                onPressedChange={(on) => onPushChain({ ...chain, routingMode: on ? 1 : 0 }, true)}
+              >
+                <GitBranch className="size-3" />
+                {chain.routingMode === 1 ? "PARALLEL" : "SERIAL"}
+              </Toggle>
+            </Hint>
+          </div>
+        </div>
+
+        {/* Center: Recessed OLED Boutique Silhouette Patchboard */}
         <CortexGrid
           chain={chain}
           tones={tones}
           selectedSlot={selectedSlot}
+          midiState={midiState}
           onSelectSlot={handleSelectSlot}
           onToggleBypass={toggleSlotBypass}
+          onResetSlot={resetSlotDefaults}
           onRemoveSlot={removeSlotBlock}
           onMoveOrSwap={moveOrSwapSlot}
-          onDropModelFromLibrary={assignModelToSlot}
-          onUpdateRouting={(patch) => pushChainToEngine({ ...chain, ...patch }, false)}
-          backing={backing}
-          onLoadBacking={handleLoadBacking}
-          onControlBacking={controlBacking}
+          onDropModelFromLibrary={onAssignModel}
+          onUpdateRouting={(patch) => onPushChain({ ...chain, ...patch }, false)}
+          onStartMidiLearn={onStartMidiLearn}
+          onClearMidiBinding={onClearMidiBinding}
           meterL={meterL}
           meterR={meterR}
           clip={clip}
         />
 
-        {/* ── Bottom Parameter Inspector Panel (Matches Cortex Control bottom deck) ── */}
+        {/* Zone 3: Bottom Split Hardware Console (Faceplate 8 cols + TP-7 Micro Tape Deck 4 cols) */}
         <section
           className={`${
-            currentModel?.category === "cab" && cabRoomOpen ? "h-[268px]" : "h-[224px]"
-          } shrink-0 border-t border-border bg-card/85 flex flex-col transition-[height] duration-150`}
+            currentModel?.category === "cab" && cabRoomOpen ? "h-[280px]" : "h-[238px]"
+          } shrink-0 border-t border-border bg-card grid grid-cols-1 md:grid-cols-12 transition-[height] duration-150`}
         >
-          {/* Inspector Header Bar */}
-          <div className="h-10 shrink-0 px-4 border-b border-border bg-card flex items-center justify-between gap-3">
-            {currentModel && currentCategory ? (
-              <>
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <button
-                    type="button"
-                    onClick={() => toggleSlotBypass(selectedSlot)}
-                    onContextMenu={(e) => {
-                      e.preventDefault()
-                      const existing = midiState?.bindings?.find(
-                        (b) => b.targetKind === "bypass" && b.slotIndex === selectedSlot
-                      )
-                      if (existing && onClearMidiBinding) {
-                        onClearMidiBinding({ targetKind: "bypass", slotIndex: selectedSlot })
-                      } else if (onStartMidiLearn) {
-                        onStartMidiLearn({ targetKind: "bypass", slotIndex: selectedSlot })
+          {/* Left: Module Parameter Faceplate */}
+          <div className="md:col-span-8 flex flex-col min-w-0 min-h-0">
+            <div className="h-10 shrink-0 px-3.5 border-b border-border bg-secondary/40 flex items-center justify-between gap-2">
+              {currentModel && currentCategory ? (
+                <>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Hint
+                      content={
+                        currentSlot.enabled
+                          ? tx("블록 바이패스", "Bypass Block")
+                          : tx("블록 활성화", "Enable Block")
                       }
-                    }}
-                    className="w-6 h-6 rounded-md flex items-center justify-center border transition-colors"
-                    style={{
-                      borderColor: currentSlot.enabled ? currentCategory.hex : "var(--border)",
-                      backgroundColor: currentSlot.enabled ? `${currentCategory.hex}24` : "transparent",
-                      color: currentSlot.enabled ? currentCategory.hex : "var(--muted-foreground)",
-                    }}
-                    title={`${
-                      currentSlot.enabled ? "블록 활성 (클릭하여 바이패스 / 단축키 B)" : "바이패스됨 (클릭하여 활성화 / 단축키 B)"
-                    } · 우클릭 MIDI 스위치 학습`}
-                  >
-                    <Power className="w-3.5 h-3.5" />
-                  </button>
-                  <span className="text-xs text-muted-foreground font-medium">{currentModel.categoryLabel}</span>
-                  <span className="text-xs font-bold text-foreground truncate">{currentModel.name}</span>
-                  {!currentSlot.enabled && (
-                    <Badge variant="outline" className="text-[10px] h-5 text-muted-foreground">
-                      BYPASSED
+                      kbd="B"
+                    >
+                      <Button
+                        size="icon-xs"
+                        variant={currentSlot.enabled ? "signal" : "outline"}
+                        onClick={() => toggleSlotBypass(selectedSlot)}
+                      >
+                        <Power className="size-3" />
+                      </Button>
+                    </Hint>
+                    <Badge variant="outline" size="xs">
+                      #{String(selectedSlot + 1).padStart(2, "0")}
                     </Badge>
-                  )}
-                </div>
+                    <span className="font-mono text-[10px] font-bold uppercase text-muted-foreground shrink-0">
+                      {currentModel.categoryLabel}
+                    </span>
+                    <span className="font-display text-xs font-bold truncate">
+                      {currentModel.name}
+                    </span>
+                    {!currentSlot.enabled && (
+                      <Badge variant="warn" size="xs">
+                        BYPASSED
+                      </Badge>
+                    )}
+                  </div>
 
-                {/* Contextual Tempo Sync / NAM / Cab IR Controls */}
-                <div className="flex items-center gap-2">
-                  {supportsTempoSync(currentModel.id) && (
-                    <div className="flex items-center gap-0.5 bg-background/70 border border-border rounded-md p-0.5">
-                      {TEMPO_SYNC_DIVISIONS.map((div) => {
-                        const active = (currentSlot.syncDivision ?? 0) === div.value
-                        return (
-                          <button
-                            key={div.value}
-                            type="button"
-                            onClick={() => updateSlotSyncDivision(selectedSlot, div.value)}
-                            className={`px-1.5 h-5 rounded text-[10px] font-mono font-semibold transition-colors ${
-                              active
-                                ? "bg-amber-500/25 text-amber-300 border border-amber-400/50"
-                                : "text-muted-foreground hover:text-foreground"
-                            }`}
-                            title={div.value === 0 ? "노브 자유 조절" : `글로벌 BPM (${Math.round(chain.tempoBpm ?? 120)}) ${div.label} 동기화`}
-                          >
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {supportsTempoSync(currentModel.id) && (
+                      <ToggleGroup
+                        type="single"
+                        size="xs"
+                        variant="keycap"
+                        value={String(currentSlot.syncDivision ?? 0)}
+                        onValueChange={(v) => {
+                          if (v !== "") updateSlotSyncDivision(selectedSlot, Number(v))
+                        }}
+                      >
+                        {TEMPO_SYNC_DIVISIONS.map((div) => (
+                          <ToggleGroupItem key={div.value} value={String(div.value)}>
                             {div.label}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  )}
-                  {currentModel.id === "nam_capture" && (
-                    <div className="flex items-center gap-1.5">
-                      <Select
-                        value={currentSlot.namModelId || selectedToneId || "__none__"}
-                        onValueChange={(v) => v !== "__none__" && updateSlotNamModel(selectedSlot, v)}
-                      >
-                        <SelectTrigger className="h-7 w-52 text-xs">
-                          <SelectValue placeholder=".nam 모델 선택" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {tones.length === 0 ? (
-                            <SelectItem value="__none__">불러온 .nam 없음</SelectItem>
-                          ) : (
-                            tones.map((t) => (
-                              <SelectItem key={t.id} value={t.id}>
-                                {t.name} [{t.architecture}]
-                              </SelectItem>
-                            ))
-                          )}
-                        </SelectContent>
-                      </Select>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        className="h-7 text-[11px] px-2"
-                        onClick={() => void importNamWithSlot(selectedSlot)}
-                      >
-                        <Upload className="w-3 h-3 mr-1" />
-                        .nam
-                      </Button>
-                    </div>
-                  )}
+                          </ToggleGroupItem>
+                        ))}
+                      </ToggleGroup>
+                    )}
 
-                  {currentModel.category === "cab" && (
-                    <div className="flex items-center gap-1.5">
-                      <Button
-                        size="sm"
-                        variant={cabRoomOpen || currentSlot.cabMic?.dualEnabled ? "default" : "secondary"}
-                        className="h-7 text-[11px] px-2 gap-1"
-                        onClick={() => setCabRoomOpen((v) => !v)}
-                        title="Virtual Cab Room 듀얼 마이킹 스튜디오 열기/닫기"
-                      >
-                        <Mic className="w-3 h-3" />
-                        Cab Room{currentSlot.cabMic?.dualEnabled ? " (2×)" : ""}
-                      </Button>
-                      {(currentModel.id === "cab_custom" || currentModel.id === "cab_v30") && (
-                        <>
-                          {customCabIrName && (
-                            <span className="text-[11px] font-mono text-muted-foreground max-w-[140px] truncate">
-                              {customCabIrName}
-                            </span>
-                          )}
-                          <Button size="sm" variant="secondary" className="h-7 text-[11px] px-2" onClick={handleLoadCabIr}>
-                            <FolderOpen className="w-3 h-3 mr-1" />
+                    {currentModel.id === "nam_capture" && (
+                      <div className="flex items-center gap-1">
+                        <Select
+                          value={currentSlot.namModelId || selectedToneId || "__none__"}
+                          onValueChange={(v) => v !== "__none__" && updateSlotNamModel(selectedSlot, v)}
+                        >
+                          <SelectTrigger className="h-6 w-44 text-[11px]">
+                            <SelectValue placeholder={tx(".nam 선택", "Select .nam")} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {tones.length === 0 ? (
+                              <SelectItem value="__none__">
+                                {tx("불러온 .nam 없음", "No .nam loaded")}
+                              </SelectItem>
+                            ) : (
+                              tones.map((t) => (
+                                <SelectItem key={t.id} value={t.id}>
+                                  {t.name} [{t.architecture}]
+                                </SelectItem>
+                              ))
+                            )}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          size="xs"
+                          variant="keycap"
+                          onClick={() => void importNamWithSlot(selectedSlot)}
+                        >
+                          <Upload className="size-3" />
+                          .NAM
+                        </Button>
+                      </div>
+                    )}
+
+                    {currentModel.category === "cab" && (
+                      <div className="flex items-center gap-1">
+                        <Toggle
+                          size="xs"
+                          variant="keycap"
+                          pressed={cabRoomOpen}
+                          onPressedChange={setCabRoomOpen}
+                        >
+                          <Mic className="size-3" />
+                          CAB ROOM{currentSlot.cabMic?.dualEnabled ? " 2×" : ""}
+                        </Toggle>
+                        {(currentModel.id === "cab_custom" || currentModel.id === "cab_v30") && (
+                          <Button size="xs" variant="keycap" onClick={handleLoadCabIr}>
+                            <FolderOpen className="size-3" />
                             WAV IR
                           </Button>
-                        </>
-                      )}
-                    </div>
-                  )}
+                        )}
+                      </div>
+                    )}
 
-                  <div className="flex items-center gap-0.5 ml-1">
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-7 w-7"
-                      disabled={selectedSlot === 0}
-                      onClick={() => moveOrSwapSlot(selectedSlot, selectedSlot - 1)}
-                      title="왼쪽으로 이동"
-                    >
-                      <ArrowLeft className="w-3.5 h-3.5" />
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-7 w-7"
-                      disabled={selectedSlot === 15}
-                      onClick={() => moveOrSwapSlot(selectedSlot, selectedSlot + 1)}
-                      title="오른쪽으로 이동"
-                    >
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-7 w-7"
-                      onClick={() => resetSlotDefaults(selectedSlot)}
-                      title="기본값으로 복원"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" />
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                      onClick={() => removeSlotBlock(selectedSlot)}
-                      title="체인에서 블록 제거"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
+                    <Separator orientation="vertical" />
+
+                    <Hint content={tx("왼쪽 이동", "Move Left")}>
+                      <Button
+                        size="icon-xs"
+                        variant="ghost"
+                        disabled={selectedSlot === 0}
+                        onClick={() => moveOrSwapSlot(selectedSlot, selectedSlot - 1)}
+                      >
+                        <ArrowLeft className="size-3.5" />
+                      </Button>
+                    </Hint>
+                    <Hint content={tx("오른쪽 이동", "Move Right")}>
+                      <Button
+                        size="icon-xs"
+                        variant="ghost"
+                        disabled={selectedSlot === 15}
+                        onClick={() => moveOrSwapSlot(selectedSlot, selectedSlot + 1)}
+                      >
+                        <ArrowRight className="size-3.5" />
+                      </Button>
+                    </Hint>
+                    <Hint content={tx("기본값 복원", "Reset Defaults")}>
+                      <Button
+                        size="icon-xs"
+                        variant="ghost"
+                        onClick={() => resetSlotDefaults(selectedSlot)}
+                      >
+                        <RotateCcw className="size-3.5" />
+                      </Button>
+                    </Hint>
+                    <Hint content={tx("블록 제거", "Remove Block")} kbd="Del">
+                      <Button
+                        size="icon-xs"
+                        variant="ghost"
+                        onClick={() => removeSlotBlock(selectedSlot)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </Hint>
                   </div>
+                </>
+              ) : (
+                <div className="flex items-center justify-between w-full font-mono text-[11px] text-muted-foreground">
+                  <span>
+                    {tx(
+                      `EMPTY SLOT #${String(selectedSlot + 1).padStart(2, "0")} — 카탈로그 또는 빠른 장착에서 장비를 선택하세요`,
+                      `EMPTY SLOT #${String(selectedSlot + 1).padStart(2, "0")} — Pick gear from catalog or quick mount`
+                    )}
+                  </span>
                 </div>
-              </>
-            ) : (
-              <div className="flex items-center justify-between w-full">
-                <span className="text-xs font-medium text-muted-foreground">
-                  빈 슬롯 #{selectedSlot + 1} — 왼쪽 라이브러리에서 페달/앰프를 선택하거나 아래 빠른 추가를 클릭하세요
-                </span>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
 
-          {/* Parameter Cells Grid (+ Virtual Cab Room when active on Cab slots) */}
-          <ScrollArea className="flex-1">
-            {currentModel && currentCategory ? (
-              <div className={currentModel.category === "cab" && cabRoomOpen ? "flex items-stretch min-h-[218px]" : ""}>
+            <ScrollArea className="flex-1 min-h-0 bg-card">
+              {currentModel && currentCategory ? (
                 <div
                   className={
                     currentModel.category === "cab" && cabRoomOpen
-                      ? "w-[330px] shrink-0 grid grid-cols-3"
-                      : "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
+                      ? "flex items-stretch min-h-[218px]"
+                      : ""
                   }
                 >
-                  {currentModel.params.map((p) => {
-                  const val = currentSlot.params[p.index] ?? p.defaultVal
-                  if (p.kind === "toggle") {
-                    return (
-                      <CortexToggleCell
-                        key={p.index}
-                        label={p.label}
-                        checked={val > 0.5}
-                        onLabel={p.onLabel}
-                        offLabel={p.offLabel}
-                        accentHex={currentCategory.hex}
-                        onChange={(checked) => updateSlotParam(selectedSlot, p.index, checked ? 1 : 0)}
-                      />
-                    )
-                  }
-                  return (
-                    <CortexKnob
-                      key={p.index}
-                      label={p.label}
-                      value={val}
-                      min={p.min}
-                      max={p.max}
-                      step={p.step}
-                      defaultVal={p.defaultVal}
-                      unit={p.unit}
-                      accentHex={currentCategory.hex}
-                      syncedText={
-                        supportsTempoSync(currentModel.id) &&
-                        (currentSlot.syncDivision ?? 0) > 0 &&
-                        (p.unit === "ms" || p.unit === "Hz")
-                          ? computeSyncedValueLabel(
-                              currentModel.id,
-                              currentSlot.syncDivision ?? 0,
-                              chain.tempoBpm ?? 120
-                            )
-                          : null
-                      }
-                      midiCc={
-                        midiState?.bindings?.find(
-                          (b) =>
-                            b.targetKind === "param" &&
-                            b.slotIndex === selectedSlot &&
-                            b.paramIndex === p.index
-                        )?.cc ?? null
-                      }
-                      isMidiLearning={
-                        midiState?.learning?.targetKind === "param" &&
-                        midiState?.learning?.slotIndex === selectedSlot &&
-                        midiState?.learning?.paramIndex === p.index
-                      }
-                      onChange={(nextVal) => updateSlotParam(selectedSlot, p.index, nextVal)}
-                      onContextLearn={() => {
-                        const existing = midiState?.bindings?.find(
-                          (b) =>
-                            b.targetKind === "param" &&
-                            b.slotIndex === selectedSlot &&
-                            b.paramIndex === p.index
+                  <div
+                    className={
+                      currentModel.category === "cab" && cabRoomOpen
+                        ? "w-[310px] shrink-0 grid grid-cols-2"
+                        : "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4"
+                    }
+                  >
+                    {currentModel.params.map((p) => {
+                      const val = currentSlot.params[p.index] ?? p.defaultVal
+                      if (p.kind === "toggle") {
+                        return (
+                          <CortexToggleCell
+                            key={p.index}
+                            label={p.label}
+                            checked={val > 0.5}
+                            onLabel={p.onLabel}
+                            offLabel={p.offLabel}
+                            accentHex={currentCategory.hex}
+                            onChange={(checked) => updateSlotParam(selectedSlot, p.index, checked ? 1 : 0)}
+                          />
                         )
-                        if (existing && onClearMidiBinding) {
-                          onClearMidiBinding({
-                            targetKind: "param",
-                            slotIndex: selectedSlot,
-                            paramIndex: p.index,
-                          })
-                        } else if (onStartMidiLearn) {
-                          onStartMidiLearn({
-                            targetKind: "param",
-                            slotIndex: selectedSlot,
-                            paramIndex: p.index,
-                          })
-                        }
-                      }}
+                      }
+                      return (
+                        <CortexKnob
+                          key={p.index}
+                          label={p.label}
+                          value={val}
+                          min={p.min}
+                          max={p.max}
+                          step={p.step}
+                          defaultVal={p.defaultVal}
+                          unit={p.unit}
+                          accentHex={currentCategory.hex}
+                          syncedText={
+                            supportsTempoSync(currentModel.id) &&
+                            (currentSlot.syncDivision ?? 0) > 0 &&
+                            (p.unit === "ms" || p.unit === "Hz")
+                              ? computeSyncedValueLabel(
+                                  currentModel.id,
+                                  currentSlot.syncDivision ?? 0,
+                                  chain.tempoBpm ?? 120
+                                )
+                              : null
+                          }
+                          midiCc={
+                            midiState?.bindings?.find(
+                              (b) =>
+                                b.targetKind === "param" &&
+                                b.slotIndex === selectedSlot &&
+                                b.paramIndex === p.index
+                            )?.cc ?? null
+                          }
+                          isMidiLearning={
+                            midiState?.learning?.targetKind === "param" &&
+                            midiState?.learning?.slotIndex === selectedSlot &&
+                            midiState?.learning?.paramIndex === p.index
+                          }
+                          onChange={(nextVal) => updateSlotParam(selectedSlot, p.index, nextVal)}
+                          onContextLearn={() => {
+                            const existing = midiState?.bindings?.find(
+                              (b) =>
+                                b.targetKind === "param" &&
+                                b.slotIndex === selectedSlot &&
+                                b.paramIndex === p.index
+                            )
+                            if (existing && onClearMidiBinding) {
+                              onClearMidiBinding({
+                                targetKind: "param",
+                                slotIndex: selectedSlot,
+                                paramIndex: p.index,
+                              })
+                            } else if (onStartMidiLearn) {
+                              onStartMidiLearn({
+                                targetKind: "param",
+                                slotIndex: selectedSlot,
+                                paramIndex: p.index,
+                              })
+                            }
+                          }}
+                        />
+                      )
+                    })}
+                  </div>
+                  {currentModel.category === "cab" && cabRoomOpen && (
+                    <VirtualCabRoom
+                      config={currentSlot.cabMic}
+                      onChange={(next) => updateSlotCabMic(selectedSlot, next)}
                     />
-                  )
-                })}
+                  )}
                 </div>
-                {currentModel.category === "cab" && cabRoomOpen && (
-                  <VirtualCabRoom
-                    config={currentSlot.cabMic}
-                    onChange={(next) => updateSlotCabMic(selectedSlot, next)}
-                  />
-                )}
-              </div>
-            ) : (
-              <div className="p-4 flex flex-wrap items-center gap-2">
-                {[
-                  "od_ts808",
-                  "od_klon",
-                  "dist_rat",
-                  "fuzz_bigmuff",
-                  "amp_plexi",
-                  "amp_slo100",
-                  "nam_capture",
-                  "cab_v30",
-                  "eq_graphic5",
-                  "mod_ce2",
-                  "dly_digital",
-                  "rev_hall",
-                ].map((id) => {
-                  const m = DEVICE_MAP[id]
-                  const c = CATEGORY_MAP[m.category]
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => assignModelToSlot(id, selectedSlot)}
-                      className="px-3 py-1.5 rounded-md bg-secondary/70 hover:bg-accent border text-xs font-medium flex items-center gap-2 transition-colors"
-                      style={{ borderColor: `${c.hex}55` }}
-                    >
-                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: c.hex }} />
-                      {m.name}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-          </ScrollArea>
+              ) : (
+                <div className="p-4 flex flex-wrap items-center gap-1.5">
+                  {[
+                    "od_ts808",
+                    "od_klon",
+                    "dist_rat",
+                    "fuzz_bigmuff",
+                    "pitch_capo",
+                    "amp_plexi",
+                    "amp_slo100",
+                    "nam_capture",
+                    "cab_v30",
+                    "eq_graphic5",
+                    "mod_ce2",
+                    "dly_digital",
+                    "rev_hall",
+                  ].map((id) => {
+                    const m = DEVICE_MAP[id]
+                    const c = CATEGORY_MAP[m.category]
+                    return (
+                      <Button
+                        key={id}
+                        size="xs"
+                        variant="keycap"
+                        onClick={() => onAssignModel(id, selectedSlot)}
+                      >
+                        <span className="size-2 rounded-[1px]" style={{ backgroundColor: c.hex }} />
+                        {m.name}
+                      </Button>
+                    )
+                  })}
+                </div>
+              )}
+            </ScrollArea>
+          </div>
+
+          {/* Right: TP-7 Micro Tape & Loop + MR Deck */}
+          <div className="md:col-span-4 min-h-0">
+            <LooperRecorderDeck
+              looper={looper}
+              recorder={recorder}
+              backing={backing}
+              tempoBpm={chain.tempoBpm ?? 120}
+              isAudioRunning={isAudioRunning}
+              midiState={midiState}
+              onLooperCmd={handleLooperCommand}
+              onRecorderCmd={handleRecorderCommand}
+              onLoadBacking={handleLoadBacking}
+              onControlBacking={controlBacking}
+              onUnloadBacking={unloadBacking}
+              onStartMidiLearn={onStartMidiLearn}
+              onClearMidiBinding={onClearMidiBinding}
+            />
+          </div>
         </section>
       </div>
     </div>

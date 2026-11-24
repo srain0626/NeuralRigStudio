@@ -35,18 +35,20 @@ flowchart TD
         Cabs["CabinetIrBank (512/1024-Tap Real-Mic Measured IRs)"]
     end
 
-    subgraph External ["External Integrations"]
-        GP100["Valeton GP-100 & Generic ASIO Audio Interfaces"]
-        AntigravityMCP["NeuralRigMcp (Antigravity AI MCP Server)"]
-        AI["Antigravity / Gemini AI Agent"]
+    subgraph External ["External Integrations & v3.0 Public Cloud"]
+        Interfaces["Universal ASIO Audio Interfaces & WASAPI Line-In"]
+        NpxMCP["NeuralRigMcp / npx neuralrig-mcp (7 AI Providers)"]
+        AI["AI Agents (Claude, Cursor, Windsurf, Codex, Gemini, Antigravity)"]
+        Cloud["Vercel Next.js + Supabase (Auth, Sync, Gear Hub, Bugs, OTA, Admin)"]
     end
 
     UI <-->|JSON IPC| Host
     Host <-->|Lock-Free RingBuffer| AudioEngine
+    Host <-->|HTTPS + Loopback PKCE| Cloud
     AudioEngine --> DSP
-    AudioEngine <--> GP100
-    AI <-->|MCP JSON-RPC Tools| AntigravityMCP
-    AntigravityMCP <-->|Named Pipe| NamedPipe
+    AudioEngine <--> Interfaces
+    AI <-->|MCP JSON-RPC Tools| NpxMCP
+    NpxMCP <-->|Named Pipe| NamedPipe
 ```
 
 ---
@@ -58,7 +60,7 @@ The real-time audio thread in NeuralRig Studio is strictly bounded to **0 Bytes 
 ### Key Characteristics
 - **Pre-Allocated Memory Pools**: All audio buffers, intermediate ping-pong buffers, oversampling stages, and state vectors are allocated upon device initialization.
 - **Lock-Free Ring Buffers**: Uses power-of-2 circular buffers with memory barriers (`Volatile.Read` / `Volatile.Write`) for inter-thread communication between the ASIO/WASAPI driver callback, UI visualizer, and tuner threads.
-- **Zero-Alloc Sample Rate Converter**: When bridging 44.1 kHz USB hardware (e.g., Valeton GP-100) with 48 kHz system output or vice-versa, a pre-calculated sinc interpolation filter converts stream rates with zero runtime heap allocation.
+- **Zero-Alloc Sample Rate Converter**: When bridging 44.1 kHz USB hardware with 48 kHz system output or vice-versa, a pre-calculated sinc interpolation filter converts stream rates with zero runtime heap allocation.
 - **SIMD Acceleration**: Core math, vector arithmetic, and neural network matrix multiplications utilize hardware-accelerated AVX2 and FMA instructions (`System.Runtime.Intrinsics.X86`).
 
 ---

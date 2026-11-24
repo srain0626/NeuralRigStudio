@@ -1,0 +1,32 @@
+name: Bug Report
+description: Report an audio, DSP, UI, MCP, or OTA issue in NeuralRig Studio
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: App Version
+      placeholder: "v3.0.0"
+    validations:
+      required: true
+  - type: input
+    id: audio-interface
+    attributes:
+      label: Audio Interface & Driver Mode
+      placeholder: "e.g., Focusrite Scarlett 2i2 (ASIO 64fr @ 48kHz) or WASAPI Line-In"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction Steps
+      description: Note that the in-app BUG button automatically scrubs PII and uploads recent logs.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs Actual Behavior
+    validations:
+      required: true

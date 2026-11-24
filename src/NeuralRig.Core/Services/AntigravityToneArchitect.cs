@@ -21,10 +21,12 @@ public sealed class AntigravityToneArchitect
     public sealed record DeviceMeta(
         string Id,
         string Name,
-        string Category, // amp, nam, cab, drive, delay, reverb, mod, eq, dyn
+        string Category, // amp, nam, cab, drive, delay, reverb, mod, eq, dyn, pitch
         float[] Defaults,
         (float Min, float Max)[] Ranges,
-        string Hint);
+        string Hint,
+        string OriginalName = "",
+        string[]? Aliases = null);
 
     private static readonly (float Min, float Max)[] AmpRanges =
     {
@@ -46,101 +48,492 @@ public sealed class AntigravityToneArchitect
         (0, 10), (0, 10), (0, 10), (0, 10), (0, 10)
     };
 
+    private static readonly (float Min, float Max)[] CustomDrive4Ranges =
+    {
+        (0, 10), (0, 10), (0, 10), (0, 10)
+    };
+
+    private static readonly object CatalogLock = new();
     public static readonly Dictionary<string, DeviceMeta> Catalog = BuildCatalog();
+
+    static AntigravityToneArchitect()
+    {
+        foreach (var spec in CustomDeviceRegistry.GetAll())
+            RegisterCustomDevice(spec);
+    }
+
+    public static void RegisterCustomDevice(CustomDeviceSpecDto spec)
+    {
+        if (spec == null || string.IsNullOrWhiteSpace(spec.Id)) return;
+        string cat = (spec.Category ?? "drive").Trim().ToLowerInvariant();
+        string normCat = cat is "amp" or "cab" ? cat : "drive";
+
+        (float Min, float Max)[] ranges;
+        float[] defs;
+        if (spec.SpiceCircuit?.Knobs is { Count: > 0 } spiceKnobs)
+        {
+            int maxIdx = Math.Min(7, spiceKnobs.Max(k => Math.Clamp(k.Index, 0, 7)));
+            int len = maxIdx + 1;
+            ranges = new (float Min, float Max)[len];
+            defs = new float[len];
+            for (int i = 0; i < len; i++)
+            {
+                ranges[i] = (0f, 10f);
+                defs[i] = 5f;
+            }
+            foreach (var k in spiceKnobs)
+            {
+                int idx = Math.Clamp(k.Index, 0, 7);
+                if (idx >= len) continue;
+                float lo = float.IsFinite(k.Min) ? k.Min : 0f;
+                float hi = float.IsFinite(k.Max) && k.Max >= lo ? k.Max : (k.IsSwitch ? 1f : 10f);
+                ranges[idx] = (lo, hi);
+                defs[idx] = Math.Clamp(float.IsFinite(k.Default) ? k.Default : 5f, lo, hi);
+            }
+        }
+        else
+        {
+            (ranges, defs) = normCat switch
+            {
+                "amp" => (AmpRanges, ExtractDefaults(spec.Defaults, 8)),
+                "cab" => (CabRanges, ExtractDefaults(spec.Defaults, 3)),
+                _ => (CustomDrive4Ranges, ExtractDefaults(spec.Defaults, 4)),
+            };
+        }
+
+        string tag = spec.SpiceCircuit != null ? "[SPICE MNA] " : "";
+        string modelsNote = spec.ReferencedModels is { Length: > 0 }
+            ? $" · Parts: {string.Join(",", spec.ReferencedModels)}"
+            : "";
+
+        string origName = string.IsNullOrWhiteSpace(spec.OriginalName) ? spec.Name : spec.OriginalName.Trim();
+        var meta = new DeviceMeta(
+            spec.Id.Trim().ToLowerInvariant(),
+            spec.Name,
+            normCat,
+            defs,
+            ranges,
+            $"{tag}{spec.SchematicSummary}{modelsNote} (Source: {spec.SchematicSourceUrl})",
+            OriginalName: origName,
+            Aliases: spec.Aliases ?? Array.Empty<string>());
+        lock (CatalogLock)
+        {
+            Catalog[meta.Id] = meta;
+        }
+    }
+
+    public static void UnregisterCustomDevice(string modelId)
+    {
+        if (string.IsNullOrWhiteSpace(modelId)) return;
+        lock (CatalogLock)
+        {
+            Catalog.Remove(modelId.Trim().ToLowerInvariant());
+        }
+    }
+
+    public static DeviceMeta[] GetCatalogSnapshot()
+    {
+        lock (CatalogLock)
+        {
+            return Catalog.Values.ToArray();
+        }
+    }
+
+    public static string CompactSearchKey(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return "";
+        var sb = new System.Text.StringBuilder(text.Length);
+        foreach (char ch in text.ToLowerInvariant())
+        {
+            if (ch is ' ' or '-' or '_' or '/' or '\'' or '.' or '(' or ')')
+                continue;
+            sb.Append(ch);
+        }
+        return sb.ToString();
+    }
+
+    public static bool MatchesSearchQuery(DeviceMeta d, string? query)
+    {
+        if (string.IsNullOrWhiteSpace(query)) return true;
+
+        string aliasJoined = d.Aliases is { Length: > 0 } ? string.Join(' ', d.Aliases) : "";
+        string rawHaystack = $"{d.Id} {d.Name} {d.OriginalName} {aliasJoined} {d.Category} {d.Hint}".ToLowerInvariant();
+        string compactHaystack = string.Concat(
+            CompactSearchKey(d.Id), " ",
+            CompactSearchKey(d.Name), " ",
+            CompactSearchKey(d.OriginalName), " ",
+            d.Aliases is { Length: > 0 } ? string.Join(' ', d.Aliases.Select(CompactSearchKey)) : "");
+
+        var tokens = query.Trim().ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var tok in tokens)
+        {
+            string cTok = CompactSearchKey(tok);
+            bool hit = rawHaystack.Contains(tok, StringComparison.Ordinal)
+                || (cTok.Length > 0 && compactHaystack.Contains(cTok, StringComparison.Ordinal));
+            if (!hit) return false;
+        }
+        return true;
+    }
+
+    public static DeviceMeta[] SearchCatalog(string? category = "all", string? query = null)
+    {
+        string cat = (category ?? "all").Trim().ToLowerInvariant();
+        return GetCatalogSnapshot()
+            .Where(d => (cat == "all" || string.IsNullOrEmpty(cat) || d.Category.Equals(cat, StringComparison.OrdinalIgnoreCase))
+                     && MatchesSearchQuery(d, query))
+            .ToArray();
+    }
+
+    public static bool TryFindDevice(string? modelId, out DeviceMeta? meta)
+    {
+        meta = null;
+        if (string.IsNullOrWhiteSpace(modelId)) return false;
+        string q = modelId.Trim();
+        lock (CatalogLock)
+        {
+            if (Catalog.TryGetValue(q, out meta))
+                return true;
+
+            string qCompact = CompactSearchKey(q);
+            DeviceMeta? best = null;
+            int bestScore = -1;
+
+            foreach (var d in Catalog.Values)
+            {
+                int score = ScoreDeviceResolution(d, q, qCompact);
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    best = d;
+                }
+            }
+
+            if (best != null && bestScore > 0)
+            {
+                meta = best;
+                return true;
+            }
+            return false;
+        }
+    }
+
+    private static int ScoreDeviceResolution(DeviceMeta d, string q, string qCompact)
+    {
+        // Exact string match against OriginalName, Name, or Aliases
+        if (string.Equals(d.OriginalName, q, StringComparison.OrdinalIgnoreCase))
+            return 10000;
+        if (string.Equals(d.Name, q, StringComparison.OrdinalIgnoreCase))
+            return 9500;
+        if (d.Aliases != null)
+        {
+            foreach (var a in d.Aliases)
+            {
+                if (string.Equals(a, q, StringComparison.OrdinalIgnoreCase))
+                    return 9000;
+            }
+        }
+
+        // Exact compact match (ignoring hyphens/spaces/punctuation, e.g. "od1" -> "OD-1", "bossod1" -> "BOSS OD-1")
+        if (qCompact.Length >= 2)
+        {
+            if (CompactSearchKey(d.OriginalName) == qCompact)
+                return 8500;
+            if (CompactSearchKey(d.Name) == qCompact)
+                return 8200;
+            if (CompactSearchKey(d.Id) == qCompact)
+                return 8100;
+            if (d.Aliases != null)
+            {
+                foreach (var a in d.Aliases)
+                {
+                    if (CompactSearchKey(a) == qCompact)
+                        return 8000;
+                }
+            }
+        }
+
+        // All-token search match across OriginalName / Aliases / Name (ranked by closeness in length)
+        if (MatchesSearchQuery(d, q))
+        {
+            string origCompact = CompactSearchKey(d.OriginalName);
+            string nameCompact = CompactSearchKey(d.Name);
+            int bonus = 0;
+            if (qCompact.Length >= 2 && (origCompact.StartsWith(qCompact, StringComparison.Ordinal) || origCompact.Contains(qCompact, StringComparison.Ordinal)))
+                bonus += 1500 - Math.Min(1000, Math.Abs(origCompact.Length - qCompact.Length) * 10);
+            else if (qCompact.Length >= 2 && (nameCompact.StartsWith(qCompact, StringComparison.Ordinal) || nameCompact.Contains(qCompact, StringComparison.Ordinal)))
+                bonus += 1000 - Math.Min(800, Math.Abs(nameCompact.Length - qCompact.Length) * 10);
+            else if (qCompact.Length >= 2 && d.Aliases != null && d.Aliases.Any(a => CompactSearchKey(a).Contains(qCompact, StringComparison.Ordinal)))
+                bonus += 1200;
+
+            return 1000 + bonus;
+        }
+
+        return -1;
+    }
+
+    public static float[] CreateDefaultParams(string? modelId)
+    {
+        var arr = new float[8];
+        if (TryFindDevice(modelId, out var meta) && meta != null)
+            Array.Copy(meta.Defaults, arr, Math.Min(8, meta.Defaults.Length));
+        return arr;
+    }
+
+    private static float[] ExtractDefaults(float[]? src, int count)
+    {
+        var dst = new float[count];
+        if (src != null) Array.Copy(src, dst, Math.Min(count, src.Length));
+        return dst;
+    }
 
     private static Dictionary<string, DeviceMeta> BuildCatalog()
     {
         var list = new DeviceMeta[]
         {
             // ── AMP (11) ──
-            new("amp_plexi", "Brit Plexi 100 Bright", "amp", new float[]{6.2f,5.2f,5.8f,6.0f,5.5f,3.5f,5.2f,1f}, AmpRanges, "Marshall 1959SLP Plexi (P0=Gain,P1=Bass,P2=Mid,P3=Treble,P4=Master,P5=Sag,P6=Presence,P7=Bright)"),
-            new("amp_2203", "Marshall JCM800 (2203)", "amp", new float[]{6.8f,5.0f,6.2f,5.8f,5.5f,3.5f,5.2f,0f}, AmpRanges, "JCM800 2203 Hard Rock"),
-            new("amp_twin", "US Clean Twin", "amp", new float[]{3.2f,5.0f,4.5f,5.8f,5.5f,3.5f,5.2f,0f}, AmpRanges, "Fender Twin Reverb Blackface Clean"),
-            new("amp_1star", "CA 1Star Clean 100W", "amp", new float[]{3.8f,5.0f,5.5f,5.8f,5.5f,4.5f,5.2f,0f}, AmpRanges, "Boutique California Clean/Crunch"),
-            new("amp_slo100", "SLO 100 Lead", "amp", new float[]{6.5f,5.0f,5.5f,5.8f,5.5f,3.5f,6.0f,0f}, AmpRanges, "Soldano SLO-100 Singing High-Gain"),
-            new("amp_5153", "5153 Red High-Gain", "amp", new float[]{7.2f,5.0f,4.6f,5.8f,5.5f,3.5f,5.2f,1f}, AmpRanges, "EVH 5150 III Red Modern Metal"),
-            new("amp_jc120", "Roland JC-120 Jazz Chorus", "amp", new float[]{4.5f,4.8f,5.2f,6.2f,5.5f,0f,0f,1f}, new[]{(0f,10f),(0f,10f),(0f,10f),(0f,10f),(0f,10f),(0f,0f),(0f,0f),(0f,1f)}, "Roland JC-120 Stereo Solid-State Clean (P0=Vol,P1=Bass,P2=Mid,P3=Treble,P4=Master,P7=Bright)"),
-            new("amp_ac30", "VOX AC30 Top Boost", "amp", new float[]{5.4f,5.0f,5.5f,6.6f,5.5f,3.5f,5.2f,1f}, AmpRanges, "VOX AC30 Top Boost British Chime"),
-            new("amp_dsl", "Marshall JCM2000 DSL", "amp", new float[]{6.6f,5.0f,6.0f,5.8f,5.5f,3.5f,6.2f,0f}, AmpRanges, "Marshall JCM2000 DSL J-Rock Crunch/Lead"),
-            new("amp_recto", "Mesa/Boogie Dual Rectifier", "amp", new float[]{7.4f,5.0f,4.4f,5.8f,5.5f,3.5f,5.2f,1f}, AmpRanges, "Mesa Dual Rectifier Aggressive Metal"),
-            new("amp_be100", "Friedman BE-100", "amp", new float[]{6.9f,5.0f,6.4f,5.8f,5.5f,3.5f,6.0f,0f}, AmpRanges, "Friedman BE-100 Boutique Hot-Rodded Plexi"),
+            new("amp_plexi", "Brit Plexi 100 Bright", "amp", new float[]{6.2f,5.2f,5.8f,6.0f,5.5f,3.5f,5.2f,1f}, AmpRanges,
+                "Marshall 1959SLP Plexi (P0=Gain,P1=Bass,P2=Mid,P3=Treble,P4=Master,P5=Sag,P6=Presence,P7=Bright)",
+                "Marshall 1959SLP Super Lead 100W Plexi", new[]{"Marshall","1959SLP","Plexi","Super Lead","마샬","플렉시"}),
+            new("amp_2203", "Brit 800 Lead (2203)", "amp", new float[]{6.8f,5.0f,6.2f,5.8f,5.5f,3.5f,5.2f,0f}, AmpRanges,
+                "JCM800 2203 Hard Rock",
+                "Marshall JCM800 2203", new[]{"Marshall","JCM800","JCM 800","2203","마샬"}),
+            new("amp_twin", "US Blackface Twin 85", "amp", new float[]{3.2f,5.0f,4.5f,5.8f,5.5f,3.5f,5.2f,0f}, AmpRanges,
+                "Fender Twin Reverb Blackface Clean",
+                "Fender '65 Twin Reverb", new[]{"Fender","Twin Reverb","US Clean Twin","Blackface","펜더","트윈리버브","트윈"}),
+            new("amp_1star", "CA 1Star Clean 100W", "amp", new float[]{3.8f,5.0f,5.5f,5.8f,5.5f,4.5f,5.2f,0f}, AmpRanges,
+                "Boutique California Clean/Crunch",
+                "Mesa/Boogie Lone Star Classic", new[]{"Mesa","Mesa/Boogie","Lone Star","Lonestar","메사","메사부기","론스타"}),
+            new("amp_slo100", "US Super Lead 100", "amp", new float[]{6.5f,5.0f,5.5f,5.8f,5.5f,3.5f,6.0f,0f}, AmpRanges,
+                "Soldano SLO-100 Singing High-Gain",
+                "Soldano SLO-100 Super Lead Overdrive", new[]{"Soldano","SLO-100","SLO100","SLO 100","솔다노"}),
+            new("amp_5153", "Panama 53 Red Lead", "amp", new float[]{7.2f,5.0f,4.6f,5.8f,5.5f,3.5f,5.2f,1f}, AmpRanges,
+                "EVH 5150 III Red Modern Metal",
+                "EVH 5150 III 100W Red", new[]{"EVH","Peavey","5150","5153","5150 III","피비"}),
+            new("amp_jc120", "JP Stereo Jazz 120", "amp", new float[]{4.5f,4.8f,5.2f,6.2f,5.5f,0f,0f,1f}, new[]{(0f,10f),(0f,10f),(0f,10f),(0f,10f),(0f,10f),(0f,0f),(0f,0f),(0f,1f)},
+                "Roland JC-120 Stereo Solid-State Clean (P0=Vol,P1=Bass,P2=Mid,P3=Treble,P4=Master,P7=Bright)",
+                "Roland JC-120 Jazz Chorus", new[]{"Roland","JC-120","JC120","Jazz Chorus","롤랜드","재즈코러스","재즈 코러스"}),
+            new("amp_ac30", "Brit Chime 30 Top Boost", "amp", new float[]{5.4f,5.0f,5.5f,6.6f,5.5f,3.5f,5.2f,1f}, AmpRanges,
+                "VOX AC30 Top Boost British Chime",
+                "VOX AC30 Top Boost", new[]{"VOX","AC30","AC-30","Top Boost","복스"}),
+            new("amp_dsl", "Brit 2000 Dual Super", "amp", new float[]{6.6f,5.0f,6.0f,5.8f,5.5f,3.5f,6.2f,0f}, AmpRanges,
+                "Marshall JCM2000 DSL J-Rock Crunch/Lead",
+                "Marshall JCM2000 DSL100", new[]{"Marshall","JCM2000","JCM 2000","DSL","DSL100","마샬"}),
+            new("amp_recto", "CA Dual Treadplate", "amp", new float[]{7.4f,5.0f,4.4f,5.8f,5.5f,3.5f,5.2f,1f}, AmpRanges,
+                "Mesa Dual Rectifier Aggressive Metal",
+                "Mesa/Boogie Dual Rectifier", new[]{"Mesa","Mesa/Boogie","Dual Rectifier","Rectifier","Recto","메사","메사부기","듀얼렉티파이어","렉티파이어","렉티"}),
+            new("amp_be100", "LA Brown Eye 100", "amp", new float[]{6.9f,5.0f,6.4f,5.8f,5.5f,3.5f,6.0f,0f}, AmpRanges,
+                "Friedman BE-100 Boutique Hot-Rodded Plexi",
+                "Friedman BE-100", new[]{"Friedman","BE-100","BE100","Brown Eye","프리드먼"}),
 
             // ── NAM (1) ──
-            new("nam_capture", "NAM Neural Capture", "nam", new float[]{0f,0f,100f}, new[]{(-12f,12f),(-12f,12f),(0f,100f)}, "Neural Amp Modeler Block (P0=In dB,P1=Out dB,P2=Mix%)"),
+            new("nam_capture", "NAM Neural Capture", "nam", new float[]{0f,0f,100f}, new[]{(-12f,12f),(-12f,12f),(0f,100f)},
+                "Neural Amp Modeler Block (P0=In dB,P1=Out dB,P2=Mix%)",
+                "Neural Amp Modeler (.nam)", new[]{"NAM","Neural Amp Modeler","Neural Capture","뉴럴캡처"}),
 
             // ── CAB (8) ──
-            new("cab_v30", "4x12 V30 Modern", "cab", new float[]{80f,9500f,0f}, CabRanges, "4x12 Celestion V30 (P0=LowCut Hz,P1=HighCut Hz,P2=Level dB)"),
-            new("cab_custom", "Custom WAV IR", "cab", new float[]{75f,10500f,0f}, CabRanges, "Custom External WAV Cabinet IR"),
-            new("cab_jc120", "2x12 JC-120 Open Back", "cab", new float[]{65f,12500f,0f}, CabRanges, "2x12 JC-120 Bright Clean Open Back"),
-            new("cab_alnico", "2x12 VOX Alnico Blue", "cab", new float[]{75f,11000f,0f}, CabRanges, "2x12 VOX Alnico Blue"),
-            new("cab_1960a", "Marshall 1960A (G12T-75)", "cab", new float[]{85f,9800f,0f}, CabRanges, "Marshall 1960A 4x12 G12T-75"),
-            new("cab_1960bv", "Marshall 1960BV (4x12 V30)", "cab", new float[]{80f,9600f,0f}, CabRanges, "Marshall 1960BV Straight V30"),
-            new("cab_mesa412", "Mesa/Boogie Rectifier 4x12", "cab", new float[]{90f,9200f,0f}, CabRanges, "Mesa Oversized Rectifier 4x12"),
-            new("cab_jensen112", "1x12 Fender Jensen Open", "cab", new float[]{70f,11800f,0f}, CabRanges, "1x12 Fender Jensen Open Back"),
+            new("cab_v30", "4x12 Brit Vintage 30", "cab", new float[]{80f,9500f,0f}, CabRanges,
+                "4x12 Celestion V30 (P0=LowCut Hz,P1=HighCut Hz,P2=Level dB)",
+                "4x12 Celestion Vintage 30", new[]{"Celestion","Vintage 30","V30","4x12 V30","셀레스천","빈티지30"}),
+            new("cab_custom", "Custom WAV IR", "cab", new float[]{75f,10500f,0f}, CabRanges,
+                "Custom External WAV Cabinet IR",
+                "Custom External WAV Cabinet IR", new[]{"Custom IR","WAV IR","커스텀 IR"}),
+            new("cab_jc120", "2x12 JP Stereo Jazz Open", "cab", new float[]{65f,12500f,0f}, CabRanges,
+                "2x12 JC-120 Bright Clean Open Back",
+                "Roland JC-120 2x12 Open Back", new[]{"Roland","JC-120","JC120","2x12 JC-120","롤랜드","재즈코러스"}),
+            new("cab_alnico", "2x12 Brit Alnico Blue", "cab", new float[]{75f,11000f,0f}, CabRanges,
+                "2x12 VOX Alnico Blue",
+                "2x12 VOX Celestion Alnico Blue", new[]{"VOX","AC30","Celestion","Alnico Blue","복스","알니코 블루","알니코"}),
+            new("cab_1960a", "4x12 Brit 60A Angled (75W)", "cab", new float[]{85f,9800f,0f}, CabRanges,
+                "Marshall 1960A 4x12 G12T-75",
+                "Marshall 1960A (Celestion G12T-75)", new[]{"Marshall","1960A","G12T-75","G12T75","마샬"}),
+            new("cab_1960bv", "4x12 Brit 60BV Straight", "cab", new float[]{80f,9600f,0f}, CabRanges,
+                "Marshall 1960BV Straight V30",
+                "Marshall 1960BV (4x12 Vintage 30)", new[]{"Marshall","1960BV","V30","마샬"}),
+            new("cab_mesa412", "4x12 CA Oversized Treadplate", "cab", new float[]{90f,9200f,0f}, CabRanges,
+                "Mesa Oversized Rectifier 4x12",
+                "Mesa/Boogie Rectifier Oversized 4x12", new[]{"Mesa","Mesa/Boogie","Rectifier 4x12","Recto 4x12","메사","렉티파이어"}),
+            new("cab_jensen112", "1x12 US Vintage Open Back", "cab", new float[]{70f,11800f,0f}, CabRanges,
+                "1x12 Fender Jensen Open Back",
+                "1x12 Fender Jensen C12N Open Back", new[]{"Fender","Jensen","C12N","1x12 Fender","펜더","젠센"}),
 
             // ── DRIVE / DIST / FUZZ / BOOST (25) ──
-            new("od_ts808", "Green 808 (TS808)", "drive", new float[]{3.5f,5.8f,6.2f}, Drive3Ranges, "Ibanez TS808 (P0=Drive,P1=Tone,P2=Level)"),
-            new("od_ts9", "Ibanez TS9 Tube Screamer", "drive", new float[]{3.8f,6.0f,6.4f}, Drive3Ranges, "Ibanez TS9 (P0=Drive,P1=Tone,P2=Level)"),
-            new("od_janray", "Vemuram Jan Ray", "drive", new float[]{4.5f,5.2f,6.0f,4.8f,5.8f}, EQ3AmpPedalRanges, "Jan Ray (P0=Gain,P1=Bass,P2=Treble,P3=Sat,P4=Vol)"),
-            new("od_puresky", "Caline Pure Sky", "drive", new float[]{4.0f,5.0f,5.6f,5.8f}, new[]{(0f,10f),(0f,10f),(0f,10f),(0f,10f)}, "Timmy-style Transparent OD (P0=Gain,P1=Bass,P2=Treble,P3=Vol)"),
-            new("od_bbpreamp", "Xotic BB Preamp", "drive", new float[]{5.2f,5.0f,5.8f,5.6f}, new[]{(0f,10f),(0f,10f),(0f,10f),(0f,10f)}, "Xotic BB Preamp (P0=Gain,P1=Bass,P2=Treble,P3=Vol)"),
-            new("od_ocd", "Fulltone OCD", "drive", new float[]{5.4f,5.6f,5.5f,1f}, new[]{(0f,10f),(0f,10f),(0f,10f),(0f,1f)}, "Fulltone OCD MOSFET (P0=Drive,P1=Tone,P2=Vol,P3=HP1/LP0)"),
-            new("od_bluesbreaker", "Marshall Bluesbreaker MK1", "drive", new float[]{5.2f,5.8f,6.0f}, Drive3Ranges, "Marshall Bluesbreaker MK1 Low-Gain OD"),
-            new("od_boxofrock", "ZVEX Box of Rock (JTM45)", "drive", new float[]{6.0f,5.6f,5.5f}, Drive3Ranges, "Box of Rock BS170 JTM45 Emulator"),
-            new("dist_rat2", "ProCo RAT 2", "drive", new float[]{6.2f,4.4f,5.4f}, Drive3Ranges, "ProCo RAT 2 (P0=Dist,P1=Reverse Filter,P2=Vol)"),
-            new("dist_ecstasy", "Bogner Ecstasy Red", "drive", new float[]{6.8f,5.2f,5.8f,6.0f,5.4f}, EQ3AmpPedalRanges, "Bogner Ecstasy Red High-Gain (P0=Gain,P1=Bass,P2=Mid,P3=Treble,P4=Vol)"),
-            new("dist_guvnor", "Marshall Guv'nor MK1", "drive", new float[]{6.4f,5.5f,5.6f,5.8f,5.4f}, EQ3AmpPedalRanges, "Marshall Guv'nor LED Clipping (P0=Gain,P1=Bass,P2=Mid,P3=Treble,P4=Level)"),
-            new("dist_plus", "MXR Distortion+", "drive", new float[]{6.6f,5.8f}, new[]{(0f,10f),(0f,10f)}, "MXR Distortion+ Ge Hard Clip (P0=Dist,P1=Output)"),
-            new("boost_microamp", "MXR Micro Amp", "drive", new float[]{4.5f}, new[]{(0f,10f)}, "MXR Micro Amp Clean Boost (P0=Gain)"),
-            new("boost_rangemaster", "Dallas Rangemaster (OC44)", "drive", new float[]{6.5f,0f}, new[]{(0f,10f),(0f,1f)}, "Dallas Rangemaster Ge Treble Booster (P0=Boost,P1=0:4n7/1:22n)"),
-            new("od_klon", "Mythic Centaur (Klon)", "drive", new float[]{4.2f,5.8f,5.5f}, Drive3Ranges, "Klon Centaur (P0=Gain,P1=Treble,P2=Output)"),
-            new("dist_rat", "Rodent Dist (RAT)", "drive", new float[]{5.8f,4.5f,5.2f}, Drive3Ranges, "Classic LM308 RAT"),
-            new("fuzz_bigmuff", "Big Pi Fuzz (Muff)", "drive", new float[]{6.5f,5.2f,5.0f}, Drive3Ranges, "EHX Big Muff Pi (P0=Sustain,P1=Tone,P2=Vol)"),
-            new("fuzz_face", "Dallas Fuzz Face (Ge/Si)", "drive", new float[]{7.5f,5.0f,5.6f,0f}, new[]{(0f,10f),(0f,10f),(0f,10f),(0f,1f)}, "Fuzz Face (P0=Fuzz,P1=Bias,P2=Vol,P3=0:Ge/1:Si)"),
-            new("od_sd1", "BOSS SD-1 Super OverDrive", "drive", new float[]{4.5f,5.5f,5.8f}, Drive3Ranges, "BOSS SD-1 Asymmetric Overdrive"),
-            new("od_bd2", "BOSS BD-2 Blues Driver", "drive", new float[]{4.6f,5.4f,5.6f}, Drive3Ranges, "BOSS BD-2 JFET Blues Driver"),
-            new("dist_ds1", "BOSS DS-1 Distortion", "drive", new float[]{6.2f,4.2f,5.5f}, Drive3Ranges, "BOSS DS-1 Distortion"),
-            new("dist_mt2", "BOSS MT-2 Metal Zone", "drive", new float[]{7.2f,2.5f,3.0f,-4.0f,950f,5.2f}, new[]{(0f,10f),(-15f,15f),(-15f,15f),(-15f,15f),(200f,5000f),(0f,10f)}, "BOSS MT-2 (P0=Dist,P1=Hi,P2=Lo,P3=Mid,P4=MidFreq,P5=Lvl)"),
-            new("dist_hm2", "BOSS HM-2 Heavy Metal", "drive", new float[]{8.5f,8.5f,9.0f,5.5f}, new[]{(0f,10f),(0f,10f),(0f,10f),(0f,10f)}, "BOSS HM-2 Chainsaw (P0=Dist,P1=Low,P2=High,P3=Level)"),
-            new("boost_ep", "Xotic EP Booster", "drive", new float[]{4.0f,1f}, new[]{(0f,10f),(0f,1f)}, "Xotic EP Booster JFET (P0=Boost,P1=Bright)"),
-            new("boost_rc", "Xotic RC Booster", "drive", new float[]{2.5f,6.0f,5.2f,5.6f}, new[]{(0f,10f),(0f,10f),(0f,10f),(0f,10f)}, "Xotic RC Booster (P0=Gain,P1=Vol,P2=Bass,P3=Treble)"),
+            new("od_ts808", "Green Screamer 808", "drive", new float[]{3.5f,5.8f,6.2f}, Drive3Ranges,
+                "Ibanez TS808 (P0=Drive,P1=Tone,P2=Level)",
+                "Ibanez TS808 Tube Screamer", new[]{"Ibanez","TS808","TS-808","Tube Screamer","Green 808","아이바네즈","튜브스크리머","튜브 스크리머"}),
+            new("od_ts9", "Green Screamer 9", "drive", new float[]{3.8f,6.0f,6.4f}, Drive3Ranges,
+                "Ibanez TS9 (P0=Drive,P1=Tone,P2=Level)",
+                "Ibanez TS9 Tube Screamer", new[]{"Ibanez","TS9","TS-9","Tube Screamer","아이바네즈","튜브스크리머","티에스9"}),
+            new("od_janray", "Tokyo Brass Ray OD", "drive", new float[]{4.5f,5.2f,6.0f,4.8f,5.8f}, EQ3AmpPedalRanges,
+                "Jan Ray (P0=Gain,P1=Bass,P2=Treble,P3=Sat,P4=Vol)",
+                "Vemuram Jan Ray", new[]{"Vemuram","Jan Ray","JanRay","베무람","잔레이","잰레이"}),
+            new("od_puresky", "Azure Sky Transparent OD", "drive", new float[]{4.0f,5.0f,5.6f,5.8f}, new[]{(0f,10f),(0f,10f),(0f,10f),(0f,10f)},
+                "Timmy-style Transparent OD (P0=Gain,P1=Bass,P2=Treble,P3=Vol)",
+                "Caline CP-12 Pure Sky (Timmy)", new[]{"Caline","Pure Sky","CP-12","Timmy","칼라인","퓨어스카이","티미"}),
+            new("od_bbpreamp", "Blues Box Preamp", "drive", new float[]{5.2f,5.0f,5.8f,5.6f}, new[]{(0f,10f),(0f,10f),(0f,10f),(0f,10f)},
+                "Xotic BB Preamp (P0=Gain,P1=Bass,P2=Treble,P3=Vol)",
+                "Xotic BB Preamp", new[]{"Xotic","BB Preamp","BB프리앰프","엑조틱"}),
+            new("od_ocd", "Compulsive MOSFET Drive", "drive", new float[]{5.4f,5.6f,5.5f,1f}, new[]{(0f,10f),(0f,10f),(0f,10f),(0f,1f)},
+                "Fulltone OCD MOSFET (P0=Drive,P1=Tone,P2=Vol,P3=HP1/LP0)",
+                "Fulltone OCD", new[]{"Fulltone","OCD","Obsessive Compulsive Drive","풀톤","오씨디"}),
+            new("od_bluesbreaker", "Brit Monarch Blues MK1", "drive", new float[]{5.2f,5.8f,6.0f}, Drive3Ranges,
+                "Marshall Bluesbreaker MK1 Low-Gain OD",
+                "Marshall Bluesbreaker MK1", new[]{"Marshall","Bluesbreaker","BB-1","마샬","블루스브레이커"}),
+            new("od_boxofrock", "Brit 45 Rock Box", "drive", new float[]{6.0f,5.6f,5.5f}, Drive3Ranges,
+                "Box of Rock BS170 JTM45 Emulator",
+                "ZVEX Box of Rock (JTM45)", new[]{"ZVEX","Box of Rock","JTM45","지벡스","박스오브락"}),
+            new("dist_rat2", "Black Rodent MK2", "drive", new float[]{6.2f,4.4f,5.4f}, Drive3Ranges,
+                "ProCo RAT 2 (P0=Dist,P1=Reverse Filter,P2=Vol)",
+                "ProCo RAT 2", new[]{"ProCo","RAT 2","RAT2","랫2","랫","프로코"}),
+            new("dist_ecstasy", "Euro Euphoria Red", "drive", new float[]{6.8f,5.2f,5.8f,6.0f,5.4f}, EQ3AmpPedalRanges,
+                "Bogner Ecstasy Red High-Gain (P0=Gain,P1=Bass,P2=Mid,P3=Treble,P4=Vol)",
+                "Bogner Ecstasy Red", new[]{"Bogner","Ecstasy Red","XTC Red","보그너","엑스터시"}),
+            new("dist_guvnor", "Brit Governor LED Dist", "drive", new float[]{6.4f,5.5f,5.6f,5.8f,5.4f}, EQ3AmpPedalRanges,
+                "Marshall Guv'nor LED Clipping (P0=Gain,P1=Bass,P2=Mid,P3=Treble,P4=Level)",
+                "Marshall The Guv'nor MK1", new[]{"Marshall","Guv'nor","Guvnor","마샬","구브너","거브너"}),
+            new("dist_plus", "Mustard Dist Plus", "drive", new float[]{6.6f,5.8f}, new[]{(0f,10f),(0f,10f)},
+                "MXR Distortion+ Ge Hard Clip (P0=Dist,P1=Output)",
+                "MXR M104 Distortion+", new[]{"MXR","Distortion+","Dist+","M104","디스토션 플러스","디스토션플러스"}),
+            new("boost_microamp", "White Micro Boost", "drive", new float[]{4.5f}, new[]{(0f,10f)},
+                "MXR Micro Amp Clean Boost (P0=Gain)",
+                "MXR M133 Micro Amp", new[]{"MXR","Micro Amp","M133","마이크로앰프","마이크로 앰프"}),
+            new("boost_rangemaster", "Brit OC44 Treble Master", "drive", new float[]{6.5f,0f}, new[]{(0f,10f),(0f,1f)},
+                "Dallas Rangemaster Ge Treble Booster (P0=Boost,P1=0:4n7/1:22n)",
+                "Dallas Rangemaster (OC44)", new[]{"Dallas","Rangemaster","OC44","Treble Booster","레인지마스터","트레블 부스터"}),
+            new("od_klon", "Mythic Gold Centaur", "drive", new float[]{4.2f,5.8f,5.5f}, Drive3Ranges,
+                "Klon Centaur (P0=Gain,P1=Treble,P2=Output)",
+                "Klon Centaur", new[]{"Klon","Centaur","Klon Centaur","Mythic Centaur","클론","센타우르"}),
+            new("dist_rat", "Vintage Rodent 308", "drive", new float[]{5.8f,4.5f,5.2f}, Drive3Ranges,
+                "Classic LM308 RAT",
+                "ProCo Vintage RAT (LM308)", new[]{"ProCo","RAT","Vintage RAT","LM308","Rodent Dist","랫"}),
+            new("fuzz_bigmuff", "NYC Big Pi Sustainer", "drive", new float[]{6.5f,5.2f,5.0f}, Drive3Ranges,
+                "EHX Big Muff Pi (P0=Sustain,P1=Tone,P2=Vol)",
+                "Electro-Harmonix Big Muff Pi", new[]{"EHX","Electro-Harmonix","Big Muff","Big Muff Pi","Muff","Big Pi Fuzz","빅머프","머프"}),
+            new("fuzz_face", "Round Smile Fuzz (Ge/Si)", "drive", new float[]{7.5f,5.0f,5.6f,0f}, new[]{(0f,10f),(0f,10f),(0f,10f),(0f,1f)},
+                "Fuzz Face (P0=Fuzz,P1=Bias,P2=Vol,P3=0:Ge/1:Si)",
+                "Dallas-Arbiter Fuzz Face (Ge/Si)", new[]{"Dallas","Arbiter","Dunlop","Fuzz Face","AC128","BC108","퍼즈페이스","퍼즈 페이스"}),
+            new("od_sd1", "Compact Yellow Super OD", "drive", new float[]{4.5f,5.5f,5.8f}, Drive3Ranges,
+                "BOSS SD-1 Asymmetric Overdrive",
+                "BOSS SD-1 Super OverDrive", new[]{"BOSS","SD-1","SD1","Super OverDrive","BOSS SD-1","보스","슈퍼 오버드라이브","슈퍼오버드라이브"}),
+            new("od_bd2", "Compact Sapphire Blues OD", "drive", new float[]{4.6f,5.4f,5.6f}, Drive3Ranges,
+                "BOSS BD-2 JFET Blues Driver",
+                "BOSS BD-2 Blues Driver", new[]{"BOSS","BD-2","BD2","Blues Driver","BOSS BD-2","보스","블루스 드라이버","블루스드라이버"}),
+            new("dist_ds1", "Compact Orange Dist 78", "drive", new float[]{6.2f,4.2f,5.5f}, Drive3Ranges,
+                "BOSS DS-1 Distortion",
+                "BOSS DS-1 Distortion", new[]{"BOSS","DS-1","DS1","Distortion","BOSS DS-1","보스","디스토션"}),
+            new("dist_mt2", "Compact Obsidian Metal Zone", "drive", new float[]{7.2f,2.5f,3.0f,-4.0f,950f,5.2f}, new[]{(0f,10f),(-15f,15f),(-15f,15f),(-15f,15f),(200f,5000f),(0f,10f)},
+                "BOSS MT-2 (P0=Dist,P1=Hi,P2=Lo,P3=Mid,P4=MidFreq,P5=Lvl)",
+                "BOSS MT-2 Metal Zone", new[]{"BOSS","MT-2","MT2","Metal Zone","BOSS MT-2","보스","메탈존","메탈 존"}),
+            new("dist_hm2", "Compact Swedish Chainsaw", "drive", new float[]{8.5f,8.5f,9.0f,5.5f}, new[]{(0f,10f),(0f,10f),(0f,10f),(0f,10f)},
+                "BOSS HM-2 Chainsaw (P0=Dist,P1=Low,P2=High,P3=Level)",
+                "BOSS HM-2 Heavy Metal", new[]{"BOSS","HM-2","HM2","Heavy Metal","BOSS HM-2","Chainsaw","보스","헤비메탈","체인소"}),
+            new("boost_ep", "Echo Pre FET Booster", "drive", new float[]{4.0f,1f}, new[]{(0f,10f),(0f,1f)},
+                "Xotic EP Booster JFET (P0=Boost,P1=Bright)",
+                "Xotic EP Booster", new[]{"Xotic","EP Booster","Echoplex","엑조틱","EP부스터","이피부스터"}),
+            new("boost_rc", "Pure Clean EQ Booster", "drive", new float[]{2.5f,6.0f,5.2f,5.6f}, new[]{(0f,10f),(0f,10f),(0f,10f),(0f,10f)},
+                "Xotic RC Booster (P0=Gain,P1=Vol,P2=Bass,P3=Treble)",
+                "Xotic RC Booster", new[]{"Xotic","RC Booster","엑조틱","RC부스터","알씨부스터"}),
 
             // ── DELAY (5) ──
-            new("dly_dm2w", "BOSS DM-2W Delay", "delay", new float[]{340f,38f,28f,1f}, new[]{(40f,800f),(0f,85f),(0f,100f),(0f,1f)}, "BOSS DM-2W BBD Delay (P0=ms,P1=FB%,P2=Mix%,P3=Custom)"),
-            new("dly_dd3t", "BOSS DD-3T Digital Delay", "delay", new float[]{380f,34f,26f}, new[]{(20f,800f),(0f,85f),(0f,100f)}, "BOSS DD-3T Digital Delay"),
-            new("dly_analog", "Analog BBD Delay", "delay", new float[]{360f,36f,48f,26f}, new[]{(40f,1200f),(0f,85f),(0f,100f),(0f,100f)}, "Analog BBD Delay (P0=ms,P1=FB%,P2=Tone%,P3=Mix%)"),
-            new("dly_digital", "Digital Stereo Delay", "delay", new float[]{420f,34f,18f,24f}, new[]{(40f,1350f),(0f,85f),(0f,100f),(0f,100f)}, "Digital Stereo Ping-Pong Delay"),
-            new("dly_timeline", "Strymon TimeLine", "delay", new float[]{430f,36f,28f,26f,0f}, new[]{(40f,1350f),(0f,85f),(0f,100f),(0f,100f),(0f,1f)}, "Strymon TimeLine (P0=ms,P1=Rep%,P2=Mod/Filter%,P3=Mix%,P4=0:dBucket/1:dTape)"),
+            new("dly_dm2w", "Compact Crimson BBD Delay", "delay", new float[]{340f,38f,28f,1f}, new[]{(40f,800f),(0f,85f),(0f,100f),(0f,1f)},
+                "BOSS DM-2W BBD Delay (P0=ms,P1=FB%,P2=Mix%,P3=Custom)",
+                "BOSS DM-2W Waza Delay", new[]{"BOSS","DM-2W","DM2W","DM-2","DM2","BOSS DM-2W","보스","아날로그 딜레이"}),
+            new("dly_dd3t", "Compact White Digital Delay", "delay", new float[]{380f,34f,26f}, new[]{(20f,800f),(0f,85f),(0f,100f)},
+                "BOSS DD-3T Digital Delay",
+                "BOSS DD-3T Digital Delay", new[]{"BOSS","DD-3T","DD3T","DD-3","DD3","BOSS DD-3T","보스","디지털 딜레이"}),
+            new("dly_analog", "Analog BBD Delay", "delay", new float[]{360f,36f,48f,26f}, new[]{(40f,1200f),(0f,85f),(0f,100f),(0f,100f)},
+                "Analog BBD Delay (P0=ms,P1=FB%,P2=Tone%,P3=Mix%)",
+                "Analog BBD Bucket-Brigade Delay", new[]{"Analog Delay","BBD","아날로그 딜레이"}),
+            new("dly_digital", "Digital Stereo Delay", "delay", new float[]{420f,34f,18f,24f}, new[]{(40f,1350f),(0f,85f),(0f,100f),(0f,100f)},
+                "Digital Stereo Ping-Pong Delay",
+                "Digital Stereo Ping-Pong Delay", new[]{"Digital Delay","Stereo Delay","디지털 딜레이"}),
+            new("dly_timeline", "Horizon Studio Delay", "delay", new float[]{430f,36f,28f,26f,0f}, new[]{(40f,1350f),(0f,85f),(0f,100f),(0f,100f),(0f,1f)},
+                "Strymon TimeLine (P0=ms,P1=Rep%,P2=Mod/Filter%,P3=Mix%,P4=0:dBucket/1:dTape)",
+                "Strymon TimeLine", new[]{"Strymon","TimeLine","스트라이몬","타임라인"}),
 
             // ── REVERB (5) ──
-            new("rev_bluesky", "Strymon blueSky", "reverb", new float[]{66f,22f,36f,32f,28f}, new[]{(5f,100f),(0f,120f),(0f,100f),(0f,100f),(0f,100f)}, "Strymon blueSky (P0=Decay%,P1=PreDly,P2=Damp%,P3=Mix%,P4=Shimmer%)"),
-            new("rev_rv6", "BOSS RV-6 Reverb", "reverb", new float[]{28f,58f,56f,0f}, new[]{(0f,100f),(0f,100f),(5f,100f),(0f,3f)}, "BOSS RV-6 (P0=Mix%,P1=Tone%,P2=Time%,P3=Mode 0:Hall 1:Plate 2:Spr 3:Shim)"),
-            new("rev_spring", "Spring Reverb", "reverb", new float[]{48f,42f,25f}, new[]{(5f,100f),(0f,100f),(0f,100f)}, "Classic Combo Spring Reverb"),
-            new("rev_hall", "Hall Ambient Reverb", "reverb", new float[]{58f,45f,24f,26f}, new[]{(5f,100f),(0f,100f),(0f,120f),(0f,100f)}, "Studio Hall Reverb"),
-            new("rev_plate", "Plate Studio Reverb", "reverb", new float[]{52f,32f,22f}, new[]{(5f,100f),(0f,100f),(0f,100f)}, "Studio Plate Reverb"),
+            new("rev_bluesky", "Celestial Shimmer Reverb", "reverb", new float[]{66f,22f,36f,32f,28f}, new[]{(5f,100f),(0f,120f),(0f,100f),(0f,100f),(0f,100f)},
+                "Strymon blueSky (P0=Decay%,P1=PreDly,P2=Damp%,P3=Mix%,P4=Shimmer%)",
+                "Strymon blueSky", new[]{"Strymon","blueSky","Blue Sky","Shimmer","스트라이몬","블루스카이"}),
+            new("rev_rv6", "Compact Slate Multi Reverb", "reverb", new float[]{28f,58f,56f,0f}, new[]{(0f,100f),(0f,100f),(5f,100f),(0f,3f)},
+                "BOSS RV-6 (P0=Mix%,P1=Tone%,P2=Time%,P3=Mode 0:Hall 1:Plate 2:Spr 3:Shim)",
+                "BOSS RV-6 Reverb", new[]{"BOSS","RV-6","RV6","BOSS RV-6","보스","리버브"}),
+            new("rev_spring", "Vintage Tank Spring Reverb", "reverb", new float[]{48f,42f,25f}, new[]{(5f,100f),(0f,100f),(0f,100f)},
+                "Classic Combo Spring Reverb",
+                "Accutronics 3-Spring Tank Reverb", new[]{"Spring Reverb","Accutronics","스프링 리버브"}),
+            new("rev_hall", "Hall Ambient Reverb", "reverb", new float[]{58f,45f,24f,26f}, new[]{(5f,100f),(0f,100f),(0f,120f),(0f,100f)},
+                "Studio Hall Reverb",
+                "Concert Hall Ambient Reverb", new[]{"Hall Reverb","홀 리버브"}),
+            new("rev_plate", "Plate Studio Reverb", "reverb", new float[]{52f,32f,22f}, new[]{(5f,100f),(0f,100f),(0f,100f)},
+                "Studio Plate Reverb",
+                "EMT 140 Studio Plate Reverb", new[]{"Plate Reverb","EMT 140","플레이트 리버브"}),
 
             // ── MODULATION (7) ──
-            new("mod_ce2", "BOSS CE-2 Chorus", "mod", new float[]{1.1f,48f,45f}, new[]{(0.1f,5.5f),(0f,100f),(0f,100f)}, "BOSS CE-2 Stereo Chorus (P0=Hz,P1=Depth%,P2=Mix%)"),
-            new("mod_dc2w", "BOSS DC-2W Dimension C", "mod", new float[]{2f,60f}, new[]{(1f,4f),(0f,100f)}, "BOSS DC-2W Dimension C (P0=Mode 1..4,P1=Mix%)"),
-            new("mod_bf2", "BOSS BF-2 Flanger", "mod", new float[]{4.5f,55f,0.65f,48f}, new[]{(0f,10f),(0f,100f),(0.1f,5.5f),(0f,85f)}, "BOSS BF-2 Flanger"),
-            new("mod_phase90", "Phase 90 Phaser", "mod", new float[]{0.8f,65f,35f,50f}, new[]{(0.1f,5.5f),(0f,100f),(0f,80f),(0f,100f)}, "MXR Phase 90 Phaser"),
-            new("mod_tremolo", "Optical Tremolo", "mod", new float[]{4.5f,55f,0f}, new[]{(0.5f,12f),(0f,100f),(0f,1f)}, "Optical CdS Tremolo"),
-            new("mod_smallclone", "EHX Small Clone Chorus", "mod", new float[]{0.85f,1f,52f}, new[]{(0.1f,5.5f),(0f,1f),(0f,100f)}, "EHX Small Clone BBD Chorus"),
-            new("mod_univibe", "Shin-ei Uni-Vibe (1968)", "mod", new float[]{1.6f,72f,0f}, new[]{(0.2f,8.0f),(0f,100f),(0f,1f)}, "Shin-ei Uni-Vibe Optical 4-Stage (P0=Hz,P1=Intensity%,P2=0:Chorus/1:Vibrato)"),
+            new("mod_ce2", "Compact Sky Analog Chorus", "mod", new float[]{1.1f,48f,45f}, new[]{(0.1f,5.5f),(0f,100f),(0f,100f)},
+                "BOSS CE-2 Stereo Chorus (P0=Hz,P1=Depth%,P2=Mix%)",
+                "BOSS CE-2 Chorus", new[]{"BOSS","CE-2","CE2","BOSS CE-2","Chorus","보스","코러스"}),
+            new("mod_dc2w", "Compact Violet Dimension", "mod", new float[]{2f,60f}, new[]{(1f,4f),(0f,100f)},
+                "BOSS DC-2W Dimension C (P0=Mode 1..4,P1=Mix%)",
+                "BOSS DC-2W Dimension C", new[]{"BOSS","DC-2W","DC2W","DC-2","BOSS DC-2W","Dimension C","보스","디멘션"}),
+            new("mod_bf2", "Compact Magenta Jet Flanger", "mod", new float[]{4.5f,55f,0.65f,48f}, new[]{(0f,10f),(0f,100f),(0.1f,5.5f),(0f,85f)},
+                "BOSS BF-2 Flanger",
+                "BOSS BF-2 Flanger", new[]{"BOSS","BF-2","BF2","BOSS BF-2","Flanger","보스","플랜저"}),
+            new("mod_phase90", "Orange Script 90 Phaser", "mod", new float[]{0.8f,65f,35f,50f}, new[]{(0.1f,5.5f),(0f,100f),(0f,80f),(0f,100f)},
+                "MXR Phase 90 Phaser",
+                "MXR M101 Phase 90", new[]{"MXR","Phase 90","Phase90","M101","페이즈90","페이즈 90","페이저"}),
+            new("mod_tremolo", "Optical CdS Tremolo", "mod", new float[]{4.5f,55f,0f}, new[]{(0.5f,12f),(0f,100f),(0f,1f)},
+                "Optical CdS Tremolo",
+                "Optical Photoresistor Tremolo", new[]{"Optical Tremolo","Tremolo","트레몰로"}),
+            new("mod_smallclone", "Grunge BBD Analog Chorus", "mod", new float[]{0.85f,1f,52f}, new[]{(0.1f,5.5f),(0f,1f),(0f,100f)},
+                "EHX Small Clone BBD Chorus",
+                "Electro-Harmonix Small Clone", new[]{"EHX","Electro-Harmonix","Small Clone","스몰클론","스몰 클론"}),
+            new("mod_univibe", "Psychedelic 68 Optical Vibe", "mod", new float[]{1.6f,72f,0f}, new[]{(0.2f,8.0f),(0f,100f),(0f,1f)},
+                "Shin-ei Uni-Vibe Optical 4-Stage (P0=Hz,P1=Intensity%,P2=0:Chorus/1:Vibrato)",
+                "Shin-ei Uni-Vibe (1968)", new[]{"Shin-ei","Uni-Vibe","Univibe","유니바이브"}),
 
             // ── EQ / WAH (4) ──
-            new("eq_crybaby", "Dunlop Cry Baby GCB-95 Wah", "eq", new float[]{52f,35f,5.8f,100f}, new[]{(0f,100f),(0f,100f),(0f,10f),(0f,100f)}, "Cry Baby Wah (P0=Pedal%,P1=AutoEnv%,P2=Q,P3=Mix%)"),
-            new("eq_ge7", "BOSS GE-7 Graphic EQ", "eq", new float[]{0f,0f,0f,0f,0f,0f,0f,0f}, new[]{(-15f,15f),(-15f,15f),(-15f,15f),(-15f,15f),(-15f,15f),(-15f,15f),(-15f,15f),(-15f,15f)}, "BOSS GE-7 7-Band EQ (100..6.4k + Level dB)"),
-            new("eq_graphic5", "Graphic 5-Band EQ", "eq", new float[]{0f,0f,0f,0f,0f,0f}, new[]{(-12f,12f),(-12f,12f),(-12f,12f),(-12f,12f),(-12f,12f),(-12f,12f)}, "5-Band Graphic EQ"),
-            new("eq_parametric", "Parametric EQ", "eq", new float[]{70f,900f,2.0f,1.4f,11000f}, new[]{(20f,350f),(150f,5000f),(-12f,12f),(0.4f,6.0f),(2500f,16000f)}, "Parametric EQ (LowCut,MidHz,MidDb,Q,HiCut)"),
+            new("eq_crybaby", "Classic Vocal 95 Wah", "eq", new float[]{52f,35f,5.8f,100f}, new[]{(0f,100f),(0f,100f),(0f,10f),(0f,100f)},
+                "Cry Baby Wah (P0=Pedal%,P1=AutoEnv%,P2=Q,P3=Mix%)",
+                "Dunlop Cry Baby GCB-95 Wah", new[]{"Dunlop","Cry Baby","Crybaby","GCB-95","GCB95","Wah","크라이베이비","와우"}),
+            new("eq_ge7", "Compact Cream 7-Band EQ", "eq", new float[]{0f,0f,0f,0f,0f,0f,0f,0f}, new[]{(-15f,15f),(-15f,15f),(-15f,15f),(-15f,15f),(-15f,15f),(-15f,15f),(-15f,15f),(-15f,15f)},
+                "BOSS GE-7 7-Band EQ (100..6.4k + Level dB)",
+                "BOSS GE-7 Graphic EQ", new[]{"BOSS","GE-7","GE7","BOSS GE-7","Equalizer","Graphic EQ","보스","이퀄라이저"}),
+            new("eq_graphic5", "Studio Graphic 5-Band EQ", "eq", new float[]{0f,0f,0f,0f,0f,0f}, new[]{(-12f,12f),(-12f,12f),(-12f,12f),(-12f,12f),(-12f,12f),(-12f,12f)},
+                "5-Band Graphic EQ",
+                "Mesa Mark-Style 5-Band Graphic EQ", new[]{"5-Band EQ","Graphic EQ","5밴드 EQ"}),
+            new("eq_parametric", "Studio Parametric EQ", "eq", new float[]{70f,900f,2.0f,1.4f,11000f}, new[]{(20f,350f),(150f,5000f),(-12f,12f),(0.4f,6.0f),(2500f,16000f)},
+                "Parametric EQ (LowCut,MidHz,MidDb,Q,HiCut)",
+                "Studio 3-Band Parametric Equalizer", new[]{"Parametric EQ","파라메트릭 EQ"}),
 
             // ── DYNAMICS (6) ──
-            new("gate_adaptive", "Adaptive Noise Gate", "dyn", new float[]{-56f,120f,80f}, new[]{(-80f,-20f),(20f,400f),(10f,300f)}, "Adaptive Noise Gate"),
-            new("comp_sp", "Xotic SP Compressor", "dyn", new float[]{55f,5.4f,1f}, new[]{(0f,100f),(0f,10f),(0f,2f)}, "Xotic SP Comp (P0=Blend%,P1=Vol,P2=0:Lo/1:Mid/2:Hi)"),
-            new("comp_orangesqueezer", "Dan Armstrong Orange Squeezer", "dyn", new float[]{5.6f,5.4f,5.5f,100f}, new[]{(0f,10f),(0f,10f),(0f,10f),(0f,100f)}, "Orange Squeezer Half-Wave JFET Comp"),
-            new("comp_cs3", "BOSS CS-3 Comp Sustainer", "dyn", new float[]{5.5f,5.5f,5.0f,5.2f}, new[]{(0f,10f),(0f,10f),(0f,10f),(0f,10f)}, "BOSS CS-3 Comp"),
-            new("comp_dyna", "Dyna Comp", "dyn", new float[]{4.5f,5.5f,12f,100f}, new[]{(0f,10f),(0f,10f),(1f,50f),(0f,100f)}, "MXR Dyna Comp"),
-            new("comp_1176", "1176 Studio Comp", "dyn", new float[]{5.0f,5.2f,4f,85f}, new[]{(0f,10f),(0f,10f),(2f,20f),(0f,100f)}, "1176 Studio FET Comp"),
+            new("gate_adaptive", "Adaptive Noise Gate", "dyn", new float[]{-56f,120f,80f}, new[]{(-80f,-20f),(20f,400f),(10f,300f)},
+                "Adaptive Noise Gate",
+                "Adaptive Hysteresis Noise Gate", new[]{"Noise Gate","Gate","노이즈 게이트","게이트"}),
+            new("comp_sp", "Mini OTA Blend Compressor", "dyn", new float[]{55f,5.4f,1f}, new[]{(0f,100f),(0f,10f),(0f,2f)},
+                "Xotic SP Comp (P0=Blend%,P1=Vol,P2=0:Lo/1:Mid/2:Hi)",
+                "Xotic SP Compressor", new[]{"Xotic","SP Compressor","SP Comp","엑조틱","SP컴프"}),
+            new("comp_orangesqueezer", "Citrus JFET Squeezer", "dyn", new float[]{5.6f,5.4f,5.5f,100f}, new[]{(0f,10f),(0f,10f),(0f,10f),(0f,100f)},
+                "Orange Squeezer Half-Wave JFET Comp",
+                "Dan Armstrong Orange Squeezer", new[]{"Dan Armstrong","Orange Squeezer","오렌지 스퀴저","오렌지스퀴저"}),
+            new("comp_cs3", "Compact Cyan VCA Sustainer", "dyn", new float[]{5.5f,5.5f,5.0f,5.2f}, new[]{(0f,10f),(0f,10f),(0f,10f),(0f,10f)},
+                "BOSS CS-3 Comp",
+                "BOSS CS-3 Compression Sustainer", new[]{"BOSS","CS-3","CS3","BOSS CS-3","Comp Sustainer","보스","컴프레서"}),
+            new("comp_dyna", "Red Script Studio Comp", "dyn", new float[]{4.5f,5.5f,12f,100f}, new[]{(0f,10f),(0f,10f),(1f,50f),(0f,100f)},
+                "MXR Dyna Comp",
+                "MXR M102 Dyna Comp", new[]{"MXR","Dyna Comp","DynaComp","M102","다이나컴프","다이나 컴프"}),
+            new("comp_1176", "FET 76 Limiting Amplifier", "dyn", new float[]{5.0f,5.2f,4f,85f}, new[]{(0f,10f),(0f,10f),(2f,20f),(0f,100f)},
+                "1176 Studio FET Comp",
+                "UREI 1176LN Studio FET Compressor", new[]{"1176","1176LN","UREI","Universal Audio","1176 컴프"}),
+
+            // ── PITCH (3) ──
+            new("pitch_capo", "Poly Virtual Capo", "pitch", new float[]{-2f,0f,100f,0f}, new[]{(-12f,12f),(-50f,50f),(0f,100f),(-12f,12f)},
+                "Polyphonic Virtual Capo (P0=Semitones,P1=Detune ct,P2=Mix%,P3=Level dB)",
+                "Polyphonic Drop / Virtual Capo", new[]{"DigiTech Drop","Virtual Capo","Capo","카포","드롭","다운튜닝"}),
+            new("pitch_whammy", "Red Expression Pitch Bender", "pitch", new float[]{0f,12f,100f,0f}, new[]{(0f,100f),(-24f,24f),(0f,100f),(-12f,12f)},
+                "Polyphonic Whammy (P0=Pedal%,P1=Interval st,P2=Mix%,P3=Level dB)",
+                "DigiTech Whammy", new[]{"DigiTech","Whammy","Poly Whammy Pedal","와미","와미 페달"}),
+            new("pitch_octaver", "Poly Sub/Up Octaver", "pitch", new float[]{80f,65f,45f,5.5f,0f}, new[]{(0f,100f),(0f,100f),(0f,100f),(0f,10f),(-12f,12f)},
+                "Polyphonic Octaver (P0=Dry%,P1=Sub-1%,P2=Up+1%,P3=Tone,P4=Level dB)",
+                "Polyphonic Sub/Up Octaver (POG/OC-5)", new[]{"BOSS OC-5","OC-3","EHX POG","Octaver","옥타버"}),
         };
 
         var dict = new Dictionary<string, DeviceMeta>(StringComparer.OrdinalIgnoreCase);
@@ -216,7 +609,7 @@ public sealed class AntigravityToneArchitect
         {
             foreach (var s in dto.Slots)
             {
-                if (!string.IsNullOrEmpty(s.ModelId) && Catalog.TryGetValue(s.ModelId, out var meta) && meta.Category == "delay")
+                if (!string.IsNullOrEmpty(s.ModelId) && TryFindDevice(s.ModelId, out var meta) && meta != null && meta.Category == "delay")
                     s.SyncDivision = syncDiv;
             }
         }
@@ -236,7 +629,7 @@ public sealed class AntigravityToneArchitect
                 sl.Enabled = true;
                 sl.Params[0] = targetGate;
             }
-            else if (!string.IsNullOrEmpty(sl.ModelId) && Catalog.TryGetValue(sl.ModelId, out var meta) && meta.Category == "amp" && sl.ModelId != "amp_jc120")
+            else if (!string.IsNullOrEmpty(sl.ModelId) && TryFindDevice(sl.ModelId, out var meta) && meta != null && meta.Category == "amp" && sl.ModelId != "amp_jc120")
             {
                 bool isSingleCoil = g.BrightnessScore >= 64 || g.EstimatedPickupType.Contains("Single", StringComparison.OrdinalIgnoreCase);
                 bool isDarkHum = g.BrightnessScore <= 42 || (g.EstimatedPickupType.Contains("Humbucker", StringComparison.OrdinalIgnoreCase) && g.BrightnessScore < 50);
@@ -451,6 +844,14 @@ public sealed class AntigravityToneArchitect
     private static int ApplyExplicitGearOverrides(SignalChainConfigDto dto, string low)
     {
         int count = 0;
+        var explicitCategories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void PlaceExplicit(string cat, string id, int preferSlot)
+        {
+            ReplaceCategoryOrPlace(dto, cat, id, preferSlot);
+            explicitCategories.Add(cat);
+            count++;
+        }
 
         // Drive pedals
         string? driveId = null;
@@ -472,7 +873,7 @@ public sealed class AntigravityToneArchitect
         else if (ContainsAny(low, "ocd")) driveId = "od_ocd";
         else if (ContainsAny(low, "bb preamp", "bb프리앰프")) driveId = "od_bbpreamp";
 
-        if (driveId != null) { ReplaceCategoryOrPlace(dto, "drive", driveId, preferSlot: 1); count++; }
+        if (driveId != null) PlaceExplicit("drive", driveId, 1);
 
         // Amps
         string? ampId = null;
@@ -487,7 +888,7 @@ public sealed class AntigravityToneArchitect
         else if (ContainsAny(low, "트윈", "펜더", "fender", "twin")) ampId = "amp_twin";
         else if (ContainsAny(low, "slo100", "slo-100")) ampId = "amp_slo100";
 
-        if (ampId != null) { ReplaceCategoryOrPlace(dto, "amp", ampId, preferSlot: 2); count++; }
+        if (ampId != null) PlaceExplicit("amp", ampId, 2);
 
         // Cabs
         string? cabId = null;
@@ -497,34 +898,137 @@ public sealed class AntigravityToneArchitect
         else if (ContainsAny(low, "알니코", "alnico")) cabId = "cab_alnico";
         else if (ContainsAny(low, "젠센", "jensen")) cabId = "cab_jensen112";
 
-        if (cabId != null) { ReplaceCategoryOrPlace(dto, "cab", cabId, preferSlot: 3); count++; }
+        if (cabId != null) PlaceExplicit("cab", cabId, 3);
 
         // Mod / Wah / Comp / Delay / Reverb
-        if (ContainsAny(low, "유니바이브", "univibe", "uni-vibe")) { ReplaceCategoryOrPlace(dto, "mod", "mod_univibe", 4); count++; }
-        else if (ContainsAny(low, "스몰클론", "small clone")) { ReplaceCategoryOrPlace(dto, "mod", "mod_smallclone", 4); count++; }
-        else if (ContainsAny(low, "디멘션", "dc2w", "dc-2w")) { ReplaceCategoryOrPlace(dto, "mod", "mod_dc2w", 4); count++; }
-        else if (ContainsAny(low, "페이즈90", "phase 90")) { ReplaceCategoryOrPlace(dto, "mod", "mod_phase90", 4); count++; }
-        else if (ContainsAny(low, "트레몰로", "tremolo")) { ReplaceCategoryOrPlace(dto, "mod", "mod_tremolo", 4); count++; }
+        if (ContainsAny(low, "유니바이브", "univibe", "uni-vibe")) PlaceExplicit("mod", "mod_univibe", 4);
+        else if (ContainsAny(low, "스몰클론", "small clone")) PlaceExplicit("mod", "mod_smallclone", 4);
+        else if (ContainsAny(low, "디멘션", "dc2w", "dc-2w")) PlaceExplicit("mod", "mod_dc2w", 4);
+        else if (ContainsAny(low, "페이즈90", "phase 90")) PlaceExplicit("mod", "mod_phase90", 4);
+        else if (ContainsAny(low, "트레몰로", "tremolo")) PlaceExplicit("mod", "mod_tremolo", 4);
 
-        if (ContainsAny(low, "크라이베이비", "cry baby", "crybaby", "와우", "wah")) { ReplaceCategoryOrPlace(dto, "eq", "eq_crybaby", 0); count++; }
-        if (ContainsAny(low, "오렌지 스퀴저", "orange squeezer")) { ReplaceCategoryOrPlace(dto, "dyn", "comp_orangesqueezer", 0); count++; }
-        if (ContainsAny(low, "타임라인", "timeline")) { ReplaceCategoryOrPlace(dto, "delay", "dly_timeline", 5); count++; }
-        else if (ContainsAny(low, "dm2w", "dm-2w")) { ReplaceCategoryOrPlace(dto, "delay", "dly_dm2w", 5); count++; }
-        else if (ContainsAny(low, "dd3t", "dd-3t")) { ReplaceCategoryOrPlace(dto, "delay", "dly_dd3t", 5); count++; }
+        if (ContainsAny(low, "크라이베이비", "cry baby", "crybaby", "와우", "wah")) PlaceExplicit("eq", "eq_crybaby", 0);
+        if (ContainsAny(low, "오렌지 스퀴저", "orange squeezer")) PlaceExplicit("dyn", "comp_orangesqueezer", 0);
+        if (ContainsAny(low, "타임라인", "timeline")) PlaceExplicit("delay", "dly_timeline", 5);
+        else if (ContainsAny(low, "dm2w", "dm-2w")) PlaceExplicit("delay", "dly_dm2w", 5);
+        else if (ContainsAny(low, "dd3t", "dd-3t")) PlaceExplicit("delay", "dly_dd3t", 5);
 
         if (ContainsAny(low, "블루스카이", "bluesky", "쉬머", "shimmer"))
         {
-            ReplaceCategoryOrPlace(dto, "reverb", "rev_bluesky", 6);
+            PlaceExplicit("reverb", "rev_bluesky", 6);
             if (ContainsAny(low, "쉬머", "shimmer"))
             {
                 var revSlot = dto.Slots.FirstOrDefault(s => s.ModelId == "rev_bluesky");
                 if (revSlot != null) { revSlot.Params[3] = Math.Max(revSlot.Params[3], 34f); revSlot.Params[4] = Math.Max(revSlot.Params[4], 40f); }
             }
-            count++;
         }
-        else if (ContainsAny(low, "rv6", "rv-6")) { ReplaceCategoryOrPlace(dto, "reverb", "rev_rv6", 6); count++; }
+        else if (ContainsAny(low, "rv6", "rv-6")) PlaceExplicit("reverb", "rev_rv6", 6);
+
+        // Pitch (Capo / Whammy / Octaver)
+        if (ContainsAny(low, "와미", "whammy"))
+        {
+            PlaceExplicit("pitch", "pitch_whammy", 0);
+        }
+        else if (ContainsAny(low, "옥타버", "octaver", "옥타브", "octave"))
+        {
+            PlaceExplicit("pitch", "pitch_octaver", 0);
+        }
+        else if (ContainsAny(low, "다운튜닝", "드롭", "drop ", "카포", "capo", "반음 내", "한음 내"))
+        {
+            PlaceExplicit("pitch", "pitch_capo", 0);
+            var capoSlot = dto.Slots.FirstOrDefault(s => s.ModelId == "pitch_capo");
+            if (capoSlot != null)
+            {
+                if (ContainsAny(low, "반음", "eb", "half")) capoSlot.Params[0] = -1f;
+                else if (ContainsAny(low, "drop c", "드롭 c")) capoSlot.Params[0] = -4f;
+                else capoSlot.Params[0] = -2f;
+            }
+        }
+
+        // Dynamic fallback resolution by OriginalName / Alias / Name across all built-in & custom SPICE devices
+        count += ApplyDynamicAliasOverrides(dto, low, explicitCategories);
 
         return count;
+    }
+
+    private static readonly HashSet<string> GenericOverrideTokens = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "boss", "marshall", "fender", "mesa", "mesa/boogie", "ibanez", "vox", "mxr", "xotic",
+        "ehx", "electro-harmonix", "strymon", "proco", "dallas", "dunlop", "friedman", "soldano",
+        "roland", "celestion", "fulltone", "vemuram", "caline", "bogner", "zvex", "shin-ei",
+        "digitech", "dan armstrong", "blackface", "top boost", "distortion", "overdrive",
+        "tube screamer", "fuzz", "chorus", "flanger", "phaser", "tremolo", "delay", "reverb", "equalizer",
+        "graphic eq", "parametric eq", "compressor", "comp", "noise gate", "gate", "booster",
+        "octave", "octaver", "wah", "capo", "custom ir", "wav ir",
+        "보스", "마샬", "펜더", "메사", "메사부기", "아이바네즈", "복스", "롤랜드", "디스토션",
+        "오버드라이브", "튜브스크리머", "튜브 스크리머", "퍼즈", "코러스", "플랜저", "페이저", "트레몰로", "딜레이", "리버브",
+        "이퀄라이저", "컴프레서", "노이즈 게이트", "게이트", "부스터", "옥타버", "와우", "카포"
+    };
+
+    private static int ApplyDynamicAliasOverrides(SignalChainConfigDto dto, string low, HashSet<string> explicitCategories)
+    {
+        var bestByCategory = new Dictionary<string, (DeviceMeta meta, int matchLen)>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var d in GetCatalogSnapshot())
+        {
+            if (explicitCategories.Contains(d.Category))
+                continue;
+
+            var candidates = new List<string>();
+            if (!string.IsNullOrWhiteSpace(d.OriginalName)) candidates.Add(d.OriginalName);
+            if (!string.IsNullOrWhiteSpace(d.Name)) candidates.Add(d.Name);
+            if (d.Aliases != null) candidates.AddRange(d.Aliases);
+
+            foreach (var rawAlias in candidates)
+            {
+                string alias = rawAlias.Trim();
+                if (alias.Length < 3 || GenericOverrideTokens.Contains(alias))
+                    continue;
+                if (!ContainsBoundaryMatch(low, alias.ToLowerInvariant()))
+                    continue;
+
+                if (!bestByCategory.TryGetValue(d.Category, out var cur) || alias.Length > cur.matchLen)
+                    bestByCategory[d.Category] = (d, alias.Length);
+            }
+        }
+
+        int added = 0;
+        foreach (var (cat, (meta, _)) in bestByCategory)
+        {
+            int preferSlot = cat switch
+            {
+                "dyn" or "eq" or "pitch" => 0,
+                "drive" => 1,
+                "amp" or "nam" => 2,
+                "cab" => 3,
+                "mod" => 4,
+                "delay" => 5,
+                "reverb" => 6,
+                _ => 1,
+            };
+            bool alreadyPresent = dto.Slots.Any(s => string.Equals(s.ModelId, meta.Id, StringComparison.OrdinalIgnoreCase));
+            if (!alreadyPresent)
+            {
+                ReplaceCategoryOrPlace(dto, cat, meta.Id, preferSlot);
+                added++;
+            }
+        }
+        return added;
+    }
+
+    private static bool ContainsBoundaryMatch(string haystack, string needle)
+    {
+        int start = 0;
+        while ((start = haystack.IndexOf(needle, start, StringComparison.Ordinal)) >= 0)
+        {
+            bool leftOk = start == 0 || !char.IsLetterOrDigit(haystack[start - 1]);
+            int end = start + needle.Length;
+            bool rightOk = end >= haystack.Length || !char.IsLetterOrDigit(haystack[end]);
+            if (leftOk && rightOk)
+                return true;
+            start += 1;
+        }
+        return false;
     }
 
     private static void ApplyModifierTones(SignalChainConfigDto dto, string low)
@@ -594,7 +1098,7 @@ public sealed class AntigravityToneArchitect
 
     private static void SetSlot(SignalChainConfigDto dto, int index, string modelId, bool enabled, params float[] overrides)
     {
-        if (index < 0 || index >= SignalChainConfigDto.SlotCount || !Catalog.TryGetValue(modelId, out var meta))
+        if (index < 0 || index >= SignalChainConfigDto.SlotCount || !TryFindDevice(modelId, out var meta) || meta == null)
             return;
         var p = new float[8];
         Array.Copy(meta.Defaults, p, Math.Min(8, meta.Defaults.Length));
@@ -623,7 +1127,7 @@ public sealed class AntigravityToneArchitect
             sl.Index = i;
             sl.SyncDivision = Math.Clamp(sl.SyncDivision, 0, 5);
             string mid = (sl.ModelId ?? "").Trim().ToLowerInvariant();
-            if (string.IsNullOrEmpty(mid) || !Catalog.TryGetValue(mid, out var meta))
+            if (string.IsNullOrEmpty(mid) || !TryFindDevice(mid, out var meta) || meta == null)
             {
                 sl.ModelId = "";
                 sl.SyncDivision = 0;
@@ -662,7 +1166,7 @@ public sealed class AntigravityToneArchitect
 
     private static bool GetSceneDefaultEnabled(string modelId, bool baseEnabled, int sceneIdx)
     {
-        if (string.IsNullOrEmpty(modelId) || !Catalog.TryGetValue(modelId, out var meta))
+        if (string.IsNullOrEmpty(modelId) || !TryFindDevice(modelId, out var meta) || meta == null)
             return baseEnabled;
 
         string cat = meta.Category;
@@ -685,7 +1189,7 @@ public sealed class AntigravityToneArchitect
         var names = new List<string>();
         foreach (var s in chain.Slots)
         {
-            if (s.Enabled && !string.IsNullOrEmpty(s.ModelId) && Catalog.TryGetValue(s.ModelId, out var meta))
+            if (s.Enabled && !string.IsNullOrEmpty(s.ModelId) && TryFindDevice(s.ModelId, out var meta) && meta != null)
                 names.Add(meta.Name);
         }
         return names.ToArray();
@@ -760,7 +1264,7 @@ public sealed class AntigravityToneArchitect
                 string mid = item.TryGetProperty("modelId", out var mEl) && mEl.ValueKind == JsonValueKind.String
                     ? (mEl.GetString() ?? "").Trim().ToLowerInvariant()
                     : "";
-                if (string.IsNullOrEmpty(mid) || !Catalog.TryGetValue(mid, out var meta))
+                if (string.IsNullOrEmpty(mid) || !TryFindDevice(mid, out var meta) || meta == null)
                 {
                     dto.Slots[targetIdx] = new ChainSlotDto { Index = targetIdx, ModelId = "", Enabled = true, Params = new float[8] };
                     continue;
@@ -812,7 +1316,7 @@ public sealed class AntigravityToneArchitect
                 Array.Clear(slot.Params);
                 modelChanged = true;
             }
-            else if (Catalog.TryGetValue(normId, out var meta))
+            else if (TryFindDevice(normId, out var meta) && meta != null)
             {
                 if (!string.Equals(slot.ModelId, meta.Id, StringComparison.OrdinalIgnoreCase))
                 {
@@ -857,7 +1361,7 @@ public sealed class AntigravityToneArchitect
             }
         }
 
-        if (!string.IsNullOrEmpty(slot.ModelId) && Catalog.TryGetValue(slot.ModelId, out var m))
+        if (!string.IsNullOrEmpty(slot.ModelId) && TryFindDevice(slot.ModelId, out var m) && m != null)
         {
             for (int k = 0; k < Math.Min(slot.Params.Length, m.Ranges.Length); k++)
                 slot.Params[k] = Math.Clamp(slot.Params[k], m.Ranges[k].Min, m.Ranges[k].Max);
@@ -941,4 +1445,7 @@ public sealed class AntigravityToneArchitect
 
         return dto;
     }
+
+    public static SignalChainConfigDto CommitActiveScene(SignalChainConfigDto current)
+        => SwitchScene(current, targetSceneIdx: null);
 }

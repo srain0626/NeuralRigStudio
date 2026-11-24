@@ -1,0 +1,538 @@
+import React from "react"
+import {
+  Circle,
+  FolderOpen,
+  Gauge,
+  Music,
+  Pause,
+  Play,
+  Radio,
+  Redo2,
+  Repeat,
+  RotateCcw,
+  Square,
+  Trash2,
+  Undo2,
+  Upload,
+  Volume2,
+} from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
+import { Separator } from "@/components/ui/separator"
+import { Slider } from "@/components/ui/slider"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Toggle } from "@/components/ui/toggle"
+import { Hint } from "@/components/ui/tooltip"
+import { useI18n } from "@/lib/i18n"
+import type {
+  BackingTrackStateDto,
+  LooperSnapshotDto,
+  MidiSnapshotDto,
+  RecorderReampSnapshotDto,
+} from "@/types/rig"
+
+interface LooperRecorderDeckProps {
+  looper: LooperSnapshotDto
+  recorder: RecorderReampSnapshotDto
+  backing: BackingTrackStateDto
+  tempoBpm: number
+  isAudioRunning: boolean
+  midiState?: MidiSnapshotDto
+  onLooperCmd: (cmd: string, value?: boolean | number) => void
+  onRecorderCmd: (cmd: string, payload?: { value?: boolean | number; path?: string }) => void
+  onLoadBacking: () => void
+  onControlBacking: (patch: { playing?: boolean; loop?: boolean; volume?: number; seekSec?: number }) => void
+  onUnloadBacking: () => void
+  onStartMidiLearn?: (req: { targetKind: string }) => void
+  onClearMidiBinding?: (req: { targetKind: string }) => void
+}
+
+function formatSec(sec: number): string {
+  const s = Math.max(0, sec)
+  const m = Math.floor(s / 60)
+  const rem = s - m * 60
+  return m > 0 ? `${m}:${rem.toFixed(1).padStart(4, "0")}` : `${rem.toFixed(1)}s`
+}
+
+export const LooperRecorderDeck: React.FC<LooperRecorderDeckProps> = ({
+  looper,
+  recorder,
+  backing,
+  tempoBpm,
+  isAudioRunning,
+  midiState,
+  onLooperCmd,
+  onRecorderCmd,
+  onLoadBacking,
+  onControlBacking,
+  onUnloadBacking,
+  onStartMidiLearn,
+  onClearMidiBinding,
+}) => {
+  const { tx } = useI18n()
+
+  const lpState = looper.state
+  const isEmpty = lpState === "empty"
+  const isRec = lpState === "recording"
+  const isPlay = lpState === "playing"
+  const isDub = lpState === "overdubbing"
+  const isStop = lpState === "stopped"
+  const isReelSpinning = isRec || isPlay || isDub
+
+  const recDubLabel = isEmpty
+    ? "REC"
+    : isRec
+      ? "PLAY"
+      : isPlay || isStop
+        ? isStop
+          ? "RESUME"
+          : "DUB"
+        : "PLAY"
+
+  const recBinding = midiState?.bindings?.find((b) => b.targetKind === "looperRecDub")
+  const playStopBinding = midiState?.bindings?.find((b) => b.targetKind === "looperPlayStop")
+  const undoBinding = midiState?.bindings?.find((b) => b.targetKind === "looperUndo")
+
+  // TP-7 Concentric SVG Tape Reel Geometry
+  const reelRadius = 21
+  const reelCirc = 2 * Math.PI * reelRadius
+  const progressLen = (Math.min(100, Math.max(0, looper.progressPct || 0)) / 100) * reelCirc
+  const reelRingColor = isRec
+    ? "var(--signal-hot)"
+    : isDub
+      ? "var(--signal-warn)"
+      : isPlay
+        ? "var(--signal-ok)"
+        : "var(--ink-oled-muted)"
+
+  return (
+    <div className="h-full flex flex-col bg-card border-l border-border min-w-0">
+      <Tabs defaultValue="tape" className="flex-1 flex flex-col min-h-0 gap-0">
+        {/* Top Deck Switch Header */}
+        <div className="h-10 shrink-0 px-3 border-b border-border bg-secondary/40 flex items-center justify-between gap-2">
+          <TabsList className="h-7">
+            <TabsTrigger value="tape" className="h-5 px-2 text-[10px]">
+              TAPE · LOOP
+            </TabsTrigger>
+            <TabsTrigger value="mr" className="h-5 px-2 text-[10px]">
+              MR DECK
+            </TabsTrigger>
+          </TabsList>
+
+          <div className="flex items-center gap-1.5 font-mono text-[10px] tabular-nums text-muted-foreground">
+            {looper.overdubLayers > 0 && (
+              <Badge variant="warn" size="xs">
+                L{looper.overdubLayers + 1}
+              </Badge>
+            )}
+            <span>{Math.round(tempoBpm)} BPM</span>
+          </div>
+        </div>
+
+        {/* Tab 1: TP-7 Micro Tape Looper + Dual-Stream Recorder & Re-Amp */}
+        <TabsContent value="tape" className="flex-1 min-h-0 p-2.5 flex flex-col justify-between gap-2">
+          {/* Upper Bay: Rotating TP-7 Tape Reel + Looper Transports */}
+          <div className="flex items-center gap-3 rounded-sm border border-border bg-background p-2">
+            {/* TP-7 Concentric Rotating Tape Reel */}
+            <Hint
+              content={tx(
+                `루퍼 상태: ${lpState.toUpperCase()} (${formatSec(looper.durationSec)})`,
+                `Looper: ${lpState.toUpperCase()} (${formatSec(looper.durationSec)})`
+              )}
+            >
+              <div className="relative shrink-0">
+                <svg width="58" height="58" viewBox="0 0 58 58">
+                  <circle
+                    cx="29"
+                    cy="29"
+                    r="26"
+                    fill="var(--surface-oled)"
+                    stroke="var(--border-oled)"
+                    strokeWidth="1.5"
+                  />
+                  <circle
+                    cx="29"
+                    cy="29"
+                    r={reelRadius}
+                    fill="none"
+                    stroke="var(--border-oled)"
+                    strokeWidth="2.5"
+                  />
+                  <circle
+                    cx="29"
+                    cy="29"
+                    r={reelRadius}
+                    fill="none"
+                    stroke={reelRingColor}
+                    strokeWidth="2.5"
+                    strokeDasharray={`${Math.max(1.5, progressLen)} ${reelCirc}`}
+                    transform="rotate(-90 29 29)"
+                  />
+                  <g
+                    style={{ transformOrigin: "29px 29px" }}
+                    className={
+                      isReelSpinning
+                        ? looper.reverse
+                          ? "tp7-reel-spin-reverse"
+                          : "tp7-reel-spin"
+                        : ""
+                    }
+                  >
+                    <circle
+                      cx="29"
+                      cy="29"
+                      r="7.5"
+                      fill="none"
+                      stroke="var(--ink-oled)"
+                      strokeWidth="1.3"
+                    />
+                    <circle cx="29" cy="29" r="2" fill="var(--signal-hot)" />
+                    <line x1="29" y1="15" x2="29" y2="21.5" stroke="var(--ink-oled)" strokeWidth="1.4" />
+                    <line x1="17" y1="36" x2="22.5" y2="32.5" stroke="var(--ink-oled)" strokeWidth="1.4" />
+                    <line x1="41" y1="36" x2="35.5" y2="32.5" stroke="var(--ink-oled)" strokeWidth="1.4" />
+                  </g>
+                </svg>
+              </div>
+            </Hint>
+
+            {/* Right Transport & FX Controls */}
+            <div className="flex-1 min-w-0 space-y-1.5">
+              <div className="flex items-center justify-between gap-1">
+                <span className="font-mono text-xs font-bold tabular-nums text-foreground">
+                  {looper.durationSec > 0 ? formatSec(looper.durationSec) : "0.0s"}
+                </span>
+                <Hint content={`${tx("루퍼 출력 레벨", "Looper Level")}: ${Math.round((looper.level ?? 1) * 100)}%`}>
+                  <div className="w-16">
+                    <Slider
+                      value={[Math.round((looper.level ?? 1) * 100)]}
+                      min={0}
+                      max={150}
+                      step={5}
+                      onValueChange={([v]) => onLooperCmd("level", v / 100)}
+                    />
+                  </div>
+                </Hint>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1">
+                <ContextMenu>
+                  <ContextMenuTrigger asChild>
+                    <Button
+                      size="xs"
+                      variant={isRec || isDub ? "signal" : isPlay ? "default" : "keycap"}
+                      onClick={() => onLooperCmd("recDub")}
+                    >
+                      <Circle className="size-2.5 fill-current" />
+                      {recDubLabel}
+                    </Button>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent>
+                    <ContextMenuItem
+                      onSelect={() => {
+                        if (recBinding && onClearMidiBinding)
+                          onClearMidiBinding({ targetKind: "looperRecDub" })
+                        else if (onStartMidiLearn)
+                          onStartMidiLearn({ targetKind: "looperRecDub" })
+                      }}
+                    >
+                      <Radio className="size-3.5 text-primary" />
+                      {recBinding
+                        ? tx(`MIDI CC#${recBinding.cc} 해제`, `Clear MIDI CC#${recBinding.cc}`)
+                        : tx("REC/DUB MIDI CC 학습", "Learn REC/DUB MIDI CC")}
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
+
+                <ContextMenu>
+                  <ContextMenuTrigger asChild>
+                    <Button
+                      size="icon-xs"
+                      variant="keycap"
+                      disabled={isEmpty}
+                      onClick={() => onLooperCmd("playStop")}
+                    >
+                      {isPlay || isDub || isRec ? (
+                        <Square className="size-2.5 fill-current" />
+                      ) : (
+                        <Play className="size-2.5 fill-current" />
+                      )}
+                    </Button>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent>
+                    <ContextMenuItem
+                      onSelect={() => {
+                        if (playStopBinding && onClearMidiBinding)
+                          onClearMidiBinding({ targetKind: "looperPlayStop" })
+                        else if (onStartMidiLearn)
+                          onStartMidiLearn({ targetKind: "looperPlayStop" })
+                      }}
+                    >
+                      <Radio className="size-3.5 text-primary" />
+                      {playStopBinding
+                        ? tx(`MIDI CC#${playStopBinding.cc} 해제`, `Clear MIDI CC#${playStopBinding.cc}`)
+                        : tx("PLAY/STOP MIDI CC 학습", "Learn PLAY/STOP MIDI CC")}
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
+
+                <ContextMenu>
+                  <ContextMenuTrigger asChild>
+                    <Button
+                      size="icon-xs"
+                      variant="keycap"
+                      disabled={!looper.canUndo && !looper.canRedo}
+                      onClick={() => onLooperCmd(looper.canUndo ? "undo" : "redo")}
+                    >
+                      {looper.canRedo ? <Redo2 className="size-3" /> : <Undo2 className="size-3" />}
+                    </Button>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent>
+                    <ContextMenuItem
+                      onSelect={() => {
+                        if (undoBinding && onClearMidiBinding)
+                          onClearMidiBinding({ targetKind: "looperUndo" })
+                        else if (onStartMidiLearn)
+                          onStartMidiLearn({ targetKind: "looperUndo" })
+                      }}
+                    >
+                      <Radio className="size-3.5 text-primary" />
+                      {undoBinding
+                        ? tx(`MIDI CC#${undoBinding.cc} 해제`, `Clear MIDI CC#${undoBinding.cc}`)
+                        : tx("UNDO MIDI CC 학습", "Learn UNDO MIDI CC")}
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
+
+                <Hint content={tx("루퍼 버퍼 지우기", "Clear Looper Buffer")}>
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    disabled={isEmpty}
+                    onClick={() => onLooperCmd("clear")}
+                  >
+                    <Trash2 className="size-3" />
+                  </Button>
+                </Hint>
+              </div>
+
+              <div className="flex items-center gap-1">
+                <Hint content={tx("0.5배속 재생", "Half-Speed (0.5x)")}>
+                  <Toggle
+                    size="xs"
+                    variant="keycap"
+                    pressed={looper.halfSpeed}
+                    onPressedChange={(v) => onLooperCmd("halfSpeed", v)}
+                  >
+                    ½X
+                  </Toggle>
+                </Hint>
+                <Hint content={tx("역방향 재생", "Reverse Playback")}>
+                  <Toggle
+                    size="xs"
+                    variant="keycap"
+                    pressed={looper.reverse}
+                    onPressedChange={(v) => onLooperCmd("reverse", v)}
+                  >
+                    <RotateCcw className="size-2.5" />
+                    REV
+                  </Toggle>
+                </Hint>
+                <Hint content={tx("BPM 박자 퀀타이즈 동기화", "BPM Quantize Snap")}>
+                  <Toggle
+                    size="xs"
+                    variant="keycap"
+                    pressed={looper.quantizeSync}
+                    onPressedChange={(v) => onLooperCmd("quantize", v)}
+                  >
+                    <Gauge className="size-2.5" />
+                    SYNC
+                  </Toggle>
+                </Hint>
+              </div>
+            </div>
+          </div>
+
+          {/* Lower Bay: Dual-Stream Dry/Wet Recorder & 1-Click Live Re-Amp */}
+          <div className="rounded-sm border border-border bg-background px-2.5 py-2 space-y-1.5">
+            <div className="flex items-center justify-between gap-1.5">
+              <span className="font-mono text-[10px] font-bold tracking-wider text-muted-foreground">
+                REC · RE-AMP
+              </span>
+              <div className="flex items-center gap-1">
+                <Hint
+                  content={tx(
+                    "Dry DI WAV 파일 불러와 실시간 리앰핑",
+                    "Load Dry DI .wav for live re-amping"
+                  )}
+                >
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    onClick={() => onRecorderCmd("loadReampFile")}
+                  >
+                    <Upload className="size-3" />
+                  </Button>
+                </Hint>
+                <Hint
+                  content={tx(
+                    `녹음 폴더 열기 (${recorder.recordingsDir || "Recordings"})`,
+                    `Open recordings folder (${recorder.recordingsDir || "Recordings"})`
+                  )}
+                >
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    onClick={() => onRecorderCmd("openRecordingsFolder")}
+                  >
+                    <FolderOpen className="size-3" />
+                  </Button>
+                </Hint>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Button
+                size="xs"
+                variant={recorder.recording ? "signal" : "keycap"}
+                disabled={!isAudioRunning && !recorder.recording}
+                onClick={() => onRecorderCmd(recorder.recording ? "stopRec" : "startRec")}
+              >
+                <Circle className="size-2.5 fill-current" />
+                {recorder.recording ? `STOP ${formatSec(recorder.recordedSec)}` : "REC DI+WET"}
+              </Button>
+
+              <Button
+                size="xs"
+                variant={recorder.reampEnabled ? "default" : "keycap"}
+                disabled={!recorder.reampAvailable}
+                onClick={() => onRecorderCmd("toggleReamp")}
+              >
+                <Radio className="size-3" />
+                {recorder.reampEnabled ? "RE-AMP ON" : "RE-AMP"}
+              </Button>
+
+              {recorder.reampAvailable && (
+                <>
+                  <Button
+                    size="icon-xs"
+                    variant="keycap"
+                    onClick={() => onRecorderCmd("playPauseReamp")}
+                  >
+                    {recorder.reampPlaying ? (
+                      <Pause className="size-2.5" />
+                    ) : (
+                      <Play className="size-2.5" />
+                    )}
+                  </Button>
+                  <Toggle
+                    size="xs"
+                    variant="keycap"
+                    pressed={recorder.reampLoop}
+                    onPressedChange={(v) => onRecorderCmd("loopReamp", { value: v })}
+                  >
+                    <Repeat className="size-2.5" />
+                  </Toggle>
+                  <span className="font-mono text-[10px] tabular-nums text-muted-foreground truncate max-w-[78px]">
+                    {recorder.reampDurationSec > 0
+                      ? `${formatSec(recorder.reampPositionSec)}/${formatSec(recorder.reampDurationSec)}`
+                      : recorder.reampName}
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* Tab 2: Backing Track (MR) Transport */}
+        <TabsContent value="mr" className="flex-1 min-h-0 p-3 flex flex-col justify-between gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Music className="size-3.5 text-primary shrink-0" />
+              <span className="text-xs font-semibold truncate">
+                {backing.loaded
+                  ? backing.name
+                  : tx("MR 백킹 트랙 없음", "No backing track loaded")}
+              </span>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              <Button size="xs" variant="keycap" onClick={onLoadBacking}>
+                <FolderOpen className="size-3" />
+                {tx("MR 열기", "LOAD")}
+              </Button>
+              {backing.loaded && (
+                <Button size="icon-xs" variant="ghost" onClick={onUnloadBacking}>
+                  <Trash2 className="size-3" />
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {backing.loaded ? (
+            <div className="space-y-3 rounded-sm border border-border bg-background p-2.5">
+              <div className="flex items-center gap-2">
+                <Button
+                  size="icon-xs"
+                  variant={backing.playing ? "signal" : "keycap"}
+                  onClick={() => onControlBacking({ playing: !backing.playing })}
+                >
+                  {backing.playing ? <Pause className="size-3" /> : <Play className="size-3" />}
+                </Button>
+                <Toggle
+                  size="xs"
+                  variant="keycap"
+                  pressed={backing.loop}
+                  onPressedChange={(v) => onControlBacking({ loop: v })}
+                >
+                  <Repeat className="size-3" />
+                </Toggle>
+                <div className="flex-1">
+                  <Slider
+                    value={[backing.positionSec]}
+                    min={0}
+                    max={Math.max(1, backing.durationSec)}
+                    step={0.5}
+                    onValueChange={([v]) => onControlBacking({ seekSec: v })}
+                  />
+                </div>
+                <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+                  {formatSec(backing.positionSec)} / {formatSec(backing.durationSec)}
+                </span>
+              </div>
+
+              <Separator />
+
+              <div className="flex items-center gap-2">
+                <Volume2 className="size-3.5 text-muted-foreground shrink-0" />
+                <Slider
+                  value={[Math.round(backing.volume * 100)]}
+                  min={0}
+                  max={100}
+                  step={1}
+                  onValueChange={([v]) => onControlBacking({ volume: v / 100 })}
+                />
+                <span className="font-mono text-[10px] tabular-nums w-9 text-right">
+                  {Math.round(backing.volume * 100)}%
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 rounded-sm border border-dashed border-border bg-background/50 flex flex-col items-center justify-center p-4 text-center gap-2">
+              <span className="text-[11px] text-muted-foreground">
+                {tx(
+                  "WAV / MP3 반주 파일을 불러와 톤에 맞춰 합주하세요 (단축키 Space)",
+                  "Load a WAV / MP3 backing track to jam along (Shortcut: Space)"
+                )}
+              </span>
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
+    </div>
+  )
+}

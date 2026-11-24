@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\NeuralRig.Core\NeuralRig.Core.csproj" />
+    <ProjectReference Include="..\..\src\NeuralRig.Plugin\NeuralRig.Plugin.csproj" />
   </ItemGroup>
 
   <ItemGroup>

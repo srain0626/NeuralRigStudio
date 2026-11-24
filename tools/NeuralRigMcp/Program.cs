@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using NeuralRigStudio.Audio;
+using NeuralRigStudio.Audio.Spice;
 using NeuralRigStudio.Services;
 
 const string PipeName = "NeuralRigStudio_McpPipe_v1";
@@ -80,8 +81,10 @@ string? HandleJsonRpcFrame(string rawJson)
             "ping" => new { },
             "tools/list" => new { tools = BuildToolDefinitions() },
             "tools/call" => HandleToolsCall(paramsEl),
-            "resources/list" => new { resources = Array.Empty<object>() },
-            "prompts/list" => new { prompts = Array.Empty<object>() },
+            "resources/list" => BuildResourcesList(),
+            "resources/read" => HandleResourcesRead(paramsEl),
+            "prompts/list" => BuildPromptsList(),
+            "prompts/get" => HandlePromptsGet(paramsEl),
             _ => throw new RpcMethodNotFoundException(method),
         };
 
@@ -140,11 +143,13 @@ static object HandleInitialize(JsonElement paramsEl)
         capabilities = new
         {
             tools = new { listChanged = false },
+            resources = new { subscribe = false, listChanged = false },
+            prompts = new { listChanged = false },
         },
         serverInfo = new
         {
             name = "neuralrig",
-            version = "1.0.0",
+            version = "2.0.0",
         },
     };
 }
@@ -185,32 +190,44 @@ object CallTool(string name, JsonElement toolArgs) => name switch
     "neuralrig_set_preset" => ToolSetPreset(toolArgs),
     "neuralrig_update_slot" => ToolUpdateSlot(toolArgs),
     "neuralrig_switch_scene" => ToolSwitchScene(toolArgs),
+    "neuralrig_get_spice_guide" => SpiceAuthoringGuide.BuildGuidePayload(),
+    "neuralrig_list_spice_models" => ToolListSpiceModels(toolArgs),
+    "neuralrig_register_spice_model" => ToolRegisterSpiceModel(toolArgs),
+    "neuralrig_simulate_spice" => ToolSimulateSpice(toolArgs),
+    "neuralrig_commit_spice_device" => ToolCommitSpiceDevice(toolArgs),
+    "neuralrig_delete_custom_device" => ToolDeleteCustomDevice(toolArgs),
     _ => throw new InvalidOperationException($"Unknown tool: {name}"),
 };
 
 object ToolGetCatalog(JsonElement toolArgs)
 {
     string cat = GetStr(toolArgs, "category")?.Trim().ToLowerInvariant() ?? "all";
-    var items = AntigravityToneArchitect.Catalog.Values
-        .Where(d => cat == "all" || string.IsNullOrEmpty(cat) || d.Category.Equals(cat, StringComparison.OrdinalIgnoreCase))
+    string? query = GetStr(toolArgs, "query") ?? GetStr(toolArgs, "search");
+    var items = AntigravityToneArchitect.SearchCatalog(cat, query)
         .OrderBy(d => d.Category)
         .ThenBy(d => d.Id)
         .Select(d => new
         {
             id = d.Id,
             name = d.Name,
+            originalName = d.OriginalName,
+            aliases = d.Aliases ?? Array.Empty<string>(),
             category = d.Category,
             defaults = d.Defaults,
             ranges = d.Ranges.Select(r => new { min = r.Min, max = r.Max }).ToArray(),
             hint = d.Hint,
+            isCustomSpice = d.Hint.Contains("[SPICE MNA]", StringComparison.Ordinal),
+            isCustomDevice = d.Id.StartsWith("custom_", StringComparison.OrdinalIgnoreCase),
         })
         .ToArray();
 
     return new
     {
         totalCount = items.Length,
+        customCount = items.Count(i => i.isCustomDevice),
         categoryFilter = cat,
-        layout = "2 rows x 8 slots (Row 1 = slots 0..7, Row 2 = slots 8..15). Active SignalChain runs real-time zero-allocation 4x HIIR schematic DSP.",
+        queryFilter = query ?? "",
+        layout = "2 rows x 8 slots (Row 1 = slots 0..7, Row 2 = slots 8..15). Built-in and custom MNA SPICE devices run real-time zero-allocation 4x HIIR DSP.",
         devices = items,
     };
 }
@@ -368,6 +385,262 @@ object ToolSwitchScene(JsonElement toolArgs)
     };
 }
 
+object ToolListSpiceModels(JsonElement toolArgs)
+{
+    string kind = GetStr(toolArgs, "kind")?.Trim().ToLowerInvariant() ?? "all";
+    var all = SpiceModelLibrary.GetAll(kind);
+
+    string[]? checkedFound = null;
+    string[]? checkedMissing = null;
+    if (toolArgs.ValueKind == JsonValueKind.Object &&
+        toolArgs.TryGetProperty("checkParts", out var cpEl) &&
+        cpEl.ValueKind == JsonValueKind.Array)
+    {
+        var req = new List<string>();
+        foreach (var item in cpEl.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(item.GetString()))
+                req.Add(item.GetString()!);
+        }
+        (checkedFound, checkedMissing) = SpiceModelLibrary.CheckParts(req);
+    }
+
+    return new
+    {
+        totalCount = all.Length,
+        kindFilter = kind,
+        foundParts = checkedFound,
+        missingParts = checkedMissing,
+        missingPartsAction = checkedMissing is { Length: > 0 }
+            ? "Do NOT substitute or guess missing parts! Search the real component datasheet/SPICE .MODEL parameters on the web and register each missing part using neuralrig_register_spice_model."
+            : null,
+        models = all,
+    };
+}
+
+object ToolRegisterSpiceModel(JsonElement toolArgs)
+{
+    var model = JsonSerializer.Deserialize<SpiceComponentModelDto>(toolArgs.GetRawText(), jsonOpts)
+        ?? throw new InvalidOperationException("Valid SpiceComponentModelDto JSON is required.");
+
+    var registered = SpiceModelLibrary.RegisterOrUpdate(model);
+    bool syncedLive = TryCallLivePipe("register_spice_model", registered, out var liveData, out _);
+
+    return new
+    {
+        ok = true,
+        liveSynced = syncedLive,
+        model = registered,
+        liveResult = syncedLive ? (object?)liveData : null,
+        message = $"SPICE 부품 모델 '{registered.Name}'({registered.Kind})이 데이터시트 출처와 함께 라이브러리에 등록되었습니다.",
+    };
+}
+
+object ToolSimulateSpice(JsonElement toolArgs)
+{
+    int sr = GetInt(toolArgs, "sampleRate", 48000);
+
+    if (toolArgs.ValueKind == JsonValueKind.Object &&
+        toolArgs.TryGetProperty("cabAcoustic", out var cabEl) &&
+        cabEl.ValueKind == JsonValueKind.Object &&
+        !toolArgs.TryGetProperty("spiceCircuit", out _))
+    {
+        var cab = JsonSerializer.Deserialize<CustomCabAcousticDto>(cabEl.GetRawText(), jsonOpts);
+        return SpiceAnalyzer.AnalyzeCabinet(cab, sr);
+    }
+
+    SpiceCircuitDto? circuit = null;
+    if (toolArgs.ValueKind == JsonValueKind.Object && toolArgs.TryGetProperty("spiceCircuit", out var scEl) && scEl.ValueKind == JsonValueKind.Object)
+        circuit = JsonSerializer.Deserialize<SpiceCircuitDto>(scEl.GetRawText(), jsonOpts);
+    else if (toolArgs.ValueKind == JsonValueKind.Object && toolArgs.TryGetProperty("stages", out _))
+        circuit = JsonSerializer.Deserialize<SpiceCircuitDto>(toolArgs.GetRawText(), jsonOpts);
+
+    if (circuit == null)
+        throw new InvalidOperationException("'spiceCircuit' (with stages) or 'cabAcoustic' is required.");
+
+    float[]? knobs = null;
+    if (toolArgs.ValueKind == JsonValueKind.Object && toolArgs.TryGetProperty("knobs", out var kEl) && kEl.ValueKind == JsonValueKind.Array)
+    {
+        var kl = new List<float>();
+        foreach (var v in kEl.EnumerateArray())
+            if (v.TryGetSingle(out float fv)) kl.Add(fv);
+        knobs = kl.ToArray();
+    }
+
+    float testFreq = toolArgs.ValueKind == JsonValueKind.Object && toolArgs.TryGetProperty("testFreqHz", out var tfEl) && tfEl.TryGetSingle(out float tff)
+        ? tff : 440f;
+    float testAmp = toolArgs.ValueKind == JsonValueKind.Object && toolArgs.TryGetProperty("testAmplitude", out var taEl) && taEl.TryGetSingle(out float taf)
+        ? taf : 0.25f;
+
+    return SpiceAnalyzer.AnalyzeCircuit(circuit, knobs, sr, testFreq, testAmp);
+}
+
+object ToolCommitSpiceDevice(JsonElement toolArgs)
+{
+    var spec = JsonSerializer.Deserialize<CustomDeviceSpecDto>(toolArgs.GetRawText(), jsonOpts)
+        ?? throw new InvalidOperationException("Valid device payload is required.");
+
+    if (string.IsNullOrWhiteSpace(spec.SchematicSourceUrl))
+        throw new InvalidOperationException("'schematicSourceUrl' (참고 회로도/스펙 출처 URL)은 필수입니다.");
+    if (string.IsNullOrWhiteSpace(spec.Name))
+        throw new InvalidOperationException("'name'이 필요합니다.");
+
+    string cat = (spec.Category ?? "drive").Trim().ToLowerInvariant();
+    if (cat == "cab")
+    {
+        if (spec.CabAcoustic == null)
+            throw new InvalidOperationException("Category 'cab'에는 'cabAcoustic' 스펙(measuredCurve 또는 공진/롤오프/WAV)이 필요합니다.");
+        var cabCheck = SpiceAnalyzer.AnalyzeCabinet(spec.CabAcoustic);
+        if (!cabCheck.Ok)
+            return new { ok = false, verification = cabCheck, message = "캐비넷 IR 검증에 실패했습니다." };
+    }
+    else
+    {
+        if (spec.SpiceCircuit == null)
+            throw new InvalidOperationException($"Category '{cat}'에는 'spiceCircuit' MNA 넷리스트가 필요합니다.");
+        var simCheck = SpiceAnalyzer.AnalyzeCircuit(spec.SpiceCircuit);
+        if (!simCheck.Ok)
+        {
+            return new
+            {
+                ok = false,
+                verification = simCheck,
+                missingModels = simCheck.MissingModels,
+                errors = simCheck.Errors,
+                message = simCheck.MissingModels.Length > 0
+                    ? $"미등록 부품 .MODEL이 있습니다: {string.Join(", ", simCheck.MissingModels)}. neuralrig_register_spice_model로 먼저 데이터시트 모델을 등록하세요."
+                    : "커밋 전 SPICE 시뮬레이션 검증(.OP/.AC/.TRAN/RT)에 실패했습니다.",
+            };
+        }
+    }
+
+    int? slotIndex = toolArgs.ValueKind == JsonValueKind.Object && toolArgs.TryGetProperty("slotIndex", out var sEl) && sEl.TryGetInt32(out int si)
+        ? si : null;
+
+    if (TryCallLivePipe("commit_spice_device", new { device = spec, slotIndex }, out var liveData, out string? pipeErr))
+        return new { ok = true, liveConnected = true, result = liveData };
+
+    var registered = CustomDeviceRegistry.RegisterOrUpdate(spec);
+    SignalChainConfigDto? updatedChain = null;
+    if (slotIndex is >= 0 and < SignalChainConfigDto.SlotCount)
+    {
+        var settings = AppSettings.Load();
+        updatedChain = AntigravityToneArchitect.ApplySlotEdit(
+            settings.SignalChain ?? new SignalChainConfigDto(),
+            slotIndex.Value,
+            registered.Id,
+            enabled: true,
+            paramsEl: default);
+        SaveOfflinePreset(settings, updatedChain, autoSave: false);
+    }
+
+    return new
+    {
+        ok = true,
+        liveConnected = false,
+        offlineNote = $"Saved to custom_devices.json ({pipeErr ?? "NeuralRig Studio not running"}).",
+        device = registered,
+        assignedSlotIndex = slotIndex,
+        signalChain = updatedChain,
+    };
+}
+
+object ToolDeleteCustomDevice(JsonElement toolArgs)
+{
+    string modelId = GetStr(toolArgs, "modelId") ?? "";
+    if (string.IsNullOrWhiteSpace(modelId))
+        throw new InvalidOperationException("'modelId' is required.");
+
+    if (TryCallLivePipe("delete_custom_device", new { modelId }, out var liveData, out string? pipeErr))
+        return new { ok = true, liveConnected = true, result = liveData };
+
+    bool removed = CustomDeviceRegistry.Remove(modelId);
+    return new
+    {
+        ok = removed,
+        liveConnected = false,
+        offlineNote = $"({pipeErr ?? "NeuralRig Studio not running"})",
+        modelId,
+    };
+}
+
+object BuildResourcesList() => new
+{
+    resources = new[]
+    {
+        new
+        {
+            uri = "neuralrig://guides/spice-authoring",
+            name = "NeuralRig AI-Led SPICE Schematic Authoring Guide",
+            description = "Step-by-step guide, anti-hallucination protocol, element syntax reference, and verified reference netlist examples for adding real guitar pedals, amps, and cabinets.",
+            mimeType = "application/json",
+        },
+    },
+};
+
+object HandleResourcesRead(JsonElement paramsEl)
+{
+    string uri = GetStr(paramsEl, "uri") ?? "";
+    if (!string.Equals(uri, "neuralrig://guides/spice-authoring", StringComparison.OrdinalIgnoreCase))
+        throw new InvalidOperationException($"Unknown resource URI: {uri}");
+
+    string guideJson = JsonSerializer.Serialize(SpiceAuthoringGuide.BuildGuidePayload(), prettyOpts);
+    return new
+    {
+        contents = new[]
+        {
+            new { uri, mimeType = "application/json", text = guideJson },
+        },
+    };
+}
+
+object BuildPromptsList() => new
+{
+    prompts = new[]
+    {
+        new
+        {
+            name = "add_gear_from_schematic",
+            description = "Guided AI workflow to research a real guitar pedal/amp/cabinet schematic and missing component datasheets on the internet, verify with MNA SPICE simulation, and commit to NeuralRig Studio (or explicitly tell the user if no schematic exists).",
+            arguments = new[]
+            {
+                new { name = "gearName", description = "Requested pedal, amp, or cabinet name", required = true },
+            },
+        },
+    },
+};
+
+object HandlePromptsGet(JsonElement paramsEl)
+{
+    string name = GetStr(paramsEl, "name") ?? "";
+    if (!string.Equals(name, "add_gear_from_schematic", StringComparison.OrdinalIgnoreCase))
+        throw new InvalidOperationException($"Unknown prompt: {name}");
+
+    string gear = "target gear";
+    if (paramsEl.TryGetProperty("arguments", out var argsEl) && argsEl.ValueKind == JsonValueKind.Object)
+        gear = GetStr(argsEl, "gearName") ?? gear;
+
+    string text =
+        $"User wants to add '{gear}' into NeuralRig Studio.\n" +
+        "Follow the NeuralRig AI-Led SPICE Pipeline:\n" +
+        "1. Call neuralrig_get_spice_guide to inspect the MNA netlist schema and strict anti-hallucination rules.\n" +
+        $"2. Search the internet for the authentic circuit schematic / BOM or measured speaker curve of '{gear}'.\n" +
+        $"   IMPORTANT: If '{gear}' does not exist or no reliable schematic/BOM/curve is found, STOP and tell the user clearly that it could not be found.\n" +
+        "3. Call neuralrig_list_spice_models with checkParts=[all semiconductors/tubes/op-amps in the schematic].\n" +
+        "4. For EVERY part listed in missingParts, search its official datasheet / SPICE .MODEL parameters and call neuralrig_register_spice_model.\n" +
+        "5. Construct the full MNA netlist (spiceCircuit or cabAcoustic) and call neuralrig_simulate_spice to verify .OP DC bias, .AC Bode response, .TRAN THD/asymmetry harmonics, and 0 B RT alloc.\n" +
+        "6. Call neuralrig_commit_spice_device to save and deploy the verified circuit into NeuralRig Studio.";
+
+    return new
+    {
+        description = "AI-led SPICE schematic modeling workflow",
+        messages = new[]
+        {
+            new { role = "user", content = new { type = "text", text } },
+        },
+    };
+}
+
 static void SaveOfflinePreset(AppSettings settings, SignalChainConfigDto chain, bool autoSave)
 {
     var clean = chain.Clone();
@@ -431,7 +704,7 @@ static object[] BuildToolDefinitions() =>
     new
     {
         name = "neuralrig_get_catalog",
-        description = "List all 72 schematic-modeled guitar pedals, amplifiers, and 512-tap cabinets in NeuralRig Studio with parameter indices (P0..P7) and valid min/max ranges.",
+        description = "List or search schematic-modeled guitar pedals, amplifiers, and cabinets in NeuralRig Studio (with alias display names, original hardware names, search aliases, P0..P7 parameter indices, and min/max ranges).",
         inputSchema = new
         {
             type = "object",
@@ -440,8 +713,13 @@ static object[] BuildToolDefinitions() =>
                 category = new
                 {
                     type = "string",
-                    description = "Optional category filter: all, amp, nam, cab, drive, delay, reverb, mod, eq, dyn",
-                    @enum = new[] { "all", "amp", "nam", "cab", "drive", "delay", "reverb", "mod", "eq", "dyn" },
+                    description = "Optional category filter: all, amp, nam, cab, drive, delay, reverb, mod, eq, dyn, pitch",
+                    @enum = new[] { "all", "amp", "nam", "cab", "drive", "delay", "reverb", "mod", "eq", "dyn", "pitch" },
+                },
+                query = new
+                {
+                    type = "string",
+                    description = "Optional search keyword matching original hardware name (e.g. 'BOSS SD-1', 'BOSS OD-1', 'Marshall JCM800', 'Ibanez TS808'), alias display name (가칭), brand, or Korean name (e.g. '보스', '마샬', '튜브스크리머').",
                 },
             },
         },
@@ -449,7 +727,7 @@ static object[] BuildToolDefinitions() =>
     new
     {
         name = "neuralrig_get_state",
-        description = "Get NeuralRig Studio's current 16-slot signal chain preset, active Scene (A..H), saved presets, active analyzed guitar profile summary, GP-100/ASIO audio running status, and live IPC connection status.",
+        description = "Get NeuralRig Studio's current 16-slot signal chain preset, active Scene (A..H), saved presets, active analyzed guitar profile summary, ASIO/WASAPI audio running status, and live IPC connection status.",
         inputSchema = new
         {
             type = "object",
@@ -510,7 +788,7 @@ static object[] BuildToolDefinitions() =>
                         properties = new
                         {
                             index = new { type = "integer", description = "Slot index 0..15" },
-                            modelId = new { type = "string", description = "Device ID from neuralrig_get_catalog, or empty string to clear" },
+                            modelId = new { type = "string", description = "Device ID from neuralrig_get_catalog, original hardware name (e.g. 'BOSS SD-1', 'Marshall JCM800'), or alias display name (가칭), or empty string to clear" },
                             enabled = new { type = "boolean", description = "Block enabled (default true)" },
                             @params = new
                             {
@@ -535,7 +813,7 @@ static object[] BuildToolDefinitions() =>
             properties = new
             {
                 slotIndex = new { type = "integer", description = "Slot index 0..15" },
-                modelId = new { type = "string", description = "Optional new device modelId (empty string clears slot)" },
+                modelId = new { type = "string", description = "Optional new device modelId, original hardware name (e.g. 'BOSS OD-1', 'BOSS SD-1', 'Marshall JCM800'), or alias display name (empty string clears slot)" },
                 enabled = new { type = "boolean", description = "Optional bypass state (true=ON, false=BYPASSED)" },
                 @params = new { description = "Optional array [P0..P7] or partial map {\"0\": 6.5, \"3\": 7.0}" },
             },
@@ -553,6 +831,124 @@ static object[] BuildToolDefinitions() =>
                 sceneIndex = new { type = "integer", description = "Target Scene index 0..7 (0=A, 1=B, ..., 7=H)" },
                 routingMode = new { type = "integer", description = "Optional routing mode 0=Serial, 1=ParallelSplit" },
                 parallelMix = new { type = "number", description = "Optional parallel mix 0.0..1.0" },
+            },
+        },
+    },
+    new
+    {
+        name = "neuralrig_get_spice_guide",
+        description = "Get the complete AI-led SPICE schematic authoring guide, netlist syntax rules (R, C, L, POT, SW, D, Q, J, M, U, T), strict anti-hallucination rules, required .MODEL parameters, and verified TS808 reference netlist example. Call this FIRST when a user asks to add a new pedal, amp, or cabinet.",
+        inputSchema = new
+        {
+            type = "object",
+            properties = new { },
+        },
+    },
+    new
+    {
+        name = "neuralrig_list_spice_models",
+        description = "List all verified SPICE component .MODEL definitions (diodes, BJTs, JFETs, MOSFETs, Op-Amps, Triodes) and optionally verify a list of part numbers (`checkParts`) to identify any missing components that the AI must research from datasheets before building the netlist.",
+        inputSchema = new
+        {
+            type = "object",
+            properties = new
+            {
+                kind = new
+                {
+                    type = "string",
+                    description = "Optional filter: all, diode, bjt, jfet, mosfet, opamp, triode",
+                    @enum = new[] { "all", "diode", "bjt", "jfet", "mosfet", "opamp", "triode" },
+                },
+                checkParts = new
+                {
+                    type = "array",
+                    items = new { type = "string" },
+                    description = "Optional list of schematic part numbers (e.g. ['JRC4558', '1N914', 'MA856']) to check which exist and which are missing.",
+                },
+            },
+        },
+    },
+    new
+    {
+        name = "neuralrig_register_spice_model",
+        description = "Register or update a researched component SPICE .MODEL (diode, BJT, JFET, MOSFET, op-amp, or triode) sourced from a real datasheet or SPICE library. Requires datasheetUrl and valid physical parameters.",
+        inputSchema = new
+        {
+            type = "object",
+            required = new[] { "name", "kind", "datasheetUrl", "params" },
+            properties = new
+            {
+                name = new { type = "string", description = "Part number / model key (e.g. 'MA856', '2SK30A', 'CA3080')" },
+                kind = new
+                {
+                    type = "string",
+                    description = "Component type",
+                    @enum = new[] { "diode", "bjt", "jfet", "mosfet", "opamp", "triode" },
+                },
+                polarity = new { type = "string", description = "For BJT/JFET/MOSFET: 'N' (NPN/N-ch) or 'P' (PNP/P-ch)" },
+                datasheetUrl = new { type = "string", description = "Mandatory HTTP/HTTPS source URL of datasheet or SPICE model" },
+                notes = new { type = "string", description = "Optional datasheet summary notes" },
+                @params = new
+                {
+                    type = "object",
+                    description = "Physical SPICE parameters map (e.g. diode: {Is, N, Rs}; bjt: {Is, Bf, Br, Nf, Nr, Vaf}; opamp: {Aol, GbwHz, SlewRateVus, VrailPos, VrailNeg, Rin, Rout})",
+                },
+            },
+        },
+    },
+    new
+    {
+        name = "neuralrig_simulate_spice",
+        description = "Run offline SPICE verification sandbox on a candidate MNA netlist (`spiceCircuit`) or cabinet acoustic curve (`cabAcoustic`). Executes .OP (DC bias per node), .AC (30Hz..16kHz complex Bode sweep), .TRAN (4x oversampled THD/H2/H3/asymmetry/stability), and 0 B RT allocation check without modifying the live rig.",
+        inputSchema = new
+        {
+            type = "object",
+            properties = new
+            {
+                spiceCircuit = new { type = "object", description = "Candidate SpiceCircuitDto JSON with knobs and stages" },
+                cabAcoustic = new { type = "object", description = "Candidate CustomCabAcousticDto JSON with measuredCurve or resonance/rolloff/wavIrPath" },
+                knobs = new { type = "array", items = new { type = "number" }, description = "Optional [P0..P7] knob values to evaluate at" },
+                sampleRate = new { type = "integer", description = "Base sample rate (default 48000 -> runs at 192000Hz 4x OS)" },
+                testFreqHz = new { type = "number", description = "Transient test sine frequency (default 440 Hz)" },
+                testAmplitude = new { type = "number", description = "Transient normalized input amplitude (default 0.25)" },
+            },
+        },
+    },
+    new
+    {
+        name = "neuralrig_commit_spice_device",
+        description = "Validate, persist, and hot-deploy an AI-authored and verified SPICE circuit (pedal/amp) or acoustic cabinet IR into NeuralRig Studio's live engine & UI, optionally assigning it into a signal chain slot (0..15). Requires schematicSourceUrl and passing .OP/.TRAN/0B verification.",
+        inputSchema = new
+        {
+            type = "object",
+            required = new[] { "id", "name", "category", "schematicSourceUrl" },
+            properties = new
+            {
+                id = new { type = "string", description = "Unique modelId starting with 'custom_' (e.g. 'custom_drive_zendrive')" },
+                name = new { type = "string", description = "Trademark-safe alias display name (가칭, e.g. 'Compact Quad OverDrive \\'77')" },
+                shortName = new { type = "string", description = "Short grid tile alias name (max 12 chars, e.g. 'Quad OD \\'77')" },
+                originalName = new { type = "string", description = "Original real-world hardware model name for search & MCP lookup (원래 이름, e.g. 'BOSS OD-1 OverDrive (1977)')" },
+                aliases = new { type = "array", items = new { type = "string" }, description = "Search aliases / original model codes / Korean names (e.g. ['BOSS', 'OD-1', 'OD1', '보스'])" },
+                category = new { type = "string", @enum = new[] { "drive", "amp", "cab" } },
+                schematicSourceUrl = new { type = "string", description = "Mandatory source schematic or datasheet URL" },
+                schematicSummary = new { type = "string", description = "Concise summary of circuit topology and components" },
+                spiceCircuit = new { type = "object", description = "Full SpiceCircuitDto netlist (required for drive/amp)" },
+                cabAcoustic = new { type = "object", description = "CustomCabAcousticDto (required for cab)" },
+                slotIndex = new { type = "integer", description = "Optional slot index 0..15 to place immediately" },
+            },
+        },
+    },
+    new
+    {
+        name = "neuralrig_delete_custom_device",
+        description = "Delete a previously committed custom device (`custom_*`) from NeuralRig Studio and sync UI.",
+        inputSchema = new
+        {
+            type = "object",
+            required = new[] { "modelId" },
+            properties = new
+            {
+                modelId = new { type = "string", description = "Custom device modelId, original hardware name, or alias name to remove" },
             },
         },
     },

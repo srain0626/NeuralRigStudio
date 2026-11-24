@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from "react"
-import { Activity, Waves, BarChart3 } from "lucide-react"
+import { Activity, BarChart3, Waves } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { studioBridge } from "@/lib/bridge"
+import { useI18n } from "@/lib/i18n"
+import { cn } from "@/lib/utils"
 import type { TelemetryFrame } from "@/types/rig"
 
 type VisMode = "combined" | "spectrum" | "waveform"
@@ -39,7 +41,12 @@ function dbStr(lin: number): string {
   return `${db >= 0 ? "+" : ""}${db.toFixed(1)}`
 }
 
-export const VisualizerCanvas: React.FC<{ activeToneLabel?: string }> = ({ activeToneLabel }) => {
+export const VisualizerCanvas: React.FC<{
+  activeToneLabel?: string
+  className?: string
+  canvasClassName?: string
+}> = ({ activeToneLabel, className, canvasClassName }) => {
+  const { tx } = useI18n()
   const [mode, setMode] = useState<VisMode>("combined")
   const [peakLabel, setPeakLabel] = useState<string>("-inf dB")
   const [signalState, setSignalState] = useState<"idle" | "wait" | "active">("idle")
@@ -52,6 +59,21 @@ export const VisualizerCanvas: React.FC<{ activeToneLabel?: string }> = ({ activ
 
   useEffect(() => {
     let lastUiSync = 0
+
+    const readPalette = () => {
+      const cs = getComputedStyle(document.documentElement)
+      return {
+        bg: cs.getPropertyValue("--surface-oled").trim() || "#0D0E0D",
+        elevated: cs.getPropertyValue("--surface-oled-elevated").trim() || "#171917",
+        fg: cs.getPropertyValue("--ink-oled").trim() || "#F2EFE9",
+        muted: cs.getPropertyValue("--ink-oled-muted").trim() || "#8E8C84",
+        border: cs.getPropertyValue("--border-oled").trim() || "#2E312D",
+        hot: cs.getPropertyValue("--signal-hot").trim() || "#FF4400",
+        ok: cs.getPropertyValue("--signal-ok").trim() || "#2CE674",
+        warn: cs.getPropertyValue("--signal-warn").trim() || "#FF9F0A",
+      }
+    }
+
     const draw = (f: TelemetryFrame) => {
       const canvas = canvasRef.current
       if (!canvas) return
@@ -68,6 +90,8 @@ export const VisualizerCanvas: React.FC<{ activeToneLabel?: string }> = ({ activ
 
       const ctx = canvas.getContext("2d")
       if (!ctx) return
+      const pal = readPalette()
+
       ctx.save()
       ctx.scale(dpr, dpr)
 
@@ -75,54 +99,59 @@ export const VisualizerCanvas: React.FC<{ activeToneLabel?: string }> = ({ activ
       const height = rect.height
       ctx.clearRect(0, 0, width, height)
 
-      // Background card well
-      ctx.fillStyle = "#09090b"
+      // Recessed Matte OLED Surface + Subtle Dot Grid
+      ctx.fillStyle = pal.bg
       ctx.fillRect(0, 0, width, height)
+      ctx.fillStyle = "rgba(242, 239, 233, 0.08)"
+      for (let gx = 12; gx < width; gx += 16) {
+        for (let gy = 48; gy < height - 20; gy += 16) {
+          ctx.fillRect(gx, gy, 1, 1)
+        }
+      }
 
-      // ── Stereo dB Meter strip at top ──
-      const meterTop = 8
+      // Stereo dB Meter Strip
+      const meterTop = 10
       const meterLeft = 30
-      const meterRight = width - 48
+      const meterRight = width - 52
       const meterW = Math.max(80, meterRight - meterLeft)
-      const barH = 9
+      const barH = 8
 
       const drawMeterBar = (y: number, tag: string, val: number) => {
-        ctx.fillStyle = "#a1a1aa"
-        ctx.font = "600 10px ui-monospace, SFMono-Regular, Menlo, monospace"
-        ctx.fillText(tag, 8, y + 8)
+        ctx.fillStyle = pal.muted
+        ctx.font = '600 10px "IBM Plex Mono", ui-monospace, monospace'
+        ctx.fillText(tag, 10, y + 7)
 
-        ctx.fillStyle = "#18181b"
+        ctx.fillStyle = pal.elevated
         ctx.fillRect(meterLeft, y, meterW, barH)
 
         const norm = linToNormDb(val)
         const fillW = Math.round(norm * meterW)
         if (fillW > 0) {
           const grad = ctx.createLinearGradient(meterLeft, 0, meterRight, 0)
-          grad.addColorStop(0.0, "#22c55e")
-          grad.addColorStop(0.76, "#22c55e")
-          grad.addColorStop(0.84, "#eab308")
-          grad.addColorStop(0.95, "#ef4444")
-          grad.addColorStop(1.0, "#ef4444")
+          grad.addColorStop(0.0, pal.ok)
+          grad.addColorStop(0.76, pal.ok)
+          grad.addColorStop(0.86, pal.warn)
+          grad.addColorStop(0.95, pal.hot)
+          grad.addColorStop(1.0, pal.hot)
           ctx.fillStyle = grad
           ctx.fillRect(meterLeft, y, fillW, barH)
         }
 
-        // -12 dB and -6 dB ticks
-        ctx.fillStyle = "#3f3f46"
+        ctx.fillStyle = pal.border
         ctx.fillRect(meterLeft + meterW * 0.8, y, 1, barH)
         ctx.fillRect(meterLeft + meterW * 0.9, y, 1, barH)
 
-        ctx.fillStyle = "#d4d4d8"
-        ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace"
+        ctx.fillStyle = pal.fg
+        ctx.font = '500 10px "IBM Plex Mono", ui-monospace, monospace'
         ctx.textAlign = "right"
-        ctx.fillText(dbStr(val), width - 8, y + 8)
+        ctx.fillText(dbStr(val), width - 10, y + 7)
         ctx.textAlign = "left"
       }
 
       drawMeterBar(meterTop, "L", f.meterL)
-      drawMeterBar(meterTop + 14, "R", f.meterR)
+      drawMeterBar(meterTop + 13, "R", f.meterR)
 
-      // ── Plot area below meter ──
+      // Plot Area
       const padL = 12
       const padR = 12
       const plotTop = meterTop + 34
@@ -130,8 +159,7 @@ export const VisualizerCanvas: React.FC<{ activeToneLabel?: string }> = ({ activ
       const plotW = Math.max(40, width - padL - padR)
       const plotH = Math.max(40, plotBot - plotTop)
 
-      // Grid lines (-12dB quartiles)
-      ctx.strokeStyle = "rgba(63, 63, 70, 0.35)"
+      ctx.strokeStyle = pal.border
       ctx.lineWidth = 1
       for (let g = 0; g <= 4; g++) {
         const gy = Math.round(plotTop + (plotH * g) / 4) + 0.5
@@ -144,7 +172,7 @@ export const VisualizerCanvas: React.FC<{ activeToneLabel?: string }> = ({ activ
       const curMode = modeRef.current
       const { bands, peakCaps, wave, irCurve, hasIrCurve, running } = f.vis
 
-      // 1) Spectrum bars + peak caps
+      // 1) Spectrum Bars + Peak Caps
       if (curMode !== "waveform" && bands.length > 0) {
         const n = bands.length
         const slotW = plotW / n
@@ -155,32 +183,25 @@ export const VisualizerCanvas: React.FC<{ activeToneLabel?: string }> = ({ activ
           const bx = Math.round(padL + b * slotW + 1.5)
           const by = plotBot - bh
           if (bh > 1) {
-            const barGrad = ctx.createLinearGradient(0, by, 0, plotBot)
-            if (val > 0.85) {
-              barGrad.addColorStop(0, "rgba(248, 113, 113, 0.95)")
-              barGrad.addColorStop(0.45, "rgba(250, 204, 21, 0.85)")
-              barGrad.addColorStop(1, "rgba(34, 197, 94, 0.35)")
-            } else {
-              barGrad.addColorStop(0, "rgba(74, 222, 128, 0.92)")
-              barGrad.addColorStop(1, "rgba(16, 185, 129, 0.25)")
-            }
-            ctx.fillStyle = barGrad
+            ctx.fillStyle = val > 0.85 ? pal.hot : val > 0.65 ? pal.warn : pal.ok
+            ctx.globalAlpha = 0.82
             ctx.fillRect(bx, by, barW, bh)
+            ctx.globalAlpha = 1
           }
 
           const cap = peakCaps[b] || 0
           if (cap > 0.02) {
             const capY = Math.round(plotBot - cap * (plotH - 6))
-            ctx.fillStyle = "rgba(250, 250, 250, 0.78)"
+            ctx.fillStyle = pal.fg
             ctx.fillRect(bx, capY - 2, barW, 2)
           }
         }
       }
 
-      // 2) Cab IR Curve overlay
+      // 2) Cab IR Curve Overlay
       if (curMode !== "waveform" && hasIrCurve && irCurve.length > 1) {
         ctx.save()
-        ctx.strokeStyle = "rgba(245, 158, 11, 0.9)"
+        ctx.strokeStyle = pal.warn
         ctx.lineWidth = 1.6
         ctx.setLineDash([4, 3])
         ctx.beginPath()
@@ -194,7 +215,7 @@ export const VisualizerCanvas: React.FC<{ activeToneLabel?: string }> = ({ activ
         ctx.restore()
       }
 
-      // 3) Zero-crossing Oscilloscope Waveform
+      // 3) Zero-Crossing Oscilloscope Waveform
       if (curMode !== "spectrum" && wave.length > 1) {
         const midY = plotTop + plotH * 0.5
         const ampScale = plotH * (curMode === "waveform" ? 0.44 : 0.34)
@@ -206,25 +227,21 @@ export const VisualizerCanvas: React.FC<{ activeToneLabel?: string }> = ({ activ
           if (i === 0) ctx.moveTo(x, y)
           else ctx.lineTo(x, y)
         }
-        ctx.strokeStyle = !running
-          ? "rgba(82, 82, 91, 0.45)"
-          : curMode === "combined"
-            ? "rgba(56, 189, 248, 0.85)"
-            : "rgba(74, 222, 128, 0.95)"
+        ctx.strokeStyle = !running ? pal.muted : curMode === "combined" ? pal.fg : pal.hot
         ctx.lineWidth = curMode === "waveform" ? 1.9 : 1.35
         ctx.stroke()
         ctx.restore()
       }
 
-      // Frequency / axis footer labels
-      ctx.fillStyle = "#71717a"
-      ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace"
+      // Footer Axis Labels
+      ctx.fillStyle = pal.muted
+      ctx.font = '500 10px "IBM Plex Mono", ui-monospace, monospace'
       const labels =
         curMode === "waveform"
-          ? ["0 ms", "Waveform (Zero-Crossing Trigger)", "11.6 ms"]
+          ? ["0 ms", "ZERO-CROSSING TRIGGER", "11.6 ms"]
           : ["80Hz", "250Hz", "800Hz", "2.5kHz", "8kHz"]
       labels.forEach((txt, idx) => {
-        const x = padL + (idx / Math.max(1, labels.length - 1)) * (plotW - 36)
+        const x = padL + (idx / Math.max(1, labels.length - 1)) * (plotW - 44)
         ctx.fillText(txt, x, height - 6)
       })
 
@@ -247,62 +264,66 @@ export const VisualizerCanvas: React.FC<{ activeToneLabel?: string }> = ({ activ
     })
 
     const onResize = () => draw(latestRef.current)
+    const onTheme = () => draw(latestRef.current)
     window.addEventListener("resize", onResize)
+    window.addEventListener("studio-theme-change", onTheme)
     return () => {
       unsub()
       window.removeEventListener("resize", onResize)
+      window.removeEventListener("studio-theme-change", onTheme)
     }
-  }, [])
+  }, [mode])
 
   return (
-    <Card>
-      <CardHeader className="pb-2 flex flex-row items-center justify-between gap-2 space-y-0">
+    <Card className={cn("flex flex-col py-3 gap-2.5", className)}>
+      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-0">
         <div className="flex items-center gap-2">
-          <Activity className="w-4 h-4 text-emerald-400" />
-          <CardTitle className="text-sm font-semibold">실시간 스펙트럼 · 스테레오 dB 미터</CardTitle>
+          <Activity className="size-4 text-primary" strokeWidth={1.5} />
+          <CardTitle className="text-xs font-mono uppercase tracking-wider">
+            SPECTRUM · OSCILLOSCOPE
+          </CardTitle>
           {activeToneLabel && (
-            <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-300">
+            <Badge variant="warn" size="xs">
               IR: {activeToneLabel}
             </Badge>
           )}
         </div>
         <div className="flex items-center gap-2">
           <Badge
-            variant="outline"
-            className={
-              clipActive
-                ? "border-red-500 bg-red-500/20 text-red-300 font-mono text-[10px]"
-                : signalState === "active"
-                  ? "border-emerald-500/40 text-emerald-300 font-mono text-[10px]"
-                  : "border-border text-muted-foreground font-mono text-[10px]"
-            }
+            variant={clipActive ? "hot" : signalState === "active" ? "ok" : "outline"}
+            size="xs"
+            className="tabular-nums"
           >
             {clipActive ? "CLIP" : peakLabel}
           </Badge>
           <Tabs value={mode} onValueChange={(v) => setMode(v as VisMode)}>
-            <TabsList className="h-7 bg-muted">
-              <TabsTrigger value="combined" className="text-xs px-2 h-5">복합</TabsTrigger>
-              <TabsTrigger value="spectrum" className="text-xs px-2 h-5">
-                <BarChart3 className="w-3 h-3 mr-1" />FFT
+            <TabsList className="h-7">
+              <TabsTrigger value="combined" className="h-5 px-2 text-[10px]">
+                {tx("복합", "BOTH")}
               </TabsTrigger>
-              <TabsTrigger value="waveform" className="text-xs px-2 h-5">
-                <Waves className="w-3 h-3 mr-1" />파형
+              <TabsTrigger value="spectrum" className="h-5 px-2 text-[10px]">
+                <BarChart3 className="size-3" />
+                FFT
+              </TabsTrigger>
+              <TabsTrigger value="waveform" className="h-5 px-2 text-[10px]">
+                <Waves className="size-3" />
+                {tx("파형", "WAVE")}
               </TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
       </CardHeader>
-      <CardContent className="pt-1">
-        <div className="rounded-md border border-border overflow-hidden bg-background">
-          <canvas ref={canvasRef} className="block w-full h-[255px]" />
+      <CardContent className="flex-1 min-h-0 flex flex-col gap-2">
+        <div className="flex-1 min-h-0 rounded-sm border border-oled-border overflow-hidden bg-oled">
+          <canvas ref={canvasRef} className={cn("block w-full h-[260px]", canvasClassName)} />
         </div>
-        <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
+        <div className="flex items-center justify-between font-mono text-[10px] text-muted-foreground">
           <span>
-            {signalState === "idle" && "모니터 대기 중"}
-            {signalState === "wait" && "신호 대기 중"}
-            {signalState === "active" && "모니터링 활성"}
+            {signalState === "idle" && tx("오디오 대기 중", "ENGINE STANDBY")}
+            {signalState === "wait" && tx("기타 신호 대기 중", "AWAITING SIGNAL")}
+            {signalState === "active" && tx("실시간 모니터링 활성", "LIVE MONITORING")}
           </span>
-          <span className="font-mono">1024-pt · 36-band</span>
+          <span className="tabular-nums">1024-PT FFT · 36-BAND · ZERO-CROSSING</span>
         </div>
       </CardContent>
     </Card>

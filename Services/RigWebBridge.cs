@@ -4,6 +4,8 @@ using System.Text.Json;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using NeuralRigStudio.Audio;
+using NeuralRigStudio.Audio.Spice;
+using NeuralRigStudio.Plugin;
 
 namespace NeuralRigStudio.Services;
 
@@ -51,6 +53,7 @@ public sealed class RigWebBridge : IDisposable
     private readonly AntigravityToneArchitect _toneArchitect = new();
     private readonly GuitarAnalyzer _guitarAnalyzer = new();
     private readonly MidiRouter _midi = new();
+    private readonly CloudPlatformService _cloud = new();
     private readonly float[] _guitarChunk = new float[4096];
     private long _guitarDryCursor = -1;
     private long _lastMidiUiBroadcastTick;
@@ -162,6 +165,9 @@ public sealed class RigWebBridge : IDisposable
         _settings.SavedPresets ??= new List<SignalChainConfigDto>();
         _settings.GuitarProfiles ??= new List<GuitarProfileDto>();
         _settings.MidiBindings ??= new List<MidiBindingDto>();
+        SpiceModelLibrary.LoadAll();
+        foreach (var cSpec in CustomDeviceRegistry.GetAll())
+            AntigravityToneArchitect.RegisterCustomDevice(cSpec);
         _router.Tone.Chain.UpdateChain(_settings.SignalChain);
 
         if (!string.IsNullOrWhiteSpace(_settings.MidiInputName))
@@ -190,13 +196,13 @@ public sealed class RigWebBridge : IDisposable
             try
             {
                 var drivers = AudioRouter.GetDriverNames();
-                var preferred = drivers.FirstOrDefault(IsValetonGp100Driver)
-                             ?? drivers.FirstOrDefault(IsGuitarInterfaceDriver);
+                var preferred = drivers.FirstOrDefault(IsProAudioInterfaceDriver)
+                             ?? drivers.FirstOrDefault(d => !d.Contains("Realtek", StringComparison.OrdinalIgnoreCase));
                 if (preferred != null)
                 {
                     _settings.InputKind = "ASIO";
                     _settings.InputDriver = preferred;
-                    if (_settings.ChannelMode == 0 && IsValetonGp100Driver(preferred))
+                    if (_settings.ChannelMode == 0 && IsProAudioInterfaceDriver(preferred))
                         _settings.ChannelMode = 1;
                     _settings.Save();
                 }
@@ -210,23 +216,19 @@ public sealed class RigWebBridge : IDisposable
         }
     }
 
-    private static bool IsValetonGp100Driver(string? name) =>
-        !string.IsNullOrWhiteSpace(name) &&
-        (name.Contains("Valeton", StringComparison.OrdinalIgnoreCase)
-         || name.Contains("GP-100", StringComparison.OrdinalIgnoreCase)
-         || name.Contains("GP100", StringComparison.OrdinalIgnoreCase));
-
-    private static bool IsGuitarInterfaceDriver(string? name)
+    private static bool IsProAudioInterfaceDriver(string? name)
     {
         if (string.IsNullOrWhiteSpace(name)) return false;
-        if (IsValetonGp100Driver(name)) return true;
         string[] keywords =
         {
-            "Focusrite", "Scarlett", "Steinberg", "Yamaha", "Universal Audio", "Volt",
-            "Audient", "MOTU", "Roland", "BOSS", "Line 6", "Helix", "Neural",
-            "PreSonus", "Behringer", "M-Audio", "SSL", "RME", "Arturia", "IK Multimedia",
-            "Zoom", "Mooer", "NUX", "Hotone", "Ampero", "Rocksmith", "Guitar",
-            "ASIO4ALL", "FlexASIO", "USB Audio"
+            "Focusrite", "Scarlett", "Clarett", "Universal Audio", "Apollo", "Volt",
+            "RME", "Fireface", "Babyface", "Audient", "EVO", "MOTU", "Steinberg", "Yamaha",
+            "SSL", "Solid State", "PreSonus", "Native Instruments", "Komplete", "Apogee",
+            "Antelope", "Roland", "Rubix", "BOSS", "Line 6", "Helix", "Neural",
+            "Quad Cortex", "IK Multimedia", "AXE I/O", "iRig", "Kemper", "Fractal", "Fender",
+            "Behringer", "UMC", "M-Audio", "Arturia", "MiniFuse", "AudioFuse", "Tascam",
+            "Zoom", "Mooer", "NUX", "Hotone", "Ampero", "Valeton", "Rocksmith", "Guitar",
+            "ASIO4ALL", "FlexASIO", "USB Audio", "Line In"
         };
         for (int i = 0; i < keywords.Length; i++)
         {
@@ -245,8 +247,11 @@ public sealed class RigWebBridge : IDisposable
         if (_meterR < 0.0005f) _meterR = 0f;
 
         var backing = _router.GetBackingState();
+        var looper = _router.Tone.Looper.GetSnapshot();
+        var recorder = _router.Recorder.GetSnapshot();
         bool running = _router.IsRunning;
-        bool settled = !running && !backing.Playing && !_guitarAnalyzer.IsActive && _meterL == 0f && _meterR == 0f && !clip;
+        bool looperActive = _router.Tone.Looper.State is LooperState.Recording or LooperState.Playing or LooperState.Overdubbing;
+        bool settled = !running && !backing.Playing && !_guitarAnalyzer.IsActive && !recorder.Recording && !recorder.ReampPlaying && !looperActive && _meterL == 0f && _meterR == 0f && !clip;
         if (settled && _wasIdleSettled)
             return;
         _wasIdleSettled = settled;
@@ -291,6 +296,8 @@ public sealed class RigWebBridge : IDisposable
                 sampleRate = _router.EffectiveSampleRate,
             },
             backing,
+            looper,
+            recorder,
             vis = new
             {
                 running = vis.Running,
@@ -353,6 +360,37 @@ public sealed class RigWebBridge : IDisposable
                 "startMidiLearn" => StartMidiLearn(payload),
                 "cancelMidiLearn" => CancelMidiLearn(),
                 "clearMidiBinding" => ClearMidiBinding(payload),
+                "looperCommand" => HandleLooperCommand(payload),
+                "recorderCommand" => HandleRecorderCommand(payload),
+                "exportNrigBundle" => ExportNrigBundle(payload),
+                "importNrigBundle" => ImportNrigBundle(payload),
+                "importDroppedFile" => ImportDroppedFile(payload),
+                "getToneHubCatalog" => GetToneHubCatalog(),
+                "installToneHubItem" => InstallToneHubItem(payload),
+                "installToneHubUrl" => await InstallToneHubUrlAsync(payload),
+                "exportDawPlugin" => ExportDawPlugin(payload),
+                "setWindowTheme" => SetWindowTheme(payload),
+                "runBenchmarkSuite" => await Task.Run(() => RunBenchmarkSuite(payload)),
+                "updateOnboardingState" => UpdateOnboardingState(payload),
+                "cloudSignInGoogle" => await SignInGoogleAndNotifyAsync(),
+                "cloudContinueGuest" => ContinueGuestAndNotify(),
+                "cloudSignOut" => SignOutAndNotify(),
+                "cloudSetEndpoint" => SetCloudEndpointAndNotify(GetStr(payload, "url")),
+                "cloudSyncNow" => await CloudSyncNowAsync(),
+                "getCommunityHub" => await GetCommunityHubAsync(payload),
+                "uploadCommunityGear" => await UploadCommunityGearAsync(payload),
+                "installCommunityGear" => await InstallCommunityGearAsync(payload),
+                "submitBugReport" => await SubmitBugReportAsync(payload),
+                "getSanitizedLogsPreview" => new
+                {
+                    logs = LogSanitizer.GetRecentLogsText(250),
+                    pendingCount = _cloud.GetState(_settings).PendingBugReportsCount,
+                },
+                "checkOtaUpdate" => await OtaUpdateService.CheckForUpdateAsync(CloudPlatformService.ResolveCloudBaseUrl(_settings)),
+                "applyOtaUpdate" => await ApplyOtaUpdateAsync(payload),
+                "getAdminOverview" => await _cloud.GetAdminOverviewAsync(_settings),
+                "adminUpdateBugStatus" => await _cloud.UpdateAdminBugStatusAsync(_settings, GetStr(payload, "id") ?? "", GetStr(payload, "status") ?? "triaged"),
+                "adminUpdateReleasePolicy" => await _cloud.UpdateAdminReleasePolicyAsync(_settings, payload),
                 _ => throw new InvalidOperationException($"알 수 없는 액션: {action}"),
             };
 
@@ -388,16 +426,20 @@ public sealed class RigWebBridge : IDisposable
             tunerMute = _router.TunerMute,
             tunerRefA4Hz = _visualizer.TunerRefA4Hz,
             backing = _router.GetBackingState(),
+            looper = _router.Tone.Looper.GetSnapshot(),
+            recorder = _router.Recorder.GetSnapshot(),
             midi = BuildMidiSnapshot(),
+            customDevices = CustomDeviceRegistry.GetAll(),
             isAudioRunning = _router.IsRunning,
+            appVersion = OtaUpdateService.CurrentVersion,
+            cloudState = _cloud.GetState(_settings),
         };
     }
 
     private object BuildAudioDevicesSnapshot()
     {
         var sortedDrivers = AudioRouter.GetDriverNames()
-            .OrderByDescending(IsValetonGp100Driver)
-            .ThenByDescending(IsGuitarInterfaceDriver)
+            .OrderByDescending(IsProAudioInterfaceDriver)
             .ThenByDescending(d => !d.Contains("Realtek", StringComparison.OrdinalIgnoreCase))
             .ThenBy(d => d, StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -418,8 +460,7 @@ public sealed class RigWebBridge : IDisposable
             string defaultCapId = "";
             try { defaultCapId = en.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Console).ID; } catch { }
             var capEndpoints = en.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active)
-                .OrderByDescending(d => IsValetonGp100Driver(d.FriendlyName))
-                .ThenByDescending(d => IsGuitarInterfaceDriver(d.FriendlyName))
+                .OrderByDescending(d => IsProAudioInterfaceDriver(d.FriendlyName))
                 .ThenByDescending(d => d.ID == defaultCapId)
                 .ThenBy(d => d.FriendlyName, StringComparer.OrdinalIgnoreCase);
             foreach (var d in capEndpoints)
@@ -444,8 +485,8 @@ public sealed class RigWebBridge : IDisposable
         }
 
         string? initialDriver = !string.IsNullOrEmpty(_settings.InputDriver) && sortedDrivers.Contains(_settings.InputDriver)
-            ? (_settings.InputDriver.Contains("Realtek", StringComparison.OrdinalIgnoreCase) && sortedDrivers.Any(IsGuitarInterfaceDriver)
-                ? sortedDrivers.First(IsGuitarInterfaceDriver)
+            ? (_settings.InputDriver.Contains("Realtek", StringComparison.OrdinalIgnoreCase) && sortedDrivers.Any(IsProAudioInterfaceDriver)
+                ? sortedDrivers.First(IsProAudioInterfaceDriver)
                 : _settings.InputDriver)
             : sortedDrivers.FirstOrDefault();
 
@@ -541,8 +582,8 @@ public sealed class RigWebBridge : IDisposable
             if (string.IsNullOrWhiteSpace(inputDriver)
                 || inputDriver.Contains("Realtek", StringComparison.OrdinalIgnoreCase))
             {
-                var preferred = allAsio.FirstOrDefault(IsValetonGp100Driver)
-                             ?? allAsio.FirstOrDefault(IsGuitarInterfaceDriver);
+                var preferred = allAsio.FirstOrDefault(IsProAudioInterfaceDriver)
+                             ?? allAsio.FirstOrDefault(d => !d.Contains("Realtek", StringComparison.OrdinalIgnoreCase));
                 if (preferred != null)
                 {
                     if (!string.Equals(inputDriver, preferred, StringComparison.OrdinalIgnoreCase))
@@ -624,9 +665,9 @@ public sealed class RigWebBridge : IDisposable
             {
                 await _router.StartAsync(cfg);
             }
-            catch (Exception ex) when (!useWasapiIn && !IsValetonGp100Driver(inputDriver) && (inputDriver ?? "").Contains("Realtek", StringComparison.OrdinalIgnoreCase))
+            catch (Exception ex) when (!useWasapiIn && (inputDriver ?? "").Contains("Realtek", StringComparison.OrdinalIgnoreCase))
             {
-                var altAsio = AudioRouter.GetDriverNames().FirstOrDefault(IsValetonGp100Driver)
+                var altAsio = AudioRouter.GetDriverNames().FirstOrDefault(IsProAudioInterfaceDriver)
                            ?? AudioRouter.GetDriverNames().FirstOrDefault(d => !d.Contains("Realtek", StringComparison.OrdinalIgnoreCase));
                 if (altAsio != null)
                 {
@@ -669,8 +710,8 @@ public sealed class RigWebBridge : IDisposable
         catch (Exception ex)
         {
             EmitEvent("audioState", new { isRunning = false, busy = false, state = "시작 실패" });
-            if (!useWasapiIn && IsValetonGp100Driver(inputDriver))
-                throw new InvalidOperationException($"Valeton GP-100 ({inputDriver}) 연결 실패: GP-100 전원이 켜져 있고 USB 케이블이 연결되어 있는지 확인하거나, '범용 Windows 입력(WASAPI)' 탭으로 전환해 보세요. ({ex.Message})", ex);
+            if (!useWasapiIn)
+                throw new InvalidOperationException($"ASIO 오디오 인터페이스 ({inputDriver}) 연결 실패: 전원 및 USB 케이블·샘플레이트 잠금을 확인하거나 'WASAPI / LINE-IN' 탭으로 전환해 보세요. ({ex.Message})", ex);
             throw;
         }
         finally
@@ -825,6 +866,9 @@ public sealed class RigWebBridge : IDisposable
                 "set_preset" => ExecuteMcpSetPreset(args),
                 "update_slot" => ExecuteMcpUpdateSlot(args),
                 "switch_scene" => ExecuteMcpSwitchScene(args),
+                "register_spice_model" => ExecuteMcpRegisterSpiceModel(args),
+                "commit_spice_device" => ExecuteMcpCommitSpiceDevice(args),
+                "delete_custom_device" => ExecuteMcpDeleteCustomDevice(args),
                 "control_audio" => await ExecuteMcpControlAudioAsync(args),
                 _ => throw new InvalidOperationException($"알 수 없는 MCP IPC 명령: {cmd}"),
             }, ct).ConfigureAwait(false);
@@ -859,6 +903,7 @@ public sealed class RigWebBridge : IDisposable
             activeGuitarProfileId = _settings.ActiveGuitarProfileId ?? "",
             activeGuitarProfile = activeGuitar,
             guitarProfilesCount = _settings.GuitarProfiles?.Count ?? 0,
+            customDevices = CustomDeviceRegistry.GetAll(),
             signalChain = _router.Tone.Chain.GetConfigSnapshot(),
             savedPresets = _settings.SavedPresets ?? new List<SignalChainConfigDto>(),
         };
@@ -941,34 +986,115 @@ public sealed class RigWebBridge : IDisposable
         return new { activeScene = updated.ActiveScene, routingMode = updated.RoutingMode, parallelMix = updated.ParallelMix, tempoBpm = updated.TempoBpm, signalChain = updated };
     }
 
+    private object ExecuteMcpRegisterSpiceModel(JsonElement args)
+    {
+        var model = JsonSerializer.Deserialize<SpiceComponentModelDto>(args.GetRawText(), JsonOpts)
+            ?? throw new InvalidOperationException("유효한 SpiceComponentModelDto JSON이 필요합니다.");
+        var registered = SpiceModelLibrary.RegisterOrUpdate(model);
+        EmitLog($"[MCP SPICE 모델 등록] {registered.Name} ({registered.Kind}) · 출처: {registered.DatasheetUrl}");
+        return new { ok = true, model = registered };
+    }
+
+    private object ExecuteMcpCommitSpiceDevice(JsonElement args)
+    {
+        SpiceModelLibrary.ReloadFromDisk();
+        JsonElement devEl = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("device", out var dEl)
+            ? dEl : args;
+        var spec = JsonSerializer.Deserialize<CustomDeviceSpecDto>(devEl.GetRawText(), JsonOpts)
+            ?? throw new InvalidOperationException("유효한 CustomDeviceSpecDto JSON이 필요합니다.");
+
+        int? slotIndex = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("slotIndex", out var sEl) && sEl.TryGetInt32(out int si)
+            ? si : null;
+
+        if (string.Equals(spec.Category, "cab", StringComparison.OrdinalIgnoreCase))
+        {
+            var cabRes = SpiceAnalyzer.AnalyzeCabinet(spec.CabAcoustic);
+            if (!cabRes.Ok)
+                throw new InvalidOperationException(cabRes.Summary);
+        }
+        else
+        {
+            var simRes = SpiceAnalyzer.AnalyzeCircuit(spec.SpiceCircuit ?? new SpiceCircuitDto());
+            if (!simRes.Ok)
+                throw new InvalidOperationException(simRes.Summary);
+        }
+
+        var registered = CustomDeviceRegistry.RegisterOrUpdate(spec);
+        EmitEvent("customDevicesChanged", new
+        {
+            customDevices = CustomDeviceRegistry.GetAll(),
+            addedDevice = registered,
+        });
+        EmitLog($"[MCP SPICE 장비 추가] {registered.Name} — {registered.SchematicSummary}");
+
+        SignalChainConfigDto? chainOut = null;
+        if (slotIndex is >= 0 and < SignalChainConfigDto.SlotCount)
+        {
+            var cur = _router.Tone.Chain.GetConfigSnapshot();
+            chainOut = AntigravityToneArchitect.ApplySlotEdit(cur, slotIndex.Value, registered.Id, enabled: true, paramsEl: default);
+            ApplyAndBroadcastMcpChain(chainOut, autoSave: false, $"SPICE 커스텀 장비 '{registered.Name}' 슬롯 #{slotIndex.Value + 1} 배치");
+        }
+        else
+        {
+            // Refresh live DSP engine in case an active slot updated the same device ID
+            _router.Tone.Chain.UpdateChain(_router.Tone.Chain.GetConfigSnapshot());
+        }
+
+        return new
+        {
+            ok = true,
+            device = registered,
+            assignedSlotIndex = slotIndex,
+            signalChain = chainOut,
+        };
+    }
+
+    private object ExecuteMcpDeleteCustomDevice(JsonElement args)
+    {
+        string modelId = GetStr(args, "modelId") ?? "";
+        if (string.IsNullOrWhiteSpace(modelId))
+            throw new InvalidOperationException("modelId 파라미터가 필요합니다.");
+
+        bool removed = CustomDeviceRegistry.Remove(modelId);
+        if (removed)
+        {
+            EmitEvent("customDevicesChanged", new
+            {
+                customDevices = CustomDeviceRegistry.GetAll(),
+            });
+            EmitLog($"[MCP 장비 삭제] {modelId} 삭제됨");
+        }
+        return new { ok = removed, modelId };
+    }
+
     private async Task<object> ExecuteMcpControlAudioAsync(JsonElement args)
     {
         string action = (GetStr(args, "action") ?? "status").Trim().ToLowerInvariant();
         if (action == "stop")
             return StopMonitoring();
-        if (action is "start" or "start_wasapi" or "start_gp100_wasapi" or "start_gp100_duplex")
+        if (action is "start" or "start_wasapi" or "start_asio_wasapi" or "start_asio_duplex")
         {
             if (_router.IsRunning)
                 return new { isRunning = true, inputKind = _settings.InputKind, inputDriver = _settings.InputDriver ?? "" };
 
-            bool forceGp100 = action.StartsWith("start_gp100");
+            bool forceAsio = action is "start_asio_wasapi" or "start_asio_duplex";
             bool forceWasapiIn = action == "start_wasapi";
-            var gpDriver = AudioRouter.GetDriverNames().FirstOrDefault(IsValetonGp100Driver);
+            var proDriver = AudioRouter.GetDriverNames().FirstOrDefault(IsProAudioInterfaceDriver);
             var payloadObj = new
             {
-                inputKind = forceWasapiIn ? "WASAPI" : forceGp100 ? "ASIO" : _settings.InputKind,
-                inputDriver = forceGp100 ? (gpDriver ?? "Valeton USB Audio Device") : (_settings.InputDriver ?? gpDriver ?? ""),
+                inputKind = forceWasapiIn ? "WASAPI" : forceAsio ? "ASIO" : _settings.InputKind,
+                inputDriver = forceAsio ? (proDriver ?? _settings.InputDriver ?? "") : (_settings.InputDriver ?? proDriver ?? ""),
                 wasapiInputDeviceId = _settings.WasapiInputDeviceId ?? "",
                 wasapiInputExclusive = _settings.WasapiInputExclusive,
                 wasapiInputRaw = _settings.WasapiInputRaw,
-                channelMode = forceGp100 ? 1 : _settings.ChannelMode,
-                inputChannelOffset = forceGp100 ? 0 : _settings.InputChannelOffset,
+                channelMode = _settings.ChannelMode,
+                inputChannelOffset = _settings.InputChannelOffset,
                 asioInBufferSize = _settings.AsioInBufferSize,
-                outputKind = action == "start_gp100_duplex" ? "ASIO_DUPLEX" : action == "start_gp100_wasapi" || forceWasapiIn ? "WASAPI" : _settings.OutputKind,
+                outputKind = action == "start_asio_duplex" ? "ASIO_DUPLEX" : action == "start_asio_wasapi" || forceWasapiIn ? "WASAPI" : _settings.OutputKind,
                 wasapiExclusive = _settings.WasapiExclusive,
                 wasapiDeviceId = _settings.WasapiDeviceId ?? "",
                 asioOutDriver = _settings.AsioOutDriver ?? "",
-                presetIndex = forceGp100 ? 1 : _settings.PresetIndex,
+                presetIndex = _settings.PresetIndex,
             };
             using var pDoc = JsonDocument.Parse(JsonSerializer.Serialize(payloadObj, JsonOpts));
             return await StartMonitoringAsync(pDoc.RootElement);
@@ -1456,7 +1582,11 @@ public sealed class RigWebBridge : IDisposable
         )).ToList();
     }
 
-    private void EmitLog(string line) => EmitEvent("log", new { line = $"[{DateTime.Now:HH:mm:ss}] {line}" });
+    private void EmitLog(string line)
+    {
+        string clean = LogSanitizer.RecordLog(line);
+        EmitEvent("log", new { line = $"[{DateTime.Now:HH:mm:ss}] {clean}" });
+    }
 
     private void EmitEvent(string type, object payload) => EmitRaw(new { type, data = payload });
 
@@ -1485,6 +1615,21 @@ public sealed class RigWebBridge : IDisposable
         => el.ValueKind == JsonValueKind.Object && el.TryGetProperty(prop, out var v) && (v.ValueKind == JsonValueKind.True || v.ValueKind == JsonValueKind.False)
             ? v.GetBoolean()
             : def;
+
+    private object SetWindowTheme(JsonElement payload)
+    {
+        string bgHex = GetStr(payload, "bgHex") ?? "#F3F1EC";
+        string borderHex = GetStr(payload, "borderHex") ?? "#C5C0B6";
+        string textHex = GetStr(payload, "textHex") ?? "#151514";
+        bool isDark = GetBool(payload, "isDark", false);
+
+        RunOnUi(() =>
+        {
+            if (_owner is MainForm mf)
+                mf.ApplyWindowTheme(bgHex, borderHex, textHex, isDark);
+        });
+        return new { ok = true };
+    }
 
     private object GenerateAiToneFromUi(JsonElement payload)
     {
@@ -1646,6 +1791,41 @@ public sealed class RigWebBridge : IDisposable
             return;
         }
 
+        if (matched.TargetKind == "looperRecDub")
+        {
+            if (_midi.ShouldFireSwitchEdge(ev.Number, ev.Value))
+            {
+                _router.Tone.Looper.TriggerRecordOrOverdub();
+                var snap = _router.Tone.Looper.GetSnapshot();
+                RunOnUi(() => EmitEvent("looperStateChanged", snap));
+            }
+            return;
+        }
+
+        if (matched.TargetKind == "looperPlayStop")
+        {
+            if (_midi.ShouldFireSwitchEdge(ev.Number, ev.Value))
+            {
+                _router.Tone.Looper.TriggerPlayStop();
+                var snap = _router.Tone.Looper.GetSnapshot();
+                RunOnUi(() => EmitEvent("looperStateChanged", snap));
+            }
+            return;
+        }
+
+        if (matched.TargetKind == "looperUndo")
+        {
+            if (_midi.ShouldFireSwitchEdge(ev.Number, ev.Value))
+            {
+                var lp = _router.Tone.Looper;
+                if (lp.CanUndo) lp.Undo();
+                else lp.Redo();
+                var snap = lp.GetSnapshot();
+                RunOnUi(() => EmitEvent("looperStateChanged", snap));
+            }
+            return;
+        }
+
         if (matched.TargetKind == "tapTempo")
         {
             if (_midi.ShouldFireSwitchEdge(ev.Number, ev.Value))
@@ -1738,11 +1918,611 @@ public sealed class RigWebBridge : IDisposable
         }
     }
 
+    private object HandleLooperCommand(JsonElement payload)
+    {
+        var looper = _router.Tone.Looper;
+        if (looper.LoopLengthFrames == 0 && looper.State == LooperState.Empty && _router.EffectiveSampleRate <= 0)
+            looper.Prepare(48000, maxSeconds: 60);
+
+        string cmd = (GetStr(payload, "cmd") ?? "").Trim();
+        switch (cmd)
+        {
+            case "recDub":
+                if (!_router.IsRunning && looper.State == LooperState.Empty)
+                    throw new InvalidOperationException("루퍼 녹음을 시작하려면 먼저 상단 [오디오 시작]을 켜세요.");
+                looper.TriggerRecordOrOverdub();
+                break;
+            case "playStop":
+                looper.TriggerPlayStop();
+                break;
+            case "clear":
+                if (_router.IsRunning) looper.Clear();
+                else looper.ResetAllImmediate();
+                break;
+            case "undo":
+                looper.Undo();
+                break;
+            case "redo":
+                looper.Redo();
+                break;
+            case "halfSpeed":
+                looper.HalfSpeed = GetBool(payload, "value", !looper.HalfSpeed);
+                break;
+            case "reverse":
+                looper.Reverse = GetBool(payload, "value", !looper.Reverse);
+                break;
+            case "quantize":
+                looper.QuantizeSync = GetBool(payload, "value", !looper.QuantizeSync);
+                break;
+            case "level":
+                if (payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("value", out var lvEl) && lvEl.TryGetSingle(out float lv))
+                    looper.Level = lv;
+                break;
+            default:
+                throw new InvalidOperationException($"알 수 없는 루퍼 명령: {cmd}");
+        }
+
+        _wasIdleSettled = false;
+        var snap = looper.GetSnapshot();
+        EmitEvent("looperStateChanged", snap);
+        return snap;
+    }
+
+    private object HandleRecorderCommand(JsonElement payload)
+    {
+        var rec = _router.Recorder;
+        string cmd = (GetStr(payload, "cmd") ?? "").Trim();
+        RecorderReampSnapshotDto snap;
+
+        switch (cmd)
+        {
+            case "startRec":
+                if (!_router.IsRunning)
+                    throw new InvalidOperationException("Dual-Stream 녹음을 시작하려면 먼저 상단 [오디오 시작]을 켜세요.");
+                snap = rec.StartRecording(GetStr(payload, "dir"), GetStr(payload, "name"));
+                EmitLog($"[레코더] Dual-Stream 녹음 시작 (Dry DI + Stereo Wet → {snap.RecordingsDir})");
+                break;
+
+            case "stopRec":
+                snap = rec.StopRecording();
+                if (!string.IsNullOrEmpty(snap.LastDryName))
+                    EmitLog($"[레코더] 저장 완료: {snap.LastDryName} + WetStereo.wav — 원클릭 리앰핑 준비됨!");
+                break;
+
+            case "toggleReamp":
+            {
+                bool nextEn = !rec.IsReampEnabled;
+                snap = rec.SetReampState(enabled: nextEn, playing: nextEn);
+                EmitLog(nextEn
+                    ? $"[리앰핑] 원클릭 실시간 DI 리앰핑 활성화 ({snap.ReampName}) — 앰프·캐비넷·씬을 실시간으로 바꿔보세요."
+                    : "[리앰핑] 실시간 DI 리앰핑 중지 (라이브 기타 입력 복귀)");
+                break;
+            }
+
+            case "playPauseReamp":
+            {
+                bool nextPlay = !rec.IsReampPlaying;
+                snap = rec.SetReampState(enabled: true, playing: nextPlay);
+                break;
+            }
+
+            case "loopReamp":
+                snap = rec.SetReampState(loop: GetBool(payload, "value", !rec.GetSnapshot().ReampLoop));
+                break;
+
+            case "seekReamp":
+            {
+                double seekSec = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("value", out var sk) && sk.TryGetDouble(out double sv) ? sv : 0.0;
+                snap = rec.SetReampState(seekSec: seekSec);
+                break;
+            }
+
+            case "loadReampFile":
+            {
+                string? path = GetStr(payload, "path");
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    using var dlg = new OpenFileDialog
+                    {
+                        Title = "리앰핑할 Dry DI WAV 파일 선택",
+                        Filter = "Dry DI 오디오|*.wav;*.flac;*.aif;*.aiff|모든 파일|*.*",
+                        InitialDirectory = Directory.Exists(rec.RecordingsDirectory) ? rec.RecordingsDirectory : AppContext.BaseDirectory,
+                        CheckFileExists = true,
+                    };
+                    if (dlg.ShowDialog(_owner) != DialogResult.OK)
+                        return rec.GetSnapshot();
+                    path = dlg.FileName;
+                }
+                snap = rec.LoadReampDryFile(path);
+                EmitLog($"[리앰핑] Dry DI 로드 완료: {snap.ReampName} ({snap.ReampDurationSec:F1}s)");
+                break;
+            }
+
+            case "openRecordingsFolder":
+            {
+                string dir = rec.RecordingsDirectory;
+                Directory.CreateDirectory(dir);
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = dir,
+                    UseShellExecute = true,
+                });
+                snap = rec.GetSnapshot();
+                break;
+            }
+
+            default:
+                throw new InvalidOperationException($"알 수 없는 레코더 명령: {cmd}");
+        }
+
+        _wasIdleSettled = false;
+        EmitEvent("recorderStateChanged", snap);
+        return snap;
+    }
+
+    private object ExportNrigBundle(JsonElement payload)
+    {
+        var chain = _router.Tone.Chain.GetConfigSnapshot();
+        string safeTitle = string.Concat(chain.PresetName.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+        if (string.IsNullOrWhiteSpace(safeTitle)) safeTitle = "NeuralRig_Bundle";
+
+        string? destPath = GetStr(payload, "path");
+        if (string.IsNullOrWhiteSpace(destPath))
+        {
+            using var dlg = new SaveFileDialog
+            {
+                Title = ".nrig 통합 리그 번들 내보내기",
+                Filter = "NeuralRig 통합 번들 (.nrig)|*.nrig",
+                FileName = $"{chain.PresetId}_{safeTitle}.nrig",
+                DefaultExt = "nrig",
+            };
+            if (dlg.ShowDialog(_owner) != DialogResult.OK)
+                return new { cancelled = true, path = "" };
+            destPath = dlg.FileName;
+        }
+
+        GuitarProfileDto? activeGuitar = null;
+        if (!string.IsNullOrWhiteSpace(_settings.ActiveGuitarProfileId) && _settings.GuitarProfiles != null)
+            activeGuitar = _settings.GuitarProfiles.FirstOrDefault(g => string.Equals(g.Id, _settings.ActiveGuitarProfileId, StringComparison.OrdinalIgnoreCase));
+
+        int sr = _router.EffectiveSampleRate > 0 ? _router.EffectiveSampleRate : 48000;
+        var manifest = NrigBundleService.ExportBundle(
+            destPath,
+            chain,
+            _router.Tone,
+            _models,
+            activeGuitar,
+            author: GetStr(payload, "author"),
+            description: GetStr(payload, "description"),
+            sampleRate: sr);
+
+        EmitLog($"[.nrig 내보내기] '{manifest.Name}' 번들 저장 완료 (NAM {manifest.NamModels.Count}종{(manifest.CustomCabIr != null ? " + 커스텀 IR" : "")}, SHA-256 검증 포함)");
+        return new
+        {
+            cancelled = false,
+            path = destPath,
+            name = manifest.Name,
+            namCount = manifest.NamModels.Count,
+            hasCabIr = manifest.CustomCabIr != null,
+        };
+    }
+
+    private object ImportNrigBundle(JsonElement payload)
+    {
+        string? nrigPath = GetStr(payload, "path");
+        if (string.IsNullOrWhiteSpace(nrigPath))
+        {
+            using var dlg = new OpenFileDialog
+            {
+                Title = ".nrig 통합 리그 번들 불러오기",
+                Filter = "NeuralRig 통합 번들 (.nrig)|*.nrig|모든 파일|*.*",
+                CheckFileExists = true,
+            };
+            if (dlg.ShowDialog(_owner) != DialogResult.OK)
+                return new { cancelled = true };
+            nrigPath = dlg.FileName;
+        }
+
+        var res = NrigBundleService.ImportBundle(nrigPath, _router.Tone);
+        return ApplyImportedRigAndNotify(res, $".nrig 번들 임포트: {res.SignalChain.PresetName}", saveAsUserPreset: true);
+    }
+
+    private object ImportDroppedFile(JsonElement payload)
+    {
+        string fileName = GetStr(payload, "fileName") ?? "dropped_file.nam";
+        string b64 = GetStr(payload, "base64Data") ?? "";
+        if (string.IsNullOrWhiteSpace(b64))
+            throw new InvalidOperationException("드롭된 파일 데이터가 비어 있습니다.");
+
+        int comma = b64.IndexOf(',');
+        if (comma >= 0) b64 = b64[(comma + 1)..];
+        byte[] bytes = Convert.FromBase64String(b64);
+
+        var res = ToneHubService.ImportRawFileBytes(fileName, bytes, _router.Tone);
+        return ApplyImportedRigAndNotify(res, $"드래그앤드롭 로드: {fileName}", saveAsUserPreset: Path.GetExtension(fileName).Equals(".nrig", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private object GetToneHubCatalog()
+    {
+        var items = ToneHubService.GetCatalog(_models, _settings.SavedPresets, _router.Tone.CustomCabIrName);
+        var dawPlugin = DawPluginExporter.GetPluginInspectorInfo();
+        return new
+        {
+            items,
+            dawPlugin,
+        };
+    }
+
+    private object InstallToneHubItem(JsonElement payload)
+    {
+        string id = GetStr(payload, "id") ?? throw new InvalidOperationException("Tone Hub 항목 ID가 필요합니다.");
+        int slotIdx = GetInt(payload, "targetSlotIndex", -1);
+        var res = ToneHubService.InstallHubItem(id, _router.Tone, slotIdx);
+
+        var fakeImport = new NrigImportResultDto(
+            new NrigManifestDto { Name = res.Item.Title, SignalChain = res.AppliedChain ?? _router.Tone.Chain.GetConfigSnapshot() },
+            res.AppliedChain ?? _router.Tone.Chain.GetConfigSnapshot(),
+            res.InstalledModel != null ? new List<ToneProfile> { res.InstalledModel } : new List<ToneProfile>(),
+            res.CustomCabIrPath,
+            res.CustomCabIrName,
+            null);
+
+        ApplyImportedRigAndNotify(
+            fakeImport,
+            res.Summary,
+            saveAsUserPreset: string.Equals(res.Item.Category, "nrig", StringComparison.OrdinalIgnoreCase));
+
+        return new
+        {
+            summary = res.Summary,
+            catalog = ToneHubService.GetCatalog(_models, _settings.SavedPresets, _router.Tone.CustomCabIrName),
+        };
+    }
+
+    private async Task<object> InstallToneHubUrlAsync(JsonElement payload)
+    {
+        string url = GetStr(payload, "url") ?? throw new InvalidOperationException("다운로드할 URL을 입력하세요.");
+        var res = await ToneHubService.InstallFromUrlAsync(url, _router.Tone, ct: _mcpCts.Token).ConfigureAwait(false);
+
+        return await RunOnUiAsync(() =>
+        {
+            var data = ApplyImportedRigAndNotify(res, $"원격 URL 설치 완료: {res.Manifest.Name}", saveAsUserPreset: url.EndsWith(".nrig", StringComparison.OrdinalIgnoreCase));
+            return Task.FromResult(data);
+        }, _mcpCts.Token).ConfigureAwait(false);
+    }
+
+    private object ExportDawPlugin(JsonElement payload)
+    {
+        string? outDir = GetStr(payload, "outputDir");
+        if (string.IsNullOrWhiteSpace(outDir))
+        {
+            using var dlg = new FolderBrowserDialog
+            {
+                Description = "NeuralRig Studio VST3 (.vst3) 및 CLAP (.clap) DAW 플러그인 패키지를 내보낼 폴더를 선택하세요.",
+                UseDescriptionForTitle = true,
+                SelectedPath = Path.Combine(AppContext.BaseDirectory, "DawPlugins"),
+            };
+            if (dlg.ShowDialog(_owner) != DialogResult.OK)
+                return new { cancelled = true };
+            outDir = dlg.SelectedPath;
+        }
+
+        var res = DawPluginExporter.ExportPluginPackage(
+            outDir,
+            _router.Tone.Chain.GetConfigSnapshot(),
+            _router.Tone,
+            _models);
+
+        EmitLog($"[DAW 플러그인] VST3 & CLAP 패키지 생성 완료 → {res.OutputDirectory}");
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = res.OutputDirectory,
+                UseShellExecute = true,
+            });
+        }
+        catch { }
+
+        return new
+        {
+            cancelled = false,
+            outputDirectory = res.OutputDirectory,
+            vst3BundlePath = res.Vst3BundlePath,
+            clapPluginPath = res.ClapPluginPath,
+            defaultRigPath = res.DefaultRigPath,
+            parameterCount = res.ParameterCount,
+        };
+    }
+
+    private object ApplyImportedRigAndNotify(NrigImportResultDto res, string summary, bool saveAsUserPreset)
+    {
+        _models = ToneProfileStore.LoadAll();
+        _router.Tone.SetModelLibrary(_models);
+
+        var chain = res.SignalChain.Clone();
+        _settings.ToneMode = (int)ToneMode.SignalChain;
+        _settings.SignalChain = chain;
+
+        if (!string.IsNullOrWhiteSpace(res.CustomCabIrPath))
+            _settings.CustomCabIrPath = res.CustomCabIrPath;
+
+        if (res.ImportedModels.Count > 0)
+        {
+            _router.Tone.ActiveProfile = res.ImportedModels[0];
+            _settings.SelectedToneId = res.ImportedModels[0].Id;
+        }
+
+        if (saveAsUserPreset)
+        {
+            _settings.SavedPresets ??= new List<SignalChainConfigDto>();
+            int idx = _settings.SavedPresets.FindIndex(p => string.Equals(p.PresetId, chain.PresetId, StringComparison.OrdinalIgnoreCase));
+            if (idx >= 0) _settings.SavedPresets[idx] = chain;
+            else _settings.SavedPresets.Add(chain);
+        }
+
+        if (res.GuitarProfile != null)
+        {
+            _settings.GuitarProfiles ??= new List<GuitarProfileDto>();
+            int gIdx = _settings.GuitarProfiles.FindIndex(g => string.Equals(g.Id, res.GuitarProfile.Id, StringComparison.OrdinalIgnoreCase));
+            if (gIdx >= 0) _settings.GuitarProfiles[gIdx] = res.GuitarProfile;
+            else _settings.GuitarProfiles.Insert(0, res.GuitarProfile);
+            _settings.ActiveGuitarProfileId = res.GuitarProfile.Id;
+        }
+
+        _settings.Save();
+        _router.Tone.Chain.UpdateChain(chain);
+        _router.Tone.Mode = ToneMode.SignalChain;
+        SyncVisualizerCabIr();
+        _wasIdleSettled = false;
+
+        var toneDtos = ToModelDtos(_models);
+        string selTone = _router.Tone.ActiveProfile?.Id ?? "";
+        EmitEvent("tonesChanged", new { tones = toneDtos, selectedToneId = selTone, toneMode = (int)ToneMode.SignalChain });
+        if (!string.IsNullOrWhiteSpace(res.CustomCabIrName))
+            EmitEvent("cabIrChanged", new { customCabIrName = res.CustomCabIrName });
+        if (res.GuitarProfile != null)
+            EmitEvent("guitarProfilesChanged", new { guitarProfiles = _settings.GuitarProfiles, activeGuitarProfileId = _settings.ActiveGuitarProfileId ?? "" });
+        EmitEvent("signalChainChanged", new
+        {
+            signalChain = chain,
+            savedPresets = _settings.SavedPresets ?? new List<SignalChainConfigDto>(),
+            summary,
+        });
+        EmitLog($"[통합 허브] {summary}");
+
+        return new
+        {
+            cancelled = false,
+            signalChain = chain,
+            savedPresets = _settings.SavedPresets ?? new List<SignalChainConfigDto>(),
+            tones = toneDtos,
+            selectedToneId = selTone,
+            customCabIrName = res.CustomCabIrName,
+            summary,
+        };
+    }
+
+    private RigBenchmarkReportDto RunBenchmarkSuite(JsonElement payload)
+    {
+        int sr = _router.EffectiveSampleRate > 0 ? _router.EffectiveSampleRate : 48000;
+        if (payload.ValueKind == JsonValueKind.Object &&
+            payload.TryGetProperty("sampleRate", out var srEl) &&
+            srEl.TryGetInt32(out int reqSr) &&
+            reqSr is >= 44100 and <= 192000)
+        {
+            sr = reqSr;
+        }
+
+        double? liveRtMs = _router.IsRunning ? _router.GetLatency()?.TotalMs : null;
+        var report = RigBenchmarkSuite.Run(sr, liveRtMs);
+
+        string liveTag = report.LiveAudioRoundTripMs.HasValue
+            ? $" · LiveRT={report.LiveAudioRoundTripMs.Value:F1}ms"
+            : "";
+        EmitLog(
+            $"[Benchmark] {(report.OverallPassed ? "PASS" : "FAIL")} · Hardware={report.OverallSimilarityPct:F1}% · " +
+            $"64fr={(report.MinBuffer64Pass ? "OK" : "OVER")} · RTAlloc={(report.ZeroRtAllocAll ? "0B" : "NON-ZERO")}{liveTag} · {report.TotalDurationMs:F0}ms");
+        return report;
+    }
+
+    private object UpdateOnboardingState(JsonElement payload)
+    {
+        if (payload.ValueKind == JsonValueKind.Object)
+        {
+            if (payload.TryGetProperty("hasChosenAuthMode", out var authEl))
+            {
+                if (authEl.ValueKind == JsonValueKind.True) _settings.HasChosenAuthMode = true;
+                else if (authEl.ValueKind == JsonValueKind.False) _settings.HasChosenAuthMode = false;
+            }
+            if (payload.TryGetProperty("hasCompletedTutorial", out var tutEl))
+            {
+                if (tutEl.ValueKind == JsonValueKind.True) _settings.HasCompletedTutorial = true;
+                else if (tutEl.ValueKind == JsonValueKind.False) _settings.HasCompletedTutorial = false;
+            }
+            _settings.Save();
+        }
+        return new
+        {
+            hasChosenAuthMode = _settings.HasChosenAuthMode,
+            hasCompletedTutorial = _settings.HasCompletedTutorial,
+        };
+    }
+
+    private async Task<CloudStateDto> SignInGoogleAndNotifyAsync()
+    {
+        var state = await _cloud.StartGoogleSignInAsync(_settings);
+        EmitEvent("cloudStateChanged", state);
+        EmitLog($"[Cloud] Google 계정 로그인 완료: {state.User?.DisplayName ?? "Player"}");
+        _ = Task.Run(() => _cloud.FlushPendingBugReportsAsync(_settings));
+        return state;
+    }
+
+    private CloudStateDto ContinueGuestAndNotify()
+    {
+        var state = _cloud.ContinueAsGuest(_settings);
+        EmitEvent("cloudStateChanged", state);
+        return state;
+    }
+
+    private CloudStateDto SignOutAndNotify()
+    {
+        var state = _cloud.SignOut(_settings);
+        EmitEvent("cloudStateChanged", state);
+        EmitLog("[Cloud] 로그아웃되어 게스트 모드로 전환되었습니다.");
+        return state;
+    }
+
+    private CloudStateDto SetCloudEndpointAndNotify(string? url)
+    {
+        var state = _cloud.SetCloudEndpoint(_settings, url);
+        EmitEvent("cloudStateChanged", state);
+        return state;
+    }
+
+    private async Task<CloudStateDto> CloudSyncNowAsync()
+    {
+        var state = await _cloud.SyncSettingsAsync(
+            _settings,
+            CustomDeviceRegistry.GetAll(),
+            (remotePresets, remoteGuitars, remoteDevices) =>
+            {
+                if (remotePresets is { Count: > 0 })
+                {
+                    _settings.SavedPresets ??= new List<SignalChainConfigDto>();
+                    foreach (var p in remotePresets)
+                    {
+                        if (!string.IsNullOrWhiteSpace(p.PresetId) &&
+                            !_settings.SavedPresets.Any(x => string.Equals(x.PresetId, p.PresetId, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            _settings.SavedPresets.Add(p);
+                        }
+                    }
+                }
+                if (remoteGuitars is { Count: > 0 })
+                {
+                    _settings.GuitarProfiles ??= new List<GuitarProfileDto>();
+                    foreach (var g in remoteGuitars)
+                    {
+                        if (!string.IsNullOrWhiteSpace(g.Id) &&
+                            !_settings.GuitarProfiles.Any(x => string.Equals(x.Id, g.Id, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            _settings.GuitarProfiles.Add(g);
+                        }
+                    }
+                }
+                if (remoteDevices is { Count: > 0 })
+                {
+                    foreach (var d in remoteDevices)
+                    {
+                        if (!string.IsNullOrWhiteSpace(d.Id) && !CustomDeviceRegistry.TryGet(d.Id, out _))
+                        {
+                            try
+                            {
+                                CloudPlatformService.ValidateCustomDeviceSpecSafety(d);
+                                CustomDeviceRegistry.RegisterOrUpdate(d);
+                            }
+                            catch { }
+                        }
+                    }
+                }
+                _settings.Save();
+                EmitEvent("customDevicesChanged", new { customDevices = CustomDeviceRegistry.GetAll() });
+                EmitEvent("guitarProfilesChanged", new
+                {
+                    guitarProfiles = _settings.GuitarProfiles ?? new List<GuitarProfileDto>(),
+                    activeGuitarProfileId = _settings.ActiveGuitarProfileId ?? "",
+                });
+            });
+        EmitEvent("cloudStateChanged", state);
+        EmitLog("[Cloud] 설정 · 프리셋 · 커스텀 기어 클라우드 동기화 완료");
+        return state;
+    }
+
+    private async Task<object> GetCommunityHubAsync(JsonElement payload)
+    {
+        string cat = GetStr(payload, "category") ?? "all";
+        string q = GetStr(payload, "query") ?? "";
+        string sort = GetStr(payload, "sort") ?? "downloads";
+        var (items, source) = await _cloud.GetCommunityHubAsync(_settings, cat, q, sort);
+        return new { items, source };
+    }
+
+    private async Task<object> UploadCommunityGearAsync(JsonElement payload)
+    {
+        string deviceId = GetStr(payload, "deviceId") ?? "";
+        string summary = GetStr(payload, "summary") ?? "";
+        var tags = new List<string>();
+        if (payload.ValueKind == JsonValueKind.Object &&
+            payload.TryGetProperty("tags", out var tagsEl) &&
+            tagsEl.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var t in tagsEl.EnumerateArray())
+                if (t.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(t.GetString()))
+                    tags.Add(t.GetString()!);
+        }
+        if (!CustomDeviceRegistry.TryGet(deviceId, out var spec) || spec == null)
+            throw new InvalidOperationException($"커스텀 기어 '{deviceId}'를 찾을 수 없습니다.");
+
+        return await _cloud.UploadCommunityGearAsync(_settings, spec, summary, tags.ToArray());
+    }
+
+    private async Task<object> InstallCommunityGearAsync(JsonElement payload)
+    {
+        var item = JsonSerializer.Deserialize<CommunityGearItemDto>(payload.GetRawText(), JsonOpts)
+            ?? throw new InvalidOperationException("Invalid community gear payload.");
+
+        var installed = await _cloud.InstallCommunityGearAsync(_settings, item);
+        EmitEvent("customDevicesChanged", new
+        {
+            customDevices = CustomDeviceRegistry.GetAll(),
+            addedDevice = installed,
+        });
+        EmitLog($"[Community Hub] '{installed.OriginalName}' 설치 및 SPICE 검증 완료");
+        return new { ok = true, addedDevice = installed };
+    }
+
+    private async Task<object> SubmitBugReportAsync(JsonElement payload)
+    {
+        string title = GetStr(payload, "title") ?? "";
+        string category = GetStr(payload, "category") ?? "general";
+        string severity = GetStr(payload, "severity") ?? "normal";
+        string description = GetStr(payload, "description") ?? "";
+
+        var diag = new Dictionary<string, object?>
+        {
+            ["appVersion"] = OtaUpdateService.CurrentVersion,
+            ["osVersion"] = Environment.OSVersion.VersionString,
+            ["cpuCount"] = Environment.ProcessorCount,
+            ["avx2Supported"] = System.Runtime.Intrinsics.X86.Avx2.IsSupported,
+            ["fmaSupported"] = System.Runtime.Intrinsics.X86.Fma.IsSupported,
+            ["isAudioRunning"] = _router.IsRunning,
+            ["inputKind"] = _settings.InputKind,
+            ["outputKind"] = _settings.OutputKind,
+            ["sampleRate"] = _router.EffectiveSampleRate,
+            ["customDeviceCount"] = CustomDeviceRegistry.GetAll().Length,
+        };
+
+        var result = await _cloud.SubmitBugReportAsync(_settings, title, category, severity, description, diag);
+        EmitEvent("cloudStateChanged", _cloud.GetState(_settings));
+        return result;
+    }
+
+    private async Task<object> ApplyOtaUpdateAsync(JsonElement payload)
+    {
+        var info = JsonSerializer.Deserialize<OtaCheckResultDto>(payload.GetRawText(), JsonOpts)
+            ?? await OtaUpdateService.CheckForUpdateAsync(CloudPlatformService.ResolveCloudBaseUrl(_settings));
+        var (ok, message, launchedPath) = await OtaUpdateService.DownloadAndStageUpdateAsync(info);
+        EmitLog($"[OTA] {message}");
+        return new { ok, message, launchedPath };
+    }
+
     public void Dispose()
     {
         try { _mcpCts.Cancel(); } catch { }
         try { _mcpCts.Dispose(); } catch { }
         try { _midi.Dispose(); } catch { }
+        try { _router.Recorder.Dispose(); } catch { }
         try { _panelDev?.Dispose(); } catch { }
         _panelDev = null;
     }

@@ -1,8 +1,13 @@
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
+using System.Text;
 using NAudio.Wave;
 using NeuralRigStudio.Audio;
+using NeuralRigStudio.Audio.Spice;
+using NeuralRigStudio.Plugin;
+using NeuralRigStudio.Services;
 
 Console.WriteLine($"=== NeuralRig Studio Standalone AVX2/FMA & White-Box Benchmark (AVX2={Avx2.IsSupported}, FMA={Fma.IsSupported}, Vec256={Vector256.IsHardwareAccelerated}) ===");
 
@@ -81,7 +86,7 @@ VerifyNativeNamRoundTrip(profFeather);
     }
     Console.WriteLine($"[PASS] Power-of-2 Lock-Free RingBuffer (cap={rb.CapacityFrames}fr) 10x wrap-around integrity");
 
-    // 4.1) Zero-Allocation 44.1kHz -> 48kHz Real-Time Sample Rate Bridge (GP-100 -> PC WASAPI)
+    // 4.1) Zero-Allocation 44.1kHz -> 48kHz Real-Time Sample Rate Bridge (Interface -> PC WASAPI)
     var rbBridge = new RingBuffer(8192);
     var srcBridge = new RingSource(rbBridge, sampleRate: 44100, targetFrames: 512, inChunkFrames: 256, outputSampleRate: 48000);
     if (srcBridge.WaveFormat.SampleRate != 48000)
@@ -131,7 +136,7 @@ VerifyNativeNamRoundTrip(profFeather);
         bridgePeak = Math.Max(bridgePeak, Math.Abs(outLeft48[i]));
     }
     if (bridgePeak < 0.25) throw new Exception($"Unexpected low output amplitude from 44.1k->48k bridge: {bridgePeak}");
-    Console.WriteLine($"[PASS] 44.1kHz->48kHz Zero-Alloc Sample-Rate Bridge (GP-100 -> WASAPI, peak={bridgePeak:F3}, RT alloc: {bridgeAlloc} B)");
+    Console.WriteLine($"[PASS] 44.1kHz->48kHz Zero-Alloc Sample-Rate Bridge (44.1k Interface -> 48k WASAPI, peak={bridgePeak:F3}, RT alloc: {bridgeAlloc} B)");
 }
 
 // 5) Radix-2 FFT + YIN Chromatic Tuner verification
@@ -174,6 +179,80 @@ Console.WriteLine($"[PASS] ASIO drivers detected ({drivers.Length}): {string.Joi
 
 // 7) WhiteBox Circuit Modeling + Hybrid Routing Quantitative Verification
 RunWhiteBoxVerification();
+
+// 8) Hardware Similarity + Latency/RT + 16-Slot Multi-Chain Benchmark Suite
+{
+    var bench = RigBenchmarkSuite.Run(48000);
+    foreach (var sim in bench.SimilarityItems)
+    {
+        Console.WriteLine($"  [SIM] {sim.OriginalHardware}: {sim.SimilarityPct:F1}% ({sim.MeasuredValue}) -> {(sim.Passed ? "PASS" : "FAIL")}");
+    }
+    foreach (var lat in bench.LatencyItems.Where(x => x.BufferFrames == 64))
+    {
+        Console.WriteLine($"  [64fr] {lat.ProfileName}: avg={lat.AvgBlockMs:F4}ms / {lat.BudgetMs:F3}ms ({lat.CpuLoadPct:F1}% CPU, RT={lat.RtAllocBytes}B) -> {(lat.Passed ? "PASS" : "FAIL")}");
+    }
+    foreach (var mc in bench.MultiChainItems)
+    {
+        Console.WriteLine($"  [CHAIN] {mc.ScenarioName}: avg={mc.AvgBlockMs:F4}ms ({mc.Detail}, RT={mc.RtAllocBytes}B) -> {(mc.Passed ? "PASS" : "FAIL")}");
+    }
+    if (!bench.OverallPassed || !bench.ZeroRtAllocAll)
+        throw new Exception($"RigBenchmarkSuite failed: overall={bench.OverallPassed}, zeroAlloc={bench.ZeroRtAllocAll}, min64={bench.MinBuffer64Pass}");
+
+    Console.WriteLine($"[PASS] RigBenchmarkSuite (AvgSimilarity={bench.OverallSimilarityPct:F1}%, 64fr={(bench.MinBuffer64Pass ? "PASS" : "FAIL")}, RT alloc: 0 B, Total={bench.TotalDurationMs:F0} ms)");
+}
+
+// 9) Platform Readiness Verification (PII LogSanitizer + OTA Choice/Force Policy + Community SPICE Safety)
+{
+    string noisy = @"Error in C:\Users\alice\Documents\secret.nam Authorization: Bearer eyJhbGciOi.payload.sig api_key=sk-123456";
+    string scrubbed = LogSanitizer.Scrub(noisy);
+    if (scrubbed.Contains("alice", StringComparison.OrdinalIgnoreCase) ||
+        scrubbed.Contains("eyJhbGciOi", StringComparison.Ordinal) ||
+        scrubbed.Contains("sk-123456", StringComparison.Ordinal))
+        throw new Exception($"LogSanitizer failed to scrub PII/secrets: {scrubbed}");
+
+    LogSanitizer.RecordLog(@"Audio opened for C:\Users\alice\test.wav");
+    if (!LogSanitizer.GetRecentLogsText(10).Contains("%USERPROFILE%", StringComparison.Ordinal))
+        throw new Exception("LogSanitizer ring buffer failed to record scrubbed line.");
+
+    var (availOpt, forceOpt) = OtaUpdateService.EvaluateReleasePolicy("3.0.0", "3.1.0", "3.0.0", forceFlag: false);
+    var (availForceFlag, forceByFlag) = OtaUpdateService.EvaluateReleasePolicy("3.0.0", "3.1.0", "3.0.0", forceFlag: true);
+    var (availBelowMin, forceByMin) = OtaUpdateService.EvaluateReleasePolicy("3.0.0", "3.2.0", "3.1.0", forceFlag: false);
+    var (availUpToDate, _) = OtaUpdateService.EvaluateReleasePolicy("3.2.0", "3.2.0", "3.1.0", forceFlag: true);
+    if (!availOpt || forceOpt || !availForceFlag || !forceByFlag || !availBelowMin || !forceByMin || availUpToDate)
+        throw new Exception("OtaUpdateService policy evaluation failed.");
+
+    var sampleSpec = new CustomDeviceSpecDto
+    {
+        Id = "custom_drive_verify_bench",
+        Name = "Verify Drive",
+        ShortName = "Verify",
+        OriginalName = "Verify Drive",
+        Category = "drive",
+        SpiceCircuit = new NeuralRigStudio.Audio.Spice.SpiceCircuitDto
+        {
+            InputVoltageScale = 0.45f,
+            Stages = new List<NeuralRigStudio.Audio.Spice.SpiceStageDto>
+            {
+                new()
+                {
+                    Name = "s1",
+                    InputNode = "in",
+                    OutputNode = "out",
+                    InputSeriesResistance = 1000f,
+                    Elements = new List<NeuralRigStudio.Audio.Spice.SpiceElementDto>
+                    {
+                        new() { Name = "D1", Type = "D", Nodes = new[] { "out", "gnd" }, Model = "1N914" },
+                        new() { Name = "D2", Type = "D", Nodes = new[] { "gnd", "out" }, Model = "1N914" },
+                        new() { Name = "R1", Type = "R", Nodes = new[] { "in", "out" }, ValueText = "4.7k" },
+                        new() { Name = "R2", Type = "R", Nodes = new[] { "out", "gnd" }, ValueText = "100k" },
+                    },
+                },
+            },
+        },
+    };
+    CloudPlatformService.ValidateCustomDeviceSpecSafety(sampleSpec);
+    Console.WriteLine("[PASS] Platform Gate (LogSanitizer PII/Secret Scrub + OTA Choice/Force SemVer Policy + Community Hub SPICE Safety)");
+}
 
 static ToneProfile BenchmarkWaveNetPreset(string label, (int inSz, int ch, int headSz, int[] dils, bool headBias)[] specs)
 {
@@ -657,6 +736,8 @@ static void RunWhiteBoxVerification()
             "eq_ge7", "eq_graphic5", "eq_parametric", "eq_crybaby",
             // DYN (6)
             "gate_adaptive", "comp_sp", "comp_orangesqueezer", "comp_cs3", "comp_dyna", "comp_1176",
+            // PITCH (3)
+            "pitch_capo", "pitch_whammy", "pitch_octaver",
         };
         static SignalChainConfigDto MakeSinglePedalChain(string modelId, float[] p)
         {
@@ -1015,7 +1096,7 @@ static void RunWhiteBoxVerification()
         long rtAlloc = GC.GetAllocatedBytesForCurrentThread() - rt0;
         if (rtAlloc != 0) throw new Exception($"Post-calibration RT alloc {rtAlloc} B != 0");
 
-        // Quiet GP-100 SSS Stratocaster Stress Test:
+        // Quiet Single-Coil SSS Stratocaster Stress Test:
         // -53 dBFS dry notes, missing E2 fundamental (H1=0.15 < H2=1.0), strong -44 dBFS 60Hz hum, Eb (-100ct) tuning, quiet strum
         {
             var gaQuiet = new GuitarAnalyzer();
@@ -1178,8 +1259,11 @@ static void RunWhiteBoxVerification()
             syncProc.Chain.UpdateChain(aiRes.Chain);
             var bufL = new float[256];
             var bufR = new float[256];
-            for (int i = 0; i < 256; i++) bufL[i] = bufR[i] = 0.15f * MathF.Sin(2f * MathF.PI * 330f * i / 48000f);
-            syncProc.Process(bufL, bufR, 256); // warmup
+            for (int w = 0; w < 32; w++)
+            {
+                for (int i = 0; i < 256; i++) bufL[i] = bufR[i] = 0.15f * MathF.Sin(2f * MathF.PI * 330f * i / 48000f);
+                syncProc.Process(bufL, bufR, 256); // Tier-0/1 JIT warmup
+            }
 
             var fasterChain = aiRes.Chain.Clone();
             fasterChain.TempoBpm = 142f;
@@ -1253,6 +1337,18 @@ static void RunWhiteBoxVerification()
 
         // v1.2 Verification: LSTM + ConvNet NAM + 3-Slot Multi-NAM + 16k Partitioned FFT Convolver + Dual Virtual Miking
         VerifyMilestone2Bench();
+
+        // v1.3 Verification: Polyphonic Pitch Shifter (Virtual Capo / Whammy / Octaver) + 4-Slot DSP Pool Expansion
+        VerifyMilestone3Bench();
+
+        // v1.5 Verification: BPM-Synced Stereo Looper + Dual-Stream Recorder + 1-Click Live DI Re-amping
+        VerifyMilestone4Bench();
+
+        // v2.0 Verification: .nrig Bundle + SHA-256 + ToneHub Vault + NativeAOT VST3/CLAP Automation & State
+        VerifyMilestone5Bench();
+
+        // MCP Web Schematic Discovery + Zero-Alloc Custom Pedal/Amp/Cab DSP Verification
+        VerifyMcpSchematicAdditionBench();
     }
 
     static void VerifyMilestone2Bench()
@@ -1628,6 +1724,1155 @@ static void RunWhiteBoxVerification()
                 throw new Exception($"Dual Mic Haas stereo check failed: alloc={hAlloc}, max|L-R|={haasStereoDiff}");
 
             Console.WriteLine($"[PASS] Dual Virtual Miking (Cap-Edge 5kHz={capDb - edgeDb:+0.0;-0.0}dB, PhaseCancel={cancelPeak:E1}, Haas max|L-R|={haasStereoDiff:F3}, RT alloc: {hAlloc} B)");
+        }
+    }
+
+    static void VerifyMilestone3Bench()
+    {
+        const int sr = 48000;
+        const int frames = 256;
+
+        static double Goertzel(ReadOnlySpan<float> x, double targetHz, int sampleRate)
+        {
+            double w = 2.0 * Math.PI * targetHz / sampleRate;
+            double cosW = Math.Cos(w);
+            double coeff = 2.0 * cosW;
+            double s0 = 0, s1 = 0, s2 = 0;
+            for (int i = 0; i < x.Length; i++)
+            {
+                s0 = x[i] + coeff * s1 - s2;
+                s2 = s1;
+                s1 = s0;
+            }
+            double mag2 = s1 * s1 + s2 * s2 - coeff * s1 * s2;
+            return Math.Sqrt(Math.Max(0.0, mag2)) / Math.Max(1, x.Length);
+        }
+
+        // 1) Virtual Capo Polyphonic Dyad Shift (220Hz + 330Hz, -2 semitones -> 196.0Hz + 293.7Hz)
+        {
+            var pitchProc = new ToneProcessor { Mode = ToneMode.SignalChain };
+            pitchProc.Prepare(frames, sr);
+            var cfg = new SignalChainConfigDto { RoutingMode = (int)ChainRoutingMode.Serial };
+            for (int i = 0; i < SignalChainConfigDto.SlotCount; i++)
+                cfg.Slots[i] = new ChainSlotDto { Index = i, ModelId = "", Enabled = false, Params = new float[8] };
+            cfg.Slots[0] = new ChainSlotDto
+            {
+                Index = 0,
+                ModelId = "pitch_capo",
+                Enabled = true,
+                Params = new float[] { -2f, 0f, 100f, 0f, 0, 0, 0, 0 },
+            };
+            pitchProc.Chain.UpdateChain(cfg);
+
+            const int blocks = 32;
+            var fullOut = new float[blocks * frames];
+            var bl = new float[frames];
+            var br = new float[frames];
+            long sampleIdx = 0;
+
+            for (int b = 0; b < blocks; b++)
+            {
+                for (int i = 0; i < frames; i++, sampleIdx++)
+                {
+                    float s = 0.22f * MathF.Sin(2f * MathF.PI * 220.0f * sampleIdx / sr)
+                            + 0.22f * MathF.Sin(2f * MathF.PI * 330.0f * sampleIdx / sr);
+                    bl[i] = br[i] = s;
+                }
+                pitchProc.Process(bl, br, frames);
+                Array.Copy(bl, 0, fullOut, b * frames, frames);
+            }
+
+            var steady = fullOut.AsSpan(16 * frames, 16 * frames);
+            double e196 = Goertzel(steady, 196.0, sr);
+            double e220 = Goertzel(steady, 220.0, sr);
+            double e294 = Goertzel(steady, 293.66, sr);
+            double e330 = Goertzel(steady, 330.0, sr);
+            double db1 = 20.0 * Math.Log10(Math.Max(1e-9, e196) / Math.Max(1e-9, e220));
+            double db2 = 20.0 * Math.Log10(Math.Max(1e-9, e294) / Math.Max(1e-9, e330));
+
+            var sw = Stopwatch.StartNew();
+            long a0 = GC.GetAllocatedBytesForCurrentThread();
+            for (int k = 0; k < 200; k++)
+            {
+                for (int i = 0; i < frames; i++) bl[i] = br[i] = 0.2f * MathF.Sin(0.05f * i);
+                pitchProc.Process(bl, br, frames);
+            }
+            long alloc = GC.GetAllocatedBytesForCurrentThread() - a0;
+            sw.Stop();
+            double ms = sw.Elapsed.TotalMilliseconds / 200.0;
+
+            if (alloc != 0 || ms >= 1.2 || db1 < 10.0 || db2 < 10.0)
+                throw new Exception($"Virtual Capo poly dyad check failed: alloc={alloc}, ms={ms:F4}, d196/220={db1:F1}dB, d294/330={db2:F1}dB");
+
+            Console.WriteLine($"[PASS] Poly Virtual Capo (-2st Dyad 220+330Hz -> 196+294Hz): +{db1:F1}/+{db2:F1}dB sep, {ms:F4} ms/block, RT alloc: {alloc} B");
+        }
+
+        // 2) Poly Whammy Continuous Sweep (0% -> 100%, +12 st on 220Hz -> 440Hz)
+        {
+            var whProc = new ToneProcessor { Mode = ToneMode.SignalChain };
+            whProc.Prepare(frames, sr);
+            var cfg = new SignalChainConfigDto { RoutingMode = (int)ChainRoutingMode.Serial };
+            for (int i = 0; i < SignalChainConfigDto.SlotCount; i++)
+                cfg.Slots[i] = new ChainSlotDto { Index = i, ModelId = "", Enabled = false, Params = new float[8] };
+            cfg.Slots[0] = new ChainSlotDto
+            {
+                Index = 0,
+                ModelId = "pitch_whammy",
+                Enabled = true,
+                Params = new float[] { 0f, 12f, 100f, 0f, 0, 0, 0, 0 },
+            };
+
+            const int totalBlocks = 40;
+            var outBuf = new float[totalBlocks * frames];
+            var bl = new float[frames];
+            var br = new float[frames];
+            long sampleIdx = 0;
+
+            for (int b = 0; b < totalBlocks; b++)
+            {
+                float pedal = b < 12 ? (b / 11f) * 100f : 100f;
+                cfg.Slots[0].Params[0] = pedal;
+                whProc.Chain.UpdateChain(cfg);
+
+                for (int i = 0; i < frames; i++, sampleIdx++)
+                    bl[i] = br[i] = 0.25f * MathF.Sin(2f * MathF.PI * 220.0f * sampleIdx / sr);
+
+                long a0 = GC.GetAllocatedBytesForCurrentThread();
+                whProc.Process(bl, br, frames);
+                long alloc = GC.GetAllocatedBytesForCurrentThread() - a0;
+                if (alloc != 0) throw new Exception($"Poly Whammy allocated {alloc} B during sweep!");
+                Array.Copy(bl, 0, outBuf, b * frames, frames);
+            }
+
+            var steady = outBuf.AsSpan(24 * frames, 16 * frames);
+            double e440 = Goertzel(steady, 440.0, sr);
+            double e220 = Goertzel(steady, 220.0, sr);
+            double whammyDb = 20.0 * Math.Log10(Math.Max(1e-9, e440) / Math.Max(1e-9, e220));
+            if (whammyDb < 10.0)
+                throw new Exception($"Poly Whammy sweep (+12st) failed: 440/220={whammyDb:F1}dB");
+
+            Console.WriteLine($"[PASS] Poly Whammy Continuous Sweep (0->100%, +12st): 440Hz vs 220Hz = +{whammyDb:F1}dB, RT alloc: 0 B");
+        }
+
+        // 3) Poly Octaver (-1 Oct 110Hz + Dry 220Hz + +1 Oct 440Hz simultaneous)
+        {
+            var octProc = new ToneProcessor { Mode = ToneMode.SignalChain };
+            octProc.Prepare(frames, sr);
+            var cfg = new SignalChainConfigDto { RoutingMode = (int)ChainRoutingMode.Serial };
+            for (int i = 0; i < SignalChainConfigDto.SlotCount; i++)
+                cfg.Slots[i] = new ChainSlotDto { Index = i, ModelId = "", Enabled = false, Params = new float[8] };
+            cfg.Slots[0] = new ChainSlotDto
+            {
+                Index = 0,
+                ModelId = "pitch_octaver",
+                Enabled = true,
+                Params = new float[] { 80f, 80f, 80f, 8.0f, 0f, 0, 0, 0 },
+            };
+            octProc.Chain.UpdateChain(cfg);
+
+            const int blocks = 32;
+            var outBuf = new float[blocks * frames];
+            var bl = new float[frames];
+            var br = new float[frames];
+            long sampleIdx = 0;
+
+            for (int b = 0; b < blocks; b++)
+            {
+                for (int i = 0; i < frames; i++, sampleIdx++)
+                    bl[i] = br[i] = 0.25f * MathF.Sin(2f * MathF.PI * 220.0f * sampleIdx / sr);
+                octProc.Process(bl, br, frames);
+                Array.Copy(bl, 0, outBuf, b * frames, frames);
+            }
+
+            long a0 = GC.GetAllocatedBytesForCurrentThread();
+            for (int k = 0; k < 64; k++)
+            {
+                for (int i = 0; i < frames; i++, sampleIdx++)
+                    bl[i] = br[i] = 0.25f * MathF.Sin(2f * MathF.PI * 220.0f * sampleIdx / sr);
+                octProc.Process(bl, br, frames);
+            }
+            long alloc = GC.GetAllocatedBytesForCurrentThread() - a0;
+            if (alloc != 0) throw new Exception($"Poly Octaver allocated {alloc} B!");
+
+            var steady = outBuf.AsSpan(16 * frames, 16 * frames);
+            double e110 = Goertzel(steady, 110.0, sr);
+            double e220 = Goertzel(steady, 220.0, sr);
+            double e440 = Goertzel(steady, 440.0, sr);
+            double eNoise = Goertzel(steady, 315.0, sr);
+            if (e110 < 0.02 || e220 < 0.02 || e440 < 0.02 || e110 <= eNoise * 5.0 || e440 <= eNoise * 5.0)
+                throw new Exception($"Poly Octaver failed: e110={e110:F4}, e220={e220:F4}, e440={e440:F4}, noise={eNoise:F4}");
+
+            Console.WriteLine($"[PASS] Poly Octaver (220Hz -> 110/220/440Hz): e110={e110:F3}, e220={e220:F3}, e440={e440:F3}, RT alloc: {alloc} B");
+        }
+
+        // 4) 4-Slot Expanded DSP Resource Pools (4 Amps + 4 Cabs + 4 Delays + 4 Reverbs simultaneously active = 16/16 slots)
+        {
+            var quadProc = new ToneProcessor { Mode = ToneMode.SignalChain };
+            quadProc.Prepare(frames, sr);
+            var cfg = new SignalChainConfigDto
+            {
+                RoutingMode = (int)ChainRoutingMode.ParallelSplit,
+                SplitCol = 1,
+                MergeCol = 5,
+                ParallelMix = 0.5f,
+            };
+            string[] slots16 =
+            {
+                "amp_plexi", "cab_v30", "dly_analog", "rev_spring",
+                "amp_2203", "cab_1960a", "dly_digital", "rev_hall",
+                "amp_twin", "cab_jc120", "dly_dm2w", "rev_plate",
+                "amp_recto", "cab_mesa412", "dly_timeline", "rev_bluesky",
+            };
+            for (int i = 0; i < SignalChainConfigDto.SlotCount; i++)
+            {
+                var def = NeuralRigStudio.Services.AntigravityToneArchitect.Catalog[slots16[i]];
+                var p = new float[8];
+                Array.Copy(def.Defaults, p, def.Defaults.Length);
+                cfg.Slots[i] = new ChainSlotDto { Index = i, ModelId = slots16[i], Enabled = true, Params = p };
+            }
+            quadProc.Chain.UpdateChain(cfg);
+
+            var bl = new float[frames];
+            var br = new float[frames];
+            for (int w = 0; w < 8; w++)
+            {
+                for (int i = 0; i < frames; i++) bl[i] = br[i] = 0.2f * MathF.Sin(2f * MathF.PI * 196f * i / sr);
+                quadProc.Process(bl, br, frames);
+            }
+
+            var sw = Stopwatch.StartNew();
+            long a0 = GC.GetAllocatedBytesForCurrentThread();
+            for (int k = 0; k < 100; k++)
+            {
+                for (int i = 0; i < frames; i++) bl[i] = br[i] = 0.2f * MathF.Sin(2f * MathF.PI * 196f * i / sr);
+                quadProc.Process(bl, br, frames);
+            }
+            long alloc = GC.GetAllocatedBytesForCurrentThread() - a0;
+            sw.Stop();
+            double ms = sw.Elapsed.TotalMilliseconds / 100.0;
+            double outRms = Rms(bl);
+            double budgetMs = frames * 1000.0 / sr;
+            if (alloc != 0 || !double.IsFinite(outRms) || outRms < 1e-4 || ms >= budgetMs)
+                throw new Exception($"4-Slot Pool 16-block test failed: alloc={alloc}, ms={ms:F4}, rms={outRms}");
+
+            Console.WriteLine($"[PASS] 4-Slot DSP Pool Expansion (4xAmp + 4xCab + 4xDelay + 4xReverb active, 256fr): {ms:F4} ms/block (Budget: {budgetMs:F2} ms), RT alloc: {alloc} B");
+        }
+    }
+
+    static void VerifyMilestone4Bench()
+    {
+        const int sr = 48000;
+        const int frames = 256;
+
+        static double Goertzel(ReadOnlySpan<float> x, double targetHz, int sampleRate)
+        {
+            double w = 2.0 * Math.PI * targetHz / sampleRate;
+            double cosW = Math.Cos(w);
+            double coeff = 2.0 * cosW;
+            double s0 = 0, s1 = 0, s2 = 0;
+            for (int i = 0; i < x.Length; i++)
+            {
+                s0 = x[i] + coeff * s1 - s2;
+                s2 = s1;
+                s1 = s0;
+            }
+            double mag2 = s1 * s1 + s2 * s2 - coeff * s1 * s2;
+            return Math.Sqrt(Math.Max(0.0, mag2)) / Math.Max(1, x.Length);
+        }
+
+        // 1) BPM-Synced Stereo Looper (Quantize Snap, 1-Level 0B Undo/Redo, Half-Speed 0.5x, Reverse, 0B RT Alloc)
+        {
+            var looper = new StereoLooper();
+            looper.Prepare(sr, maxSeconds: 30);
+            looper.QuantizeSync = true;
+            looper.Level = 1.0f;
+
+            var bl = new float[frames];
+            var br = new float[frames];
+
+            // Record ~0.96 beat @ 120 BPM (90 * 256 = 23,040 frames -> should quantize-snap to 1 beat = 24,000 frames)
+            looper.TriggerRecordOrOverdub();
+            long sampleIdx = 0;
+            for (int b = 0; b < 90; b++)
+            {
+                for (int i = 0; i < frames; i++, sampleIdx++)
+                {
+                    float s = 0.30f * MathF.Sin(2f * MathF.PI * 220f * sampleIdx / sr);
+                    bl[i] = s;
+                    br[i] = -s;
+                }
+                looper.Process(bl, br, frames, 120f);
+            }
+
+            // Switch Recording -> Playing
+            looper.TriggerRecordOrOverdub();
+            Array.Clear(bl);
+            Array.Clear(br);
+            looper.Process(bl, br, frames, 120f);
+
+            if (looper.State != LooperState.Playing || looper.LoopLengthFrames != 24000)
+                throw new Exception($"Looper BPM quantize failed: state={looper.State}, len={looper.LoopLengthFrames} (expected 24000)");
+
+            // Verify Base playback (silence input -> loop outputs 220Hz stereo inverted)
+            var playBuf = new float[frames * 8];
+            for (int b = 0; b < 8; b++)
+            {
+                Array.Clear(bl);
+                Array.Clear(br);
+                looper.Process(bl, br, frames, 120f);
+                Array.Copy(bl, 0, playBuf, b * frames, frames);
+            }
+            double base220 = Goertzel(playBuf, 220.0, sr);
+            if (base220 < 0.08)
+                throw new Exception($"Looper base playback weak: e220={base220:F4}");
+
+            // Overdub 440Hz across full 24,000-frame loop (~94 blocks * 256)
+            looper.TriggerRecordOrOverdub();
+            sampleIdx = 0;
+            for (int b = 0; b < 96; b++)
+            {
+                for (int i = 0; i < frames; i++, sampleIdx++)
+                {
+                    float s = 0.25f * MathF.Sin(2f * MathF.PI * 440f * sampleIdx / sr);
+                    bl[i] = br[i] = s;
+                }
+                looper.Process(bl, br, frames, 120f);
+            }
+            looper.TriggerRecordOrOverdub(); // Back to Playing
+
+            // Verify Undo removes 440Hz while preserving 220Hz
+            if (!looper.Undo() || looper.CanUndo || !looper.CanRedo)
+                throw new Exception("Looper Undo state flags invalid!");
+            // Advance 1 block for 64-sample click-free dub ramp to settle
+            Array.Clear(bl);
+            Array.Clear(br);
+            looper.Process(bl, br, frames, 120f);
+
+            var undoBuf = new float[frames * 8];
+            for (int b = 0; b < 8; b++)
+            {
+                Array.Clear(bl);
+                Array.Clear(br);
+                looper.Process(bl, br, frames, 120f);
+                Array.Copy(bl, 0, undoBuf, b * frames, frames);
+            }
+            double undo220 = Goertzel(undoBuf, 220.0, sr);
+            double undo440 = Goertzel(undoBuf, 440.0, sr);
+            if (undo220 < 0.08 || undo440 > 0.01)
+                throw new Exception($"Looper Undo failed: e220={undo220:F4}, e440={undo440:F4}");
+
+            // Verify Redo restores 440Hz
+            if (!looper.Redo() || !looper.CanUndo || looper.CanRedo)
+                throw new Exception("Looper Redo state flags invalid!");
+            Array.Clear(bl);
+            Array.Clear(br);
+            looper.Process(bl, br, frames, 120f);
+
+            var redoBuf = new float[frames * 8];
+            for (int b = 0; b < 8; b++)
+            {
+                Array.Clear(bl);
+                Array.Clear(br);
+                looper.Process(bl, br, frames, 120f);
+                Array.Copy(bl, 0, redoBuf, b * frames, frames);
+            }
+            double redo440 = Goertzel(redoBuf, 440.0, sr);
+            if (redo440 < 0.06)
+                throw new Exception($"Looper Redo restore failed: e440={redo440:F4}");
+
+            // Half-Speed (0.5x) & Reverse + JIT warmup then 0B RT allocation bench
+            looper.HalfSpeed = true;
+            looper.Reverse = true;
+            for (int w = 0; w < 16; w++)
+            {
+                Array.Clear(bl);
+                Array.Clear(br);
+                looper.Process(bl, br, frames, 120f);
+            }
+            var sw = Stopwatch.StartNew();
+            long a0 = GC.GetAllocatedBytesForCurrentThread();
+            for (int k = 0; k < 100; k++)
+            {
+                Array.Clear(bl);
+                Array.Clear(br);
+                looper.Process(bl, br, frames, 120f);
+            }
+            long lpAlloc = GC.GetAllocatedBytesForCurrentThread() - a0;
+            sw.Stop();
+            double lpMs = sw.Elapsed.TotalMilliseconds / 100.0;
+            if (lpAlloc != 0 || lpMs >= 0.5)
+                throw new Exception($"StereoLooper RT alloc/perf failed: alloc={lpAlloc} B, ms={lpMs:F4}");
+
+            Console.WriteLine($"[PASS] BPM-Synced Stereo Looper (120BPM Snap={looper.LoopLengthFrames}fr, Undo e440={undo440:F4} -> Redo e440={redo440:F4}, 0.5x+Rev): {lpMs:F4} ms/block, RT alloc: {lpAlloc} B");
+        }
+
+        // 2) Dual-Stream Recorder (Dry DI + Stereo Wet WAV) & 1-Click Real-Time DI Re-amping (0B RT Alloc)
+        {
+            string tmpDir = Path.Combine(Path.GetTempPath(), $"nrs_rec_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(tmpDir);
+            try
+            {
+                var tone = new ToneProcessor { Mode = ToneMode.SignalChain };
+                tone.Prepare(frames, sr);
+
+                static SignalChainConfigDto BuildAmpChain(string ampId, string cabId, bool withOd)
+                {
+                    var cfg = new SignalChainConfigDto { RoutingMode = (int)ChainRoutingMode.Serial };
+                    for (int i = 0; i < SignalChainConfigDto.SlotCount; i++)
+                        cfg.Slots[i] = new ChainSlotDto { Index = i, ModelId = "", Enabled = false, Params = new float[8] };
+                    int idx = 0;
+                    if (withOd)
+                    {
+                        var od = NeuralRigStudio.Services.AntigravityToneArchitect.Catalog["od_ts808"];
+                        var p = new float[8];
+                        Array.Copy(od.Defaults, p, od.Defaults.Length);
+                        p[0] = 8.5f;
+                        cfg.Slots[idx++] = new ChainSlotDto { Index = idx - 1, ModelId = "od_ts808", Enabled = true, Params = p };
+                    }
+                    var amp = NeuralRigStudio.Services.AntigravityToneArchitect.Catalog[ampId];
+                    var pa = new float[8];
+                    Array.Copy(amp.Defaults, pa, amp.Defaults.Length);
+                    if (ampId == "amp_recto" && pa.Length > 0) pa[0] = 8.5f;
+                    cfg.Slots[idx++] = new ChainSlotDto { Index = idx - 1, ModelId = ampId, Enabled = true, Params = pa };
+
+                    var cab = NeuralRigStudio.Services.AntigravityToneArchitect.Catalog[cabId];
+                    var pc = new float[8];
+                    Array.Copy(cab.Defaults, pc, cab.Defaults.Length);
+                    cfg.Slots[idx++] = new ChainSlotDto { Index = idx - 1, ModelId = cabId, Enabled = true, Params = pc };
+                    return cfg;
+                }
+
+                tone.Chain.UpdateChain(BuildAmpChain("amp_twin", "cab_v30", withOd: false));
+
+                using var rec = new DualStreamRecorder();
+                rec.Prepare(sr, ringSeconds: 4);
+
+                var dl = new float[frames];
+                var dr = new float[frames];
+
+                // JIT warmup before starting timed recording / measuring RT alloc
+                rec.StartRecording(tmpDir, "WarmTake");
+                for (int w = 0; w < 8; w++)
+                {
+                    for (int i = 0; i < frames; i++) dl[i] = dr[i] = 0.25f * MathF.Sin(2f * MathF.PI * 196f * i / sr);
+                    rec.InjectReampDryRt(dl, dr, frames);
+                    rec.CaptureDryRt(dl, dr, frames);
+                    tone.Process(dl, dr, frames);
+                    rec.CaptureWetRt(dl, dr, frames);
+                }
+                rec.StopRecording();
+                rec.SetReampState(enabled: true, playing: true, loop: true);
+                for (int w = 0; w < 8; w++)
+                {
+                    Array.Clear(dl);
+                    Array.Clear(dr);
+                    rec.InjectReampDryRt(dl, dr, frames);
+                }
+                rec.SetReampState(enabled: false, playing: false);
+
+                // Actual measured Dual-Stream Recording (64 blocks = 16,384 frames)
+                rec.StartRecording(tmpDir, "BenchTake");
+                long sIdx = 0;
+                long rAlloc0 = GC.GetAllocatedBytesForCurrentThread();
+                for (int b = 0; b < 64; b++)
+                {
+                    for (int i = 0; i < frames; i++, sIdx++)
+                    {
+                        float dry = 0.25f * MathF.Sin(2f * MathF.PI * 196f * sIdx / sr)
+                                  + 0.08f * MathF.Sin(2f * MathF.PI * 392f * sIdx / sr);
+                        dl[i] = dr[i] = dry;
+                    }
+                    rec.CaptureDryRt(dl, dr, frames);
+                    tone.Process(dl, dr, frames);
+                    rec.CaptureWetRt(dl, dr, frames);
+                }
+                long capAlloc = GC.GetAllocatedBytesForCurrentThread() - rAlloc0;
+                var recSnap = rec.StopRecording();
+
+                if (capAlloc != 0)
+                    throw new Exception($"DualStreamRecorder capture allocated {capAlloc} B on RT thread!");
+                if (!File.Exists(recSnap.LastDryPath) || !File.Exists(recSnap.LastWetPath))
+                    throw new Exception($"Dual-Stream WAV files missing: dry={recSnap.LastDryPath}, wet={recSnap.LastWetPath}");
+
+                static int CountWavFrames(string path)
+                {
+                    using var r = new AudioFileReader(path);
+                    int ch = r.WaveFormat.Channels;
+                    int total = 0;
+                    var tmp = new float[2048 * ch];
+                    int got;
+                    while ((got = r.Read(tmp.AsSpan())) > 0) total += got / ch;
+                    return total;
+                }
+
+                int dryFrames = CountWavFrames(recSnap.LastDryPath);
+                int wetFrames = CountWavFrames(recSnap.LastWetPath);
+                const int expectedFrames = 64 * frames;
+                if (dryFrames != expectedFrames || wetFrames != expectedFrames)
+                    throw new Exception($"Dual-Stream WAV frame count mismatch: dry={dryFrames}, wet={wetFrames}, expected={expectedFrames}");
+
+                // 1-Click Live DI Re-amping: feed silence input, switch Twin Clean -> Recto+TS808 High-Gain
+                var reampSnap = rec.SetReampState(enabled: true, playing: true, loop: true, seekSec: 0.0);
+                if (!reampSnap.ReampAvailable || !reampSnap.ReampEnabled || !reampSnap.ReampPlaying)
+                    throw new Exception("1-Click Re-amp did not activate cleanly after recording!");
+
+                var cleanOut = new float[16 * frames];
+                tone.Chain.UpdateChain(BuildAmpChain("amp_twin", "cab_v30", withOd: false));
+                tone.ResetState();
+                rec.SetReampState(seekSec: 0.0);
+                long iAlloc0 = GC.GetAllocatedBytesForCurrentThread();
+                for (int b = 0; b < 16; b++)
+                {
+                    Array.Clear(dl);
+                    Array.Clear(dr);
+                    rec.InjectReampDryRt(dl, dr, frames);
+                    tone.Process(dl, dr, frames);
+                    Array.Copy(dl, 0, cleanOut, b * frames, frames);
+                }
+                long injAlloc = GC.GetAllocatedBytesForCurrentThread() - iAlloc0;
+
+                var rectoOut = new float[16 * frames];
+                tone.Chain.UpdateChain(BuildAmpChain("amp_recto", "cab_mesa412", withOd: true));
+                tone.ResetState();
+                rec.SetReampState(seekSec: 0.0);
+                for (int b = 0; b < 16; b++)
+                {
+                    Array.Clear(dl);
+                    Array.Clear(dr);
+                    rec.InjectReampDryRt(dl, dr, frames);
+                    tone.Process(dl, dr, frames);
+                    Array.Copy(dl, 0, rectoOut, b * frames, frames);
+                }
+
+                double cleanRms = Rms(cleanOut.AsSpan(4 * frames));
+                double rectoRms = Rms(rectoOut.AsSpan(4 * frames));
+                double diffSum = 0.0;
+                for (int i = 4 * frames; i < cleanOut.Length; i++)
+                    diffSum += Math.Abs(cleanOut[i] - rectoOut[i]);
+                double meanDiff = diffSum / (12 * frames);
+
+                if (injAlloc != 0 || cleanRms < 1e-3 || rectoRms < 1e-3 || meanDiff < 1e-3)
+                    throw new Exception($"1-Click Live Re-amp verification failed: injAlloc={injAlloc}, cleanRms={cleanRms:F4}, rectoRms={rectoRms:F4}, diff={meanDiff:F4}");
+
+                Console.WriteLine($"[PASS] Dual-Stream Recorder ({dryFrames}fr DryDI + WetStereo WAV) & 1-Click Live DI Re-amp (Twin rms={cleanRms:F3} vs Recto rms={rectoRms:F3}, diff={meanDiff:F3}, RT alloc: cap={capAlloc} B / inj={injAlloc} B)");
+            }
+            finally
+            {
+                try { if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, recursive: true); } catch { }
+            }
+        }
+    }
+
+    static void VerifyMilestone5Bench()
+    {
+        const int sr = 48000;
+        const int frames = 256;
+        string root = Path.Combine(Path.GetTempPath(), $"nrs_m5_{Guid.NewGuid():N}");
+        string modelsSrc = Path.Combine(root, "models_src");
+        string modelsDst = Path.Combine(root, "models_dst");
+        string modelsHub = Path.Combine(root, "models_hub");
+        string irsDst = Path.Combine(root, "irs_dst");
+        string irsHub = Path.Combine(root, "irs_hub");
+        Directory.CreateDirectory(modelsSrc);
+        Directory.CreateDirectory(modelsDst);
+        Directory.CreateDirectory(modelsHub);
+        Directory.CreateDirectory(irsDst);
+        Directory.CreateDirectory(irsHub);
+
+        try
+        {
+            // 1) .nrig Bundle Round-Trip + Multi-NAM Remapping + Custom Cab IR + SHA-256 Tamper Detection
+            {
+                var procA = new ToneProcessor { Mode = ToneMode.SignalChain };
+                procA.Prepare(frames, sr);
+
+                var hubRes1 = ToneHubService.InstallHubItem("hub_nam_dumble_ods", procA, targetSlotIndex: 2, modelsSrc, irsDst);
+                var hubRes2 = ToneHubService.InstallHubItem("hub_nam_jcm800_jose", procA, targetSlotIndex: 10, modelsSrc, irsDst);
+                var irRes = ToneHubService.InstallHubItem("hub_ir_greenback_8k", procA, -1, modelsSrc, irsDst);
+                if (hubRes1.InstalledModel is null || hubRes2.InstalledModel is null || string.IsNullOrEmpty(irRes.CustomCabIrPath))
+                    throw new Exception("Setup for .nrig export failed!");
+
+                var chainA = AntigravityToneArchitect.EnsureScenes(new SignalChainConfigDto
+                {
+                    PresetId = "M5TEST",
+                    PresetName = "Dual NAM Bundle Check",
+                    ActiveScene = 0,
+                    RoutingMode = (int)ChainRoutingMode.ParallelSplit,
+                    SplitCol = 1,
+                    MergeCol = 5,
+                    ParallelMix = 0.5f,
+                    TempoBpm = 136f,
+                });
+                chainA.Slots[2].ModelId = "nam_capture";
+                chainA.Slots[2].NamModelId = hubRes1.InstalledModel.Id;
+                chainA.Slots[2].Enabled = true;
+                chainA.Slots[2].Params = new float[] { 0f, 0f, 100f, 0, 0, 0, 0, 0 };
+
+                chainA.Slots[3].ModelId = "cab_custom";
+                chainA.Slots[3].Enabled = true;
+                chainA.Slots[3].Params = new float[] { 70f, 10500f, 0f, 0, 0, 0, 0, 0 };
+
+                chainA.Slots[10].ModelId = "nam_capture";
+                chainA.Slots[10].NamModelId = hubRes2.InstalledModel.Id;
+                chainA.Slots[10].Enabled = true;
+                chainA.Slots[10].Params = new float[] { 0f, 0f, 100f, 0, 0, 0, 0, 0 };
+
+                chainA = AntigravityToneArchitect.CommitActiveScene(chainA);
+                procA.Chain.UpdateChain(chainA);
+
+                string nrigPath = Path.Combine(root, "DualNamRig.nrig");
+                var manifest = NrigBundleService.ExportBundle(
+                    nrigPath,
+                    chainA,
+                    procA,
+                    procA.GetModelLibrarySnapshot(),
+                    author: "RigBench",
+                    description: "Verify WaveNet+LSTM+8K IR Bundle",
+                    sampleRate: sr);
+
+                if (manifest.NamModels.Count != 2 || manifest.CustomCabIr is null)
+                    throw new Exception($".nrig export incomplete: namCount={manifest.NamModels.Count}, cab={(manifest.CustomCabIr != null)}");
+
+                // SHA-256 tamper detection check
+                string tamperedPath = Path.Combine(root, "TamperedRig.nrig");
+                File.Copy(nrigPath, tamperedPath, overwrite: true);
+                using (var z = new ZipArchive(File.Open(tamperedPath, FileMode.Open, FileAccess.ReadWrite), ZipArchiveMode.Update))
+                {
+                    var e = z.GetEntry(manifest.NamModels[0].EntryPath)!;
+                    byte[] rawBytes;
+                    using (var es = e.Open()) using (var ms = new MemoryStream()) { es.CopyTo(ms); rawBytes = ms.ToArray(); }
+                    e.Delete();
+                    var ne = z.CreateEntry(manifest.NamModels[0].EntryPath);
+                    rawBytes[0] = (byte)(rawBytes[0] == '{' ? ' ' : '{'); // 1바이트 변조
+                    using var ns = ne.Open();
+                    ns.Write(rawBytes, 0, rawBytes.Length);
+                }
+                bool tamperCaught = false;
+                try { NrigBundleService.InspectBundle(tamperedPath); }
+                catch (InvalidDataException) { tamperCaught = true; }
+                if (!tamperCaught)
+                    throw new Exception(".nrig SHA-256 tamper detection failed to throw InvalidDataException!");
+
+                // Clean-env Import and signal equality verification
+                var procB = new ToneProcessor { Mode = ToneMode.SignalChain };
+                procB.Prepare(frames, sr);
+                var imp = NrigBundleService.ImportBundle(nrigPath, procB, modelsDst, irsDst);
+                if (imp.ImportedModels.Count != 2 || !procB.HasCustomCabIr ||
+                    string.IsNullOrEmpty(imp.SignalChain.Slots[2].NamModelId) ||
+                    string.IsNullOrEmpty(imp.SignalChain.Slots[10].NamModelId))
+                {
+                    throw new Exception(".nrig clean import failed to remap Multi-NAM slots or Cab IR!");
+                }
+
+                procA.ResetState();
+                procB.ResetState();
+                float maxDiff = 0f;
+                var lA = new float[frames];
+                var rA = new float[frames];
+                var lB = new float[frames];
+                var rB = new float[frames];
+                for (int b = 0; b < 8; b++)
+                {
+                    for (int i = 0; i < frames; i++)
+                    {
+                        float s = 0.25f * MathF.Sin(2f * MathF.PI * 196f * (b * frames + i) / sr);
+                        lA[i] = rA[i] = lB[i] = rB[i] = s;
+                    }
+                    procA.Process(lA, rA, frames);
+                    procB.Process(lB, rB, frames);
+                    for (int i = 0; i < frames; i++)
+                    {
+                        maxDiff = MathF.Max(maxDiff, MathF.Max(MathF.Abs(lA[i] - lB[i]), MathF.Abs(rA[i] - rB[i])));
+                    }
+                }
+                if (maxDiff > 1e-4f)
+                    throw new Exception($".nrig round-trip audio mismatch: maxDiff={maxDiff}");
+
+                Console.WriteLine($"[PASS] .nrig Archive Round-Trip (WaveNet+LSTM+8K IR, SHA-256 tamper check + clean-env ID remap): maxDiff={maxDiff:E2}");
+            }
+
+            // 2) ToneHub Curated Vault (12 Items: WaveNet/LSTM/ConvNet + 8K IR + .nrig Artist Bundle)
+            {
+                var hubProc = new ToneProcessor { Mode = ToneMode.SignalChain };
+                hubProc.Prepare(frames, sr);
+
+                var catalog = ToneHubService.GetCatalog();
+                if (catalog.Count < 12)
+                    throw new Exception($"Expected >=12 curated Tone Hub items, got {catalog.Count}");
+
+                // Test ConvNet NAM item
+                var rConv = ToneHubService.InstallHubItem("hub_nam_mark2c_plus", hubProc, 2, modelsHub, irsHub);
+                // Test WaveNet NAM item
+                var rWn = ToneHubService.InstallHubItem("hub_nam_5150_block", hubProc, 2, modelsHub, irsHub);
+                // Test 8K High-Res IR + .nrig Cathedral Worship Bundle (Dual-NAM + 8K IR + 126BPM)
+                var rBundle = ToneHubService.InstallHubItem("hub_nrig_cathedral_worship", hubProc, -1, modelsHub, irsHub);
+
+                var hl = new float[frames];
+                var hr = new float[frames];
+                for (int b = 0; b < 8; b++)
+                {
+                    for (int i = 0; i < frames; i++)
+                        hl[i] = hr[i] = 0.22f * MathF.Sin(2f * MathF.PI * 220f * (b * frames + i) / sr);
+                    hubProc.Process(hl, hr, frames);
+                }
+                double hubRms = Rms(hl);
+                if (rConv.InstalledModel is null || rWn.InstalledModel is null || !hubProc.HasCustomCabIr ||
+                    hubRms < 1e-3 || !double.IsFinite(hubRms))
+                {
+                    throw new Exception($"ToneHub install/audio check failed: rms={hubRms}");
+                }
+
+                Console.WriteLine($"[PASS] ToneHub Curated Vault ({catalog.Count} items: WaveNet/LSTM/ConvNet + 8K IR + Dual-NAM .nrig): Cathedral Worship rms={hubRms:F4}");
+            }
+
+            // 3) NativeAOT VST3 & CLAP Plugin Host Simulation + Sample-Accurate Automation + DAW State Save/Load + 0 B RT Alloc
+            {
+                if (ClapNativeEntry.EnsureInitialized() == 0 || Vst3NativeEntry.EnsureFactory() == 0)
+                    throw new Exception("NativeAOT CLAP/VST3 C-ABI entry pointer was null!");
+
+                // 3a) CLAP v1.2 Instance (Transport BPM sync + Sample-Accurate mid-block Scene/Gain automation + 0B alloc)
+                using var clap = new ClapPluginInstance();
+                clap.Activate(sr, 64, frames);
+                clap.StartProcessing();
+
+                var pluginChain = AntigravityToneArchitect.EnsureScenes(new SignalChainConfigDto
+                {
+                    PresetId = "DAW1",
+                    PresetName = "DAW Automation Check",
+                    ActiveScene = 0,
+                    RoutingMode = (int)ChainRoutingMode.Serial,
+                    TempoBpm = 120f,
+                });
+                // Scene A = Slot 1 Clean / Scene B = Slot 1 OD Active
+                if (pluginChain.Scenes is { Count: >= 2 })
+                {
+                    pluginChain.Scenes[0].Slots[1].Enabled = false;
+                    pluginChain.Scenes[1].Slots[1].Enabled = true;
+                }
+                pluginChain.Slots[1].Enabled = false;
+                clap.Kernel.LoadChainConfig(pluginChain);
+
+                var inL = new float[frames];
+                var inR = new float[frames];
+                var outL = new float[frames];
+                var outR = new float[frames];
+
+                Span<ClapEventParamValue> evs = stackalloc ClapEventParamValue[2];
+                evs[0] = new ClapEventParamValue
+                {
+                    Header = new ClapEventHeader { Time = 64 },
+                    ParamId = (uint)DawParamId.ActiveScene,
+                    Value = 1.0, // Scene B mid-block
+                };
+                evs[1] = new ClapEventParamValue
+                {
+                    Header = new ClapEventHeader { Time = 192 },
+                    ParamId = (uint)DawParamId.InputGainDb,
+                    Value = 3.0,
+                };
+
+                // JIT Warmup (both normal Process & Event-split automation + Scene switch + Gains)
+                for (int w = 0; w < 32; w++)
+                {
+                    for (int i = 0; i < frames; i++) inL[i] = inR[i] = 0.25f * MathF.Sin(2f * MathF.PI * 196f * i / sr);
+                    evs[0].Value = (w & 1);
+                    clap.Process(inL, inR, outL, outR, frames, hostTempoBpm: 138.0 + (w & 1) * 4.0, paramEvents: evs);
+                }
+
+                var sw = Stopwatch.StartNew();
+                long cAlloc0 = GC.GetAllocatedBytesForCurrentThread();
+                for (int k = 0; k < 200; k++)
+                {
+                    for (int i = 0; i < frames; i++) inL[i] = inR[i] = 0.25f * MathF.Sin(2f * MathF.PI * 196f * i / sr);
+                    evs[0].Value = (k & 1);
+                    evs[1].Value = (k % 5) - 2.0;
+                    clap.Process(inL, inR, outL, outR, frames, hostTempoBpm: 140.0, paramEvents: evs);
+                }
+                long cAlloc = GC.GetAllocatedBytesForCurrentThread() - cAlloc0;
+                sw.Stop();
+                double clapMs = sw.Elapsed.TotalMilliseconds / 200.0;
+                if (cAlloc != 0 || clapMs >= 1.2 || MathF.Abs(clap.Kernel.Processor.Chain.TempoBpm - 140f) > 0.1f)
+                    throw new Exception($"CLAP RT/Automation check failed: alloc={cAlloc}, ms={clapMs:F4}, bpm={clap.Kernel.Processor.Chain.TempoBpm}");
+
+                // 3b) VST3 v3.7 Instance + DAW State Save/Load Exact Equivalence + Package Exporter
+                using var vstA = new Vst3PluginInstance();
+                vstA.Initialize();
+                vstA.SetupProcessing(sr, frames);
+                vstA.SetActive(true);
+                vstA.Kernel.LoadChainConfig(pluginChain);
+                vstA.SetParamNormalized((uint)DawParamId.InputGainDb, vstA.PlainParamToNormalized((uint)DawParamId.InputGainDb, 3.5), 0);
+                vstA.SetParamNormalized((uint)DawParamId.ActiveScene, vstA.PlainParamToNormalized((uint)DawParamId.ActiveScene, 1.0), 32);
+
+                var vstCtx = new Vst3ProcessContext { StateFlags = 0x0400u, Tempo = 144.0 };
+                for (int w = 0; w < 32; w++)
+                {
+                    for (int i = 0; i < frames; i++) inL[i] = inR[i] = 0.22f * MathF.Sin(2f * MathF.PI * 220f * i / sr);
+                    vstA.SetParamNormalized((uint)DawParamId.AmpGain, 0.55 + 0.05 * (w & 1), 64);
+                    vstA.Process(inL, inR, outL, outR, frames, vstCtx);
+                }
+                long vAlloc0 = GC.GetAllocatedBytesForCurrentThread();
+                for (int k = 0; k < 200; k++)
+                {
+                    for (int i = 0; i < frames; i++) inL[i] = inR[i] = 0.22f * MathF.Sin(2f * MathF.PI * 220f * i / sr);
+                    vstA.SetParamNormalized((uint)DawParamId.Slot02Bypass, k % 2 == 0 ? 1.0 : 0.0, 128);
+                    vstA.Process(inL, inR, outL, outR, frames, vstCtx);
+                }
+                long vAlloc = GC.GetAllocatedBytesForCurrentThread() - vAlloc0;
+                if (vAlloc != 0)
+                    throw new Exception($"VST3 RT automation allocated {vAlloc} B!");
+
+                // State Save -> Load on fresh VST3 instance B
+                byte[] dawState = vstA.GetState();
+                using var vstB = new Vst3PluginInstance();
+                vstB.Initialize();
+                vstB.SetupProcessing(sr, frames);
+                vstB.SetActive(true);
+                if (!vstB.SetState(dawState))
+                    throw new Exception("VST3 SetState failed!");
+
+                vstA.Kernel.Processor.ResetState();
+                vstB.Kernel.Processor.ResetState();
+                var outL2 = new float[frames];
+                var outR2 = new float[frames];
+                float stateDiff = 0f;
+                for (int b = 0; b < 6; b++)
+                {
+                    for (int i = 0; i < frames; i++) inL[i] = inR[i] = 0.2f * MathF.Sin(2f * MathF.PI * 261.6f * (b * frames + i) / sr);
+                    vstA.Process(inL, inR, outL, outR, frames, vstCtx);
+                    vstB.Process(inL, inR, outL2, outR2, frames, vstCtx);
+                    for (int i = 0; i < frames; i++)
+                        stateDiff = MathF.Max(stateDiff, MathF.Max(MathF.Abs(outL[i] - outL2[i]), MathF.Abs(outR[i] - outR2[i])));
+                }
+                if (stateDiff > 1e-5f)
+                    throw new Exception($"VST3 State Save/Load mismatch: maxDiff={stateDiff}");
+
+                string pkgDir = Path.Combine(root, "DawPkg");
+                var pkg = DawPluginExporter.ExportPluginPackage(pkgDir, pluginChain, vstA.Kernel.Processor, vstA.Kernel.Processor.GetModelLibrarySnapshot());
+                if (!File.Exists(pkg.Vst3ModuleInfoPath) || !File.Exists(pkg.ClapPluginPath) || !File.Exists(pkg.DefaultRigPath))
+                    throw new Exception("DawPluginExporter output missing expected .vst3 / .clap artifacts!");
+
+                Console.WriteLine($"[PASS] VST3/CLAP NativeAOT-Ready Plugins (32 Params, Host BPM=140/144, Sample-Accurate Automation, State Diff={stateDiff:E1}): {clapMs:F4} ms/block, CLAP={cAlloc} B / VST3={vAlloc} B");
+            }
+        }
+        finally
+        {
+            try { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); } catch { }
+        }
+    }
+
+    static void VerifyMcpSchematicAdditionBench()
+    {
+        const int sr = 48000;
+        const int frames = 256;
+        var preExistingDevices = CustomDeviceRegistry.GetAll().Select(d => d.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var createdDeviceIds = new List<string>();
+        bool addedMa856 = false;
+        try
+        {
+            // Check 1: Anti-Hallucination Missing Part Guard
+            var missingCircuit = new SpiceCircuitDto
+            {
+                Stages = new List<SpiceStageDto>
+                {
+                    new()
+                    {
+                        Name = "missing_test",
+                        Elements = new List<SpiceElementDto>
+                        {
+                            new() { Name = "D1", Type = "D", Nodes = new[] { "in", "out" }, Model = "UNKNOWN_PART_XYZ" },
+                            new() { Name = "R1", Type = "R", Nodes = new[] { "out", "gnd" }, ValueText = "10k" },
+                        },
+                    },
+                },
+            };
+            var missingRep = SpiceAnalyzer.AnalyzeCircuit(missingCircuit, sampleRate: sr);
+            if (missingRep.Ok || !missingRep.MissingModels.Contains("UNKNOWN_PART_XYZ", StringComparer.OrdinalIgnoreCase))
+                throw new Exception($"Missing-part guard failed: Ok={missingRep.Ok}, Missing={string.Join(",", missingRep.MissingModels)}");
+
+            // Check 2: Datasheet .MODEL Validation & Registration ("MA856" diode)
+            bool rejectedNoUrl = false;
+            try
+            {
+                SpiceModelLibrary.RegisterOrUpdate(new SpiceComponentModelDto
+                {
+                    Name = "BAD_NO_URL",
+                    Kind = "diode",
+                    DatasheetUrl = "",
+                    Params = new Dictionary<string, double> { ["Is"] = 2e-9, ["N"] = 1.75 },
+                });
+            }
+            catch (InvalidOperationException) { rejectedNoUrl = true; }
+            if (!rejectedNoUrl)
+                throw new Exception("SpiceModelLibrary should reject models without datasheetUrl!");
+
+            bool existedMa856 = SpiceModelLibrary.TryGet("MA856", out _);
+            SpiceModelLibrary.RegisterOrUpdate(new SpiceComponentModelDto
+            {
+                Name = "MA856",
+                Kind = "diode",
+                DatasheetUrl = "https://datasheetspdf.com/pdf-file/1097600/Panasonic/MA856/1",
+                Notes = "Panasonic silicon switching diode used in King of Tone / SD-1",
+                Params = new Dictionary<string, double> { ["Is"] = 3.1e-9, ["N"] = 1.82, ["Rs"] = 0.65 },
+            });
+            addedMa856 = !existedMa856;
+
+            var (foundParts, missingParts) = SpiceModelLibrary.CheckParts(new[] { "JRC4558", "1N914", "MA856" });
+            if (foundParts.Length != 3 || missingParts.Length != 0)
+                throw new Exception($"CheckParts failed after MA856 registration: found={foundParts.Length}, missing={missingParts.Length}");
+
+            // Check 3: Real Tube Screamer (TS808) MNA SPICE Netlist (.OP + .AC Mid Hump + .TRAN THD + 0 B RT)
+            var ts808Circuit = new SpiceCircuitDto
+            {
+                InputVoltageScale = 0.45f,
+                OutputDcBlock = true,
+                Knobs = new List<SpiceKnobDefDto>
+                {
+                    new() { Index = 0, Label = "DRIVE", Min = 0f, Max = 10f, Default = 6.5f },
+                    new() { Index = 1, Label = "TONE", Min = 0f, Max = 10f, Default = 6.0f },
+                    new() { Index = 2, Label = "LEVEL", Min = 0f, Max = 10f, Default = 7.0f },
+                },
+                Stages = new List<SpiceStageDto>
+                {
+                    new()
+                    {
+                        Name = "ts808_clipper",
+                        InputNode = "in",
+                        OutputNode = "out",
+                        InputSeriesResistance = 1000f,
+                        Supplies = new List<SpiceFixedVoltageDto> { new() { Node = "vref", Voltage = 4.5 } },
+                        Elements = new List<SpiceElementDto>
+                        {
+                            new() { Name = "C2", Type = "C", Nodes = new[] { "in", "base" }, ValueText = "1u" },
+                            new() { Name = "R3", Type = "R", Nodes = new[] { "base", "vref" }, ValueText = "510k" },
+                            new() { Name = "R4", Type = "R", Nodes = new[] { "neg", "n47" }, ValueText = "4.7k" },
+                            new() { Name = "C3", Type = "C", Nodes = new[] { "n47", "vref" }, ValueText = "47n" },
+                            new() { Name = "R6", Type = "R", Nodes = new[] { "neg", "fb_mid" }, ValueText = "51k" },
+                            new() { Name = "P_DRV", Type = "POT", Nodes = new[] { "nc", "fb_mid", "out" }, ValueText = "500k", KnobIndex = 0, Taper = "LOG" },
+                            new() { Name = "C4", Type = "C", Nodes = new[] { "neg", "out" }, ValueText = "51p" },
+                            new() { Name = "D1", Type = "D", Nodes = new[] { "neg", "out" }, Model = "1N914" },
+                            new() { Name = "D2", Type = "D", Nodes = new[] { "out", "neg" }, Model = "1N914" },
+                            new() { Name = "U1", Type = "U", Nodes = new[] { "base", "neg", "out" }, Model = "JRC4558" },
+                        },
+                    },
+                    new()
+                    {
+                        Name = "ts808_tone_level",
+                        InputNode = "in",
+                        OutputNode = "out",
+                        InputSeriesResistance = 1000f,
+                        Elements = new List<SpiceElementDto>
+                        {
+                            new() { Name = "R_T", Type = "R", Nodes = new[] { "in", "lp" }, ValueText = "1k" },
+                            new() { Name = "C_T", Type = "C", Nodes = new[] { "lp", "gnd" }, ValueText = "220n" },
+                            new() { Name = "P_TONE", Type = "POT", Nodes = new[] { "in", "tone_out", "lp" }, ValueText = "20k", KnobIndex = 1, Taper = "LIN" },
+                            new() { Name = "P_LVL", Type = "POT", Nodes = new[] { "tone_out", "out", "gnd" }, ValueText = "100k", KnobIndex = 2, Taper = "LOG" },
+                            new() { Name = "R_LOAD", Type = "R", Nodes = new[] { "out", "gnd" }, ValueText = "100k" },
+                        },
+                    },
+                },
+            };
+            var tsRep = SpiceAnalyzer.AnalyzeCircuit(ts808Circuit, sampleRate: sr, testFreqHz: 440f, testAmp: 0.25f);
+            if (!tsRep.Ok || tsRep.Transient == null || !tsRep.Transient.IsStable || tsRep.RtAllocBytes != 0)
+                throw new Exception($"TS808 SPICE sim failed: {tsRep.Summary}");
+            double opOut = tsRep.OperatingPoints[0].OutputNodeDcV;
+            if (Math.Abs(opOut - 4.5) > 0.15)
+                throw new Exception($"TS808 .OP Vbias out={opOut:F3}V expected ~4.50V!");
+            double g100 = tsRep.AcSweep.OrderBy(p => Math.Abs(p.FreqHz - 100)).First().GainDb;
+            double g720 = tsRep.AcSweep.OrderBy(p => Math.Abs(p.FreqHz - 720)).First().GainDb;
+            if ((g720 - g100) < 4.0 || tsRep.Transient.ThdPct < 5.0)
+                throw new Exception($"TS808 physics check failed: 720Hz-100Hz={g720 - g100:F2}dB, THD={tsRep.Transient.ThdPct:F2}%");
+
+            // Check 4: Real Dallas Fuzz Face (2x AC128 PNP Germanium BJT Ebers-Moll)
+            var fuzzFaceCircuit = new SpiceCircuitDto
+            {
+                InputVoltageScale = 0.25f,
+                OutputDcBlock = true,
+                Knobs = new List<SpiceKnobDefDto>
+                {
+                    new() { Index = 0, Label = "FUZZ", Min = 0f, Max = 10f, Default = 8.5f },
+                    new() { Index = 1, Label = "VOLUME", Min = 0f, Max = 10f, Default = 6.0f },
+                },
+                Stages = new List<SpiceStageDto>
+                {
+                    new()
+                    {
+                        Name = "fuzz_face_ac128",
+                        InputNode = "in",
+                        OutputNode = "out",
+                        InputSeriesResistance = 1000f,
+                        Supplies = new List<SpiceFixedVoltageDto> { new() { Node = "vneg", Voltage = -9.0 } },
+                        Elements = new List<SpiceElementDto>
+                        {
+                            new() { Name = "C1", Type = "C", Nodes = new[] { "in", "b1" }, ValueText = "2.2u" },
+                            new() { Name = "R_PD", Type = "R", Nodes = new[] { "in", "gnd" }, ValueText = "1M" },
+                            new() { Name = "Q1", Type = "Q", Nodes = new[] { "c1", "b1", "gnd" }, Model = "AC128" },
+                            new() { Name = "R_C1", Type = "R", Nodes = new[] { "c1", "vneg" }, ValueText = "33k" },
+                            new() { Name = "R_FB", Type = "R", Nodes = new[] { "e2", "b1" }, ValueText = "100k" },
+                            new() { Name = "Q2", Type = "Q", Nodes = new[] { "c2", "c1", "e2" }, Model = "AC128" },
+                            new() { Name = "P_FUZZ", Type = "POT", Nodes = new[] { "e2", "f_w", "gnd" }, ValueText = "1k", KnobIndex = 0, Taper = "LIN" },
+                            new() { Name = "C_E2", Type = "C", Nodes = new[] { "f_w", "gnd" }, ValueText = "20u" },
+                            new() { Name = "R_C2A", Type = "R", Nodes = new[] { "c2", "col_tap" }, ValueText = "470" },
+                            new() { Name = "R_C2B", Type = "R", Nodes = new[] { "col_tap", "vneg" }, ValueText = "8.2k" },
+                            new() { Name = "C_OUT", Type = "C", Nodes = new[] { "col_tap", "out_top" }, ValueText = "10n" },
+                            new() { Name = "P_VOL", Type = "POT", Nodes = new[] { "out_top", "out", "gnd" }, ValueText = "500k", KnobIndex = 1, Taper = "LOG" },
+                            new() { Name = "R_LOAD", Type = "R", Nodes = new[] { "out", "gnd" }, ValueText = "500k" },
+                        },
+                    },
+                },
+            };
+            var ffRep = SpiceAnalyzer.AnalyzeCircuit(fuzzFaceCircuit, sampleRate: sr, testFreqHz: 220f, testAmp: 0.25f);
+            if (!ffRep.Ok || ffRep.Transient == null || !ffRep.Transient.IsStable || ffRep.RtAllocBytes != 0 || ffRep.Transient.ThdPct < 10.0)
+                throw new Exception($"Fuzz Face AC128 SPICE sim failed: {ffRep.Summary}");
+
+            // Check 5: Real 12AX7 Koren Triode Stage (250V B+) + Measured-Curve Greenback Cab + Simultaneous 0 B RT Chain
+            var triodeAmpCircuit = new SpiceCircuitDto
+            {
+                InputVoltageScale = 1.2f,
+                OutputVoltageScale = 0.08f,
+                OutputDcBlock = true,
+                Knobs = new List<SpiceKnobDefDto>
+                {
+                    new() { Index = 0, Label = "GAIN", Min = 0f, Max = 10f, Default = 7.5f },
+                    new() { Index = 1, Label = "MASTER", Min = 0f, Max = 10f, Default = 6.0f },
+                },
+                Stages = new List<SpiceStageDto>
+                {
+                    new()
+                    {
+                        Name = "12ax7_stage1",
+                        InputNode = "in",
+                        OutputNode = "out",
+                        InputSeriesResistance = 1000f,
+                        Supplies = new List<SpiceFixedVoltageDto> { new() { Node = "bplus", Voltage = 250.0 } },
+                        Elements = new List<SpiceElementDto>
+                        {
+                            new() { Name = "C_IN", Type = "C", Nodes = new[] { "in", "g_in" }, ValueText = "22n" },
+                            new() { Name = "P_GAIN", Type = "POT", Nodes = new[] { "g_in", "g1", "gnd" }, ValueText = "1M", KnobIndex = 0, Taper = "LOG" },
+                            new() { Name = "R_STOP", Type = "R", Nodes = new[] { "g1", "grid" }, ValueText = "68k" },
+                            new() { Name = "T1", Type = "T", Nodes = new[] { "plate", "grid", "cath" }, Model = "12AX7" },
+                            new() { Name = "R_P", Type = "R", Nodes = new[] { "bplus", "plate" }, ValueText = "100k" },
+                            new() { Name = "R_K", Type = "R", Nodes = new[] { "cath", "gnd" }, ValueText = "1.5k" },
+                            new() { Name = "C_K", Type = "C", Nodes = new[] { "cath", "gnd" }, ValueText = "22u" },
+                            new() { Name = "C_OUT", Type = "C", Nodes = new[] { "plate", "out_top" }, ValueText = "22n" },
+                            new() { Name = "P_MV", Type = "POT", Nodes = new[] { "out_top", "out", "gnd" }, ValueText = "1M", KnobIndex = 1, Taper = "LOG" },
+                            new() { Name = "R_LD", Type = "R", Nodes = new[] { "out", "gnd" }, ValueText = "1M" },
+                        },
+                    },
+                },
+            };
+            var triodeRep = SpiceAnalyzer.AnalyzeCircuit(triodeAmpCircuit, sampleRate: sr, testFreqHz: 220f, testAmp: 0.35f);
+            if (!triodeRep.Ok || triodeRep.Transient == null || !triodeRep.Transient.IsStable || triodeRep.RtAllocBytes != 0)
+                throw new Exception($"12AX7 Triode SPICE sim failed: {triodeRep.Summary}");
+            if (!triodeRep.OperatingPoints[0].NodeVoltagesDc.TryGetValue("plate", out double vPlate) || vPlate < 90.0 || vPlate > 235.0)
+                throw new Exception($"12AX7 .OP plate voltage={vPlate:F1}V outside physical range [90V..235V]!");
+
+            var cabSpecDto = new CustomCabAcousticDto
+            {
+                EnclosureType = "4x12 Closed Back",
+                ResonanceHz = 75f,
+                HighRollOffHz = 4750f,
+                ErDelayMs = 1.45f,
+                ErGain = -0.10f,
+                MeasuredCurve = new List<FreqResponsePointDto>
+                {
+                    new() { FreqHz = 50f, Db = -9.5f },
+                    new() { FreqHz = 75f, Db = -1.5f },
+                    new() { FreqHz = 115f, Db = 2.0f },
+                    new() { FreqHz = 450f, Db = -0.5f },
+                    new() { FreqHz = 1000f, Db = 0.0f },
+                    new() { FreqHz = 2400f, Db = 4.2f },
+                    new() { FreqHz = 4200f, Db = -2.0f },
+                    new() { FreqHz = 6500f, Db = -16.0f },
+                },
+            };
+            var cabRep = SpiceAnalyzer.AnalyzeCabinet(cabSpecDto, sr);
+            if (!cabRep.Ok || cabRep.RtAllocBytes != 0)
+                throw new Exception($"Cab curve sim failed: {cabRep.Summary}");
+
+            var devPedal = CustomDeviceRegistry.RegisterOrUpdate(new CustomDeviceSpecDto
+            {
+                Id = "custom_drive_bench_ts808_spice",
+                Name = "Bench TS808 [SPICE]",
+                ShortName = "BenchTS808",
+                Category = "drive",
+                SchematicSourceUrl = "https://www.electrosmash.com/tube-screamer-analysis",
+                SchematicSummary = "JRC4558 + 1N914 + 4.7k/47nF MNA SPICE",
+                SpiceCircuit = ts808Circuit,
+            });
+            var devAmp = CustomDeviceRegistry.RegisterOrUpdate(new CustomDeviceSpecDto
+            {
+                Id = "custom_amp_bench_12ax7_spice",
+                Name = "Bench 12AX7 Triode [SPICE]",
+                ShortName = "Bench12AX7",
+                Category = "amp",
+                SchematicSourceUrl = "https://robrobinette.com/",
+                SchematicSummary = "12AX7 Koren Triode + 250V B+ + 100k/1.5k",
+                SpiceCircuit = triodeAmpCircuit,
+            });
+            var devCab = CustomDeviceRegistry.RegisterOrUpdate(new CustomDeviceSpecDto
+            {
+                Id = "custom_cab_bench_greenback_curve",
+                Name = "Bench Greenback Curve [IR]",
+                ShortName = "BenchGBK",
+                Category = "cab",
+                SchematicSourceUrl = "https://celestion.com/product/g12m-greenback/",
+                SchematicSummary = "Celestion G12M-25 measured SPL curve minimum-phase IR",
+                CabAcoustic = cabSpecDto,
+            });
+            foreach (var id in new[] { devPedal.Id, devAmp.Id, devCab.Id })
+            {
+                if (!preExistingDevices.Contains(id)) createdDeviceIds.Add(id);
+                if (!AntigravityToneArchitect.TryFindDevice(id, out _))
+                    throw new Exception($"Registered SPICE device '{id}' missing from AntigravityToneArchitect.Catalog!");
+            }
+
+            // Full SignalChain RT Execution Test (TS808 SPICE -> 12AX7 SPICE -> Measured-Curve Cab IR)
+            var proc = new ToneProcessor { Mode = ToneMode.SignalChain, GateThresholdDb = -80f };
+            proc.Prepare(frames, sr);
+            var chain = new SignalChainConfigDto { RoutingMode = (int)ChainRoutingMode.Serial };
+            for (int i = 0; i < SignalChainConfigDto.SlotCount; i++)
+                chain.Slots[i] = new ChainSlotDto { Index = i, ModelId = "", Enabled = false, Params = new float[8] };
+            chain.Slots[1] = new ChainSlotDto { Index = 1, ModelId = devPedal.Id, Enabled = true, Params = AntigravityToneArchitect.CreateDefaultParams(devPedal.Id) };
+            chain.Slots[2] = new ChainSlotDto { Index = 2, ModelId = devAmp.Id, Enabled = true, Params = AntigravityToneArchitect.CreateDefaultParams(devAmp.Id) };
+            chain.Slots[3] = new ChainSlotDto { Index = 3, ModelId = devCab.Id, Enabled = true, Params = AntigravityToneArchitect.CreateDefaultParams(devCab.Id) };
+            chain = AntigravityToneArchitect.CommitActiveScene(chain);
+            proc.Chain.UpdateChain(chain);
+
+            var bufL = new float[frames];
+            var bufR = new float[frames];
+            for (int w = 0; w < 32; w++)
+            {
+                for (int i = 0; i < frames; i++)
+                    bufL[i] = bufR[i] = 0.22f * MathF.Sin(2f * MathF.PI * 196f * (w * frames + i) / sr);
+                proc.Process(bufL, bufR, frames);
+            }
+
+            var sw = Stopwatch.StartNew();
+            long a0 = GC.GetAllocatedBytesForCurrentThread();
+            for (int k = 0; k < 200; k++)
+            {
+                if ((k & 31) == 31)
+                    proc.Chain.SetPrimaryAmpParamRt(0, 6.0f + (k % 3)); // ensure live RT knob handling compiles cleanly too
+                for (int i = 0; i < frames; i++)
+                    bufL[i] = bufR[i] = 0.22f * MathF.Sin(2f * MathF.PI * 196f * ((k + 32) * frames + i) / sr);
+                proc.Process(bufL, bufR, frames);
+            }
+            long alloc = GC.GetAllocatedBytesForCurrentThread() - a0;
+            sw.Stop();
+            double ms = sw.Elapsed.TotalMilliseconds / 200.0;
+            double outRms = Rms(bufL);
+
+            if (alloc != 0 || ms >= 1.2 || !double.IsFinite(outRms) || outRms < 1e-4)
+                throw new Exception($"SPICE chain RT execution failed: alloc={alloc}, ms={ms:F4}, rms={outRms}");
+
+            Console.WriteLine($"[PASS] AI-Led MNA SPICE Engine (TS808 OP={opOut:F2}V/+4dB@720Hz + AC128 Fuzz THD={ffRep.Transient.ThdPct:F1}% + 12AX7 Vp={vPlate:F1}V + Cab Curve + Guard): {ms:F4} ms/block, rms={outRms:F4}, RT alloc: {alloc} B");
+        }
+        finally
+        {
+            foreach (var id in createdDeviceIds)
+                CustomDeviceRegistry.Remove(id);
+            if (addedMa856)
+                SpiceModelLibrary.RemoveCustom("MA856");
         }
     }
 }

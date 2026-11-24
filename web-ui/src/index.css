@@ -1,6 +1,10 @@
 @import "tailwindcss";
 
 @theme inline {
+  --font-sans: "Pretendard Variable", "Space Grotesk Variable", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-display: "Space Grotesk Variable", "Pretendard Variable", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "Pretendard Variable", ui-monospace, SFMono-Regular, monospace;
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -20,67 +24,204 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+
+  /* Studio Hardware Semantic Surfaces */
+  --color-oled: var(--surface-oled);
+  --color-oled-elevated: var(--surface-oled-elevated);
+  --color-oled-foreground: var(--ink-oled);
+  --color-oled-muted: var(--ink-oled-muted);
+  --color-oled-border: var(--border-oled);
+  --color-signal-hot: var(--signal-hot);
+  --color-signal-ok: var(--signal-ok);
+  --color-signal-warn: var(--signal-warn);
+
+  --radius-sm: 2px;
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 1px);
+  --radius-xl: calc(var(--radius) + 3px);
 }
 
-:root {
-  --radius: 0.5rem;
-  --background: oklch(0.08 0.002 260);
-  --foreground: oklch(0.95 0 0);
-  --card: oklch(0.125 0.003 260);
-  --card-foreground: oklch(0.95 0 0);
-  --popover: oklch(0.14 0.003 260);
-  --popover-foreground: oklch(0.95 0 0);
-  --primary: oklch(0.95 0 0);
-  --primary-foreground: oklch(0.12 0.003 260);
-  --secondary: oklch(0.18 0.004 260);
-  --secondary-foreground: oklch(0.92 0 0);
-  --muted: oklch(0.16 0.003 260);
-  --muted-foreground: oklch(0.58 0.005 260);
-  --accent: oklch(0.21 0.004 260);
-  --accent-foreground: oklch(0.96 0 0);
-  --destructive: oklch(0.62 0.22 25);
-  --destructive-foreground: oklch(0.98 0 0);
-  --border: oklch(1 0 0 / 9%);
-  --input: oklch(1 0 0 / 13%);
-  --ring: oklch(0.6 0.01 260);
+/* 1. PUTTY ALUMINUM */
+:root,
+[data-theme="putty"] {
+  --radius: 0.1875rem;
+  --background: #E8E5DE;
+  --foreground: #151514;
+  --card: #F3F1EC;
+  --card-foreground: #151514;
+  --popover: #F7F5F0;
+  --popover-foreground: #151514;
+  --primary: #FF4400;
+  --primary-foreground: #FFFFFF;
+  --secondary: #DDD9D0;
+  --secondary-foreground: #151514;
+  --muted: #E1DDD4;
+  --muted-foreground: #5C5952;
+  --accent: #D4CFC4;
+  --accent-foreground: #151514;
+  --destructive: #D92D20;
+  --destructive-foreground: #FFFFFF;
+  --border: #C5C0B6;
+  --input: #BEBAB0;
+  --ring: #FF4400;
 
-  /* Cortex category semantic tokens */
-  --cat-amp: #ef233c;
-  --cat-nam: #e4e4e7;
-  --cat-cab: #7c5cff;
-  --cat-drive: #f97316;
-  --cat-delay: #14b8a6;
-  --cat-reverb: #2dd4bf;
-  --cat-mod: #22c55e;
-  --cat-eq: #3b82f6;
-  --cat-dyn: #94a3b8;
-  --cat-scene: #facc15;
+  --surface-oled: #0D0E0D;
+  --surface-oled-elevated: #171917;
+  --ink-oled: #F2EFE9;
+  --ink-oled-muted: #8E8C84;
+  --border-oled: #2E312D;
+
+  --signal-hot: #FF4400;
+  --signal-ok: #1E9E54;
+  --signal-warn: #D98200;
+
+  --cat-amp: #D93829;
+  --cat-nam: #9E9A91;
+  --cat-cab: #4353FF;
+  --cat-drive: #D96B18;
+  --cat-delay: #0E8A7D;
+  --cat-reverb: #2B8A6E;
+  --cat-mod: #2E8B57;
+  --cat-eq: #2563EB;
+  --cat-dyn: #64748B;
+  --cat-pitch: #C83E7B;
+  --cat-scene: #FF4400;
 }
 
-.dark {
-  --background: oklch(0.075 0.002 260);
-  --foreground: oklch(0.95 0 0);
-  --card: oklch(0.12 0.003 260);
-  --card-foreground: oklch(0.95 0 0);
-  --popover: oklch(0.14 0.003 260);
-  --popover-foreground: oklch(0.95 0 0);
-  --primary: oklch(0.95 0 0);
-  --primary-foreground: oklch(0.12 0.003 260);
-  --secondary: oklch(0.175 0.004 260);
-  --secondary-foreground: oklch(0.92 0 0);
-  --muted: oklch(0.155 0.003 260);
-  --muted-foreground: oklch(0.56 0.005 260);
-  --accent: oklch(0.205 0.004 260);
-  --accent-foreground: oklch(0.96 0 0);
-  --destructive: oklch(0.62 0.22 25);
-  --destructive-foreground: oklch(0.98 0 0);
-  --border: oklch(1 0 0 / 9%);
-  --input: oklch(1 0 0 / 13%);
-  --ring: oklch(0.58 0.01 260);
+/* 2. CARBON DARKROOM */
+[data-theme="carbon"] {
+  --background: #121211;
+  --foreground: #F0EDE6;
+  --card: #191917;
+  --card-foreground: #F0EDE6;
+  --popover: #1D1D1B;
+  --popover-foreground: #F0EDE6;
+  --primary: #FF4400;
+  --primary-foreground: #FFFFFF;
+  --secondary: #242421;
+  --secondary-foreground: #F0EDE6;
+  --muted: #1E1E1B;
+  --muted-foreground: #8C8980;
+  --accent: #2B2B27;
+  --accent-foreground: #F5F3EE;
+  --destructive: #EF4444;
+  --destructive-foreground: #FFFFFF;
+  --border: #2D2C29;
+  --input: #363531;
+  --ring: #FF4400;
+
+  --surface-oled: #090A09;
+  --surface-oled-elevated: #141513;
+  --ink-oled: #F2EFE9;
+  --ink-oled-muted: #84827A;
+  --border-oled: #282A27;
+
+  --signal-hot: #FF4400;
+  --signal-ok: #2CE674;
+  --signal-warn: #F59E0B;
+  --cat-scene: #FF4400;
+}
+
+/* 3. EDITORIAL ZINE */
+[data-theme="zine"] {
+  --background: #F6F3EB;
+  --foreground: #111111;
+  --card: #FFFFFF;
+  --card-foreground: #111111;
+  --popover: #FFFFFF;
+  --popover-foreground: #111111;
+  --primary: #1D4ED8;
+  --primary-foreground: #FFFFFF;
+  --secondary: #EAE5D9;
+  --secondary-foreground: #111111;
+  --muted: #EFECE3;
+  --muted-foreground: #525049;
+  --accent: #DFD9CA;
+  --accent-foreground: #111111;
+  --destructive: #DC2626;
+  --destructive-foreground: #FFFFFF;
+  --border: #1C1C1A;
+  --input: #1C1C1A;
+  --ring: #1D4ED8;
+
+  --surface-oled: #111110;
+  --surface-oled-elevated: #1C1C1A;
+  --ink-oled: #F6F3EB;
+  --ink-oled-muted: #9A968C;
+  --border-oled: #32322F;
+
+  --signal-hot: #FF3B14;
+  --signal-ok: #16A34A;
+  --signal-warn: #D97706;
+  --cat-scene: #1D4ED8;
+}
+
+/* 4. FIELD OLIVE */
+[data-theme="field"] {
+  --background: #1B201A;
+  --foreground: #E5ECE1;
+  --card: #232921;
+  --card-foreground: #E5ECE1;
+  --popover: #272E25;
+  --popover-foreground: #E5ECE1;
+  --primary: #FF9F0A;
+  --primary-foreground: #141813;
+  --secondary: #2E362C;
+  --secondary-foreground: #E5ECE1;
+  --muted: #262D24;
+  --muted-foreground: #929E8D;
+  --accent: #364034;
+  --accent-foreground: #F0F5ED;
+  --destructive: #F04438;
+  --destructive-foreground: #FFFFFF;
+  --border: #384136;
+  --input: #414B3E;
+  --ring: #FF9F0A;
+
+  --surface-oled: #0C0F0B;
+  --surface-oled-elevated: #151A14;
+  --ink-oled: #E6F0E2;
+  --ink-oled-muted: #7F8D7A;
+  --border-oled: #2B3429;
+
+  --signal-hot: #FF9F0A;
+  --signal-ok: #4ADE80;
+  --signal-warn: #FBBF24;
+  --cat-scene: #FF9F0A;
+}
+
+/* 5. COBALT LAB */
+[data-theme="cobalt"] {
+  --background: #E4E8F0;
+  --foreground: #0F172A;
+  --card: #F4F6FA;
+  --card-foreground: #0F172A;
+  --popover: #FFFFFF;
+  --popover-foreground: #0F172A;
+  --primary: #0047FF;
+  --primary-foreground: #FFFFFF;
+  --secondary: #D6DCE8;
+  --secondary-foreground: #0F172A;
+  --muted: #DCE2ED;
+  --muted-foreground: #475569;
+  --accent: #CBD4E4;
+  --accent-foreground: #0F172A;
+  --destructive: #E11D48;
+  --destructive-foreground: #FFFFFF;
+  --border: #BCC5D6;
+  --input: #B2BDD0;
+  --ring: #0047FF;
+
+  --surface-oled: #0B0E14;
+  --surface-oled-elevated: #141923;
+  --ink-oled: #EEF2F8;
+  --ink-oled-muted: #7E8BA3;
+  --border-oled: #252E3F;
+
+  --signal-hot: #FF3B14;
+  --signal-ok: #10B981;
+  --signal-warn: #F59E0B;
+  --cat-scene: #0047FF;
 }
 
 @layer base {
@@ -95,5 +236,49 @@
   }
   body {
     @apply bg-background text-foreground font-sans antialiased select-none;
+    font-feature-settings: "ss01" 1, "cv01" 1;
   }
+}
+
+.oled-dot-grid {
+  background-color: var(--surface-oled);
+  background-image: radial-gradient(rgba(242, 239, 233, 0.12) 1px, transparent 1px);
+  background-size: 12px 12px;
+}
+
+@keyframes studioCablePulse {
+  to {
+    stroke-dashoffset: -18;
+  }
+}
+
+.cable-signal-pulse {
+  stroke-dasharray: 5 4;
+  animation: studioCablePulse 0.72s linear infinite;
+}
+
+@keyframes tp7ReelRotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.tp7-reel-spin {
+  animation: tp7ReelRotate 3.6s linear infinite;
+}
+
+.tp7-reel-spin-reverse {
+  animation: tp7ReelRotate 3.6s linear infinite reverse;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
 }

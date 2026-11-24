@@ -8,16 +8,15 @@ import {
   Play,
   Plus,
   SlidersHorizontal,
-  Usb,
   Volume2,
   VolumeX,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -31,6 +30,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
+import { Hint } from "@/components/ui/tooltip"
+import { useI18n } from "@/lib/i18n"
 import type { TunerSnapshotDto } from "@/types/rig"
 
 interface StringTarget {
@@ -96,7 +97,7 @@ const TUNING_PRESETS: TuningPreset[] = [
   },
 ]
 
-const LED_STEPS = Array.from({ length: 21 }, (_, idx) => (idx - 10) * 5) // -50 .. 0 .. +50 ct
+const LED_STEPS = Array.from({ length: 21 }, (_, idx) => (idx - 10) * 5)
 
 interface TunerDialogProps {
   open: boolean
@@ -104,12 +105,10 @@ interface TunerDialogProps {
   tuner: TunerSnapshotDto
   isAudioRunning: boolean
   isAudioBusy: boolean
-  hasGp100: boolean
   tunerMute: boolean
   refA4Hz: number
   onTunerConfigChange: (opts: { mute?: boolean; refA4Hz?: number }) => void
   onStartAudio: () => void
-  onQuickStartGp100: () => void
   onOpenAudioSettings: () => void
 }
 
@@ -119,14 +118,13 @@ export function TunerDialog({
   tuner,
   isAudioRunning,
   isAudioBusy,
-  hasGp100,
   tunerMute,
   refA4Hz,
   onTunerConfigChange,
   onStartAudio,
-  onQuickStartGp100,
   onOpenAudioSettings,
 }: TunerDialogProps) {
+  const { tx } = useI18n()
   const [presetId, setPresetId] = useState("standard")
   const activePreset = useMemo(
     () => TUNING_PRESETS.find((p) => p.id === presetId) ?? TUNING_PRESETS[0],
@@ -146,7 +144,6 @@ export function TunerDialog({
   const clampedCents = tuner.active ? Math.max(-50, Math.min(50, tuner.cents)) : 0
   const needleLeftPct = 50 + clampedCents
 
-  // 가장 가까운 목표 줄 계산
   const nearestString = useMemo(() => {
     if (!tuner.active || tuner.freqHz <= 20) return null
     const curMidi = 69 + 12 * Math.log2(tuner.freqHz / Math.max(420, refA4Hz))
@@ -165,60 +162,50 @@ export function TunerDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle className="flex items-center justify-between gap-2 pr-6 text-sm">
-            <span className="flex items-center gap-2">
-              <Music2 className="w-4 h-4 text-primary" />
-              정밀 크로매틱 기타 튜너
-            </span>
-            <Badge variant={isAudioRunning ? "secondary" : "outline"} className="text-[10px] font-mono">
+          <div className="flex items-center justify-between gap-2 pr-8">
+            <DialogTitle className="flex items-center gap-2">
+              <Music2 className="size-4 text-primary" />
+              PRECISION STROBE TUNER
+            </DialogTitle>
+            <Badge variant={isAudioRunning ? "ok" : "outline"} size="xs">
               A4 = {refA4Hz.toFixed(0)} Hz
             </Badge>
-          </DialogTitle>
+          </div>
+          <DialogDescription>
+            {tx(
+              "MPM 기반 고정밀 크로매틱 튜너 · 조율 시 출력 무음 전환 지원",
+              "High-precision MPM chromatic tuner with silent bypass option."
+            )}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3 text-xs">
           {!isAudioRunning && (
-            <div className="rounded-md border border-border bg-secondary/50 p-2.5 flex flex-wrap items-center justify-between gap-2">
+            <div className="rounded-sm border border-border bg-secondary/50 p-2.5 flex flex-wrap items-center justify-between gap-2">
               <span className="text-[11px] text-muted-foreground">
-                튜너를 사용하려면 먼저 오디오 입력(ASIO/GP-100)을 켜주세요.
+                {tx("튜너를 사용하려면 먼저 오디오 입력을 켜주세요.", "Start audio input to activate tuner.")}
               </span>
               <div className="flex items-center gap-1.5">
-                {hasGp100 && (
-                  <Button
-                    size="sm"
-                    variant="default"
-                    className="h-7 text-[11px] gap-1"
-                    disabled={isAudioBusy}
-                    onClick={onQuickStartGp100}
-                  >
-                    <Usb className="w-3 h-3" />
-                    GP-100 연결
-                  </Button>
-                )}
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="h-7 text-[11px] gap-1"
-                  disabled={isAudioBusy}
-                  onClick={onStartAudio}
-                >
-                  <Play className="w-3 h-3" />
-                  오디오 시작
+                <Button size="xs" variant="ghost" onClick={onOpenAudioSettings}>
+                  {tx("장치 설정", "Audio I/O")}
+                </Button>
+                <Button size="xs" variant="keycap" disabled={isAudioBusy} onClick={onStartAudio}>
+                  <Play className="size-3" />
+                  {tx("오디오 시작", "START")}
                 </Button>
               </div>
             </div>
           )}
 
-          {/* Preset selector */}
           <div className="flex items-center justify-between gap-2">
-            <Label className="text-[11px] text-muted-foreground shrink-0">튜닝 프리셋</Label>
+            <Label>{tx("튜닝 프리셋", "TUNING PRESET")}</Label>
             <Select value={presetId} onValueChange={setPresetId}>
-              <SelectTrigger className="h-8 text-xs w-[270px]">
+              <SelectTrigger className="w-[270px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {TUNING_PRESETS.map((p) => (
-                  <SelectItem key={p.id} value={p.id} className="text-xs">
+                  <SelectItem key={p.id} value={p.id}>
                     {p.label}
                   </SelectItem>
                 ))}
@@ -226,157 +213,147 @@ export function TunerDialog({
             </Select>
           </div>
 
-          {/* Main Pitch Display Card */}
-          <Card
-            className={`transition-colors ${
-              inTune
-                ? "border-emerald-500/60 bg-emerald-500/10"
-                : tuner.active
-                  ? "border-amber-500/40 bg-card"
-                  : "border-border bg-card/70"
-            }`}
-          >
-            <CardContent className="p-4 space-y-4">
-              {/* Big Note + Cents + Direction */}
-              <div className="flex items-center justify-between gap-3">
-                <div className="space-y-0.5 min-w-[90px]">
-                  <div className="text-[10px] text-muted-foreground">감지 주파수</div>
-                  <div className="font-mono text-sm font-semibold">
-                    {tuner.active && tuner.freqHz > 0 ? `${tuner.freqHz.toFixed(1)} Hz` : "-- Hz"}
-                  </div>
-                  {tuner.active && (tuner.clarity ?? 0) > 0 && (
-                    <div className="text-[10px] font-mono text-muted-foreground">
-                      신뢰도 {Math.round((tuner.clarity ?? 0) * 100)}%
-                    </div>
-                  )}
+          {/* Recessed Matte OLED Strobe Instrument Display */}
+          <div className="rounded-md border border-oled-border oled-dot-grid p-4 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="space-y-0.5 min-w-[92px] font-mono tabular-nums">
+                <div className="text-[10px] text-oled-muted">FREQ</div>
+                <div className="text-sm font-bold text-oled-foreground">
+                  {tuner.active && tuner.freqHz > 0 ? `${tuner.freqHz.toFixed(1)} Hz` : "-- Hz"}
                 </div>
-
-                <div className="text-center">
-                  <div
-                    className={`text-5xl font-black font-mono tracking-tight leading-none ${
-                      inTune
-                        ? "text-emerald-300"
-                        : tuner.active
-                          ? "text-foreground"
-                          : "text-muted-foreground"
-                    }`}
-                  >
-                    {tuner.noteName !== "--" ? `${tuner.noteName}${tuner.octave}` : "--"}
+                {tuner.active && (tuner.clarity ?? 0) > 0 && (
+                  <div className="text-[10px] text-oled-muted">
+                    CONF {Math.round((tuner.clarity ?? 0) * 100)}%
                   </div>
-                </div>
+                )}
+              </div>
 
-                <div className="text-right space-y-1 min-w-[96px]">
-                  <Badge
-                    variant={inTune ? "default" : tuner.active ? "secondary" : "outline"}
-                    className="font-mono text-[11px]"
-                  >
-                    {!tuner.active
-                      ? "신호 대기"
-                      : inTune
-                        ? "IN TUNE"
-                        : `${tuner.cents > 0 ? "+" : ""}${tuner.cents.toFixed(1)} ct`}
-                  </Badge>
-                  <div className="text-[11px] font-medium flex items-center justify-end gap-1 text-muted-foreground">
-                    {!tuner.active ? (
-                      <span>줄을 1회 튕기세요</span>
-                    ) : inTune ? (
-                      <span className="text-emerald-300 flex items-center gap-1">
-                        <Check className="w-3.5 h-3.5" />
-                        정확히 조율됨
-                      </span>
-                    ) : tuner.cents < 0 ? (
-                      <span className="text-amber-300 flex items-center gap-1">
-                        <ArrowUp className="w-3.5 h-3.5" />
-                        줄을 감으세요
-                      </span>
-                    ) : (
-                      <span className="text-amber-300 flex items-center gap-1">
-                        <ArrowDown className="w-3.5 h-3.5" />
-                        줄을 푸세요
-                      </span>
-                    )}
-                  </div>
+              <div className="text-center">
+                <div
+                  className={`font-display text-5xl font-bold tracking-tight leading-none tabular-nums ${
+                    inTune
+                      ? "text-signal-ok"
+                      : tuner.active
+                        ? "text-oled-foreground"
+                        : "text-oled-muted"
+                  }`}
+                >
+                  {tuner.noteName !== "--" ? `${tuner.noteName}${tuner.octave}` : "--"}
                 </div>
               </div>
 
-              {/* 21-LED Scale + Moving Needle */}
-              <div className="space-y-1.5">
-                <div className="relative flex items-center justify-between gap-1 h-7 px-1 rounded-md border border-border bg-background/60">
-                  {LED_STEPS.map((stepCt) => {
-                    const isCenter = stepCt === 0
-                    const dist = tuner.active ? Math.abs(clampedCents - stepCt) : 999
-                    const lit = tuner.active && dist <= 3.5
-                    const activeColor = isCenter
-                      ? inTune
-                        ? "bg-emerald-400"
-                        : "bg-primary"
-                      : Math.abs(stepCt) <= 10
-                        ? "bg-amber-400"
-                        : "bg-destructive"
-                    return (
-                      <div
-                        key={stepCt}
-                        className={`flex-1 rounded-sm transition-all ${
-                          isCenter ? "h-5" : "h-3"
-                        } ${lit ? activeColor : isCenter ? "bg-muted-foreground/40" : "bg-muted/50"}`}
-                      />
-                    )
-                  })}
-                  {tuner.active && (
-                    <div
-                      className={`absolute top-0 bottom-0 w-0.5 transition-all duration-75 ${
-                        inTune ? "bg-emerald-300" : "bg-foreground"
-                      }`}
-                      style={{ left: `calc(${needleLeftPct}% - 1px)` }}
-                    />
+              <div className="text-right space-y-1 min-w-[100px]">
+                <Badge
+                  variant={inTune ? "ok" : tuner.active ? "warn" : "oled"}
+                  size="xs"
+                  className="tabular-nums"
+                >
+                  {!tuner.active
+                    ? "IDLE"
+                    : inTune
+                      ? "IN TUNE"
+                      : `${tuner.cents > 0 ? "+" : ""}${tuner.cents.toFixed(1)} ct`}
+                </Badge>
+                <div className="text-[11px] font-medium flex items-center justify-end gap-1 text-oled-muted">
+                  {!tuner.active ? (
+                    <span>{tx("줄을 1회 튕기세요", "Pluck a string")}</span>
+                  ) : inTune ? (
+                    <span className="text-signal-ok flex items-center gap-1">
+                      <Check className="size-3.5" />
+                      {tx("조율 완료", "Locked")}
+                    </span>
+                  ) : tuner.cents < 0 ? (
+                    <span className="text-signal-warn flex items-center gap-1">
+                      <ArrowUp className="size-3.5" />
+                      {tx("줄을 감으세요", "Tune Up")}
+                    </span>
+                  ) : (
+                    <span className="text-signal-hot flex items-center gap-1">
+                      <ArrowDown className="size-3.5" />
+                      {tx("줄을 푸세요", "Tune Down")}
+                    </span>
                   )}
                 </div>
-                <div className="flex justify-between text-[10px] font-mono text-muted-foreground px-1">
-                  <span>-50 ct (Flat)</span>
-                  <span>0 ct</span>
-                  <span>+50 ct (Sharp)</span>
-                </div>
               </div>
+            </div>
 
-              {/* 6-String Target Strip */}
-              <div className="grid grid-cols-6 gap-1.5">
-                {activePreset.strings.map((s) => {
-                  const targetFreq = refA4Hz * Math.pow(2, (s.midi - 69) / 12)
-                  const isTarget = nearestString?.target.num === s.num
-                  const isStringLocked =
-                    isTarget && Math.abs(nearestString?.centsDiff ?? 99) <= 4
+            {/* 21-LED Strobe Scale + Vernier Needle */}
+            <div className="space-y-1.5">
+              <div className="relative flex items-center justify-between gap-1 h-8 px-1.5 rounded-sm border border-oled-border bg-oled-elevated">
+                {LED_STEPS.map((stepCt) => {
+                  const isCenter = stepCt === 0
+                  const dist = tuner.active ? Math.abs(clampedCents - stepCt) : 999
+                  const lit = tuner.active && dist <= 3.5
+                  const activeColor = isCenter
+                    ? inTune
+                      ? "bg-signal-ok"
+                      : "bg-primary"
+                    : Math.abs(stepCt) <= 10
+                      ? "bg-signal-warn"
+                      : "bg-signal-hot"
                   return (
                     <div
-                      key={s.num}
-                      className={`rounded-md border px-1.5 py-1.5 text-center transition-colors ${
-                        isStringLocked
-                          ? "border-emerald-500/60 bg-emerald-500/20 text-emerald-300"
-                          : isTarget
-                            ? "border-primary bg-primary/15 text-foreground"
-                            : "border-border bg-secondary/35 text-muted-foreground"
-                      }`}
-                    >
-                      <div className="text-[10px]">{s.num}번줄</div>
-                      <div className="font-mono font-bold text-xs">{s.name}</div>
-                      <div className="text-[9px] font-mono opacity-80">{targetFreq.toFixed(1)}Hz</div>
-                    </div>
+                      key={stepCt}
+                      className={`flex-1 rounded-[1px] transition-colors ${
+                        isCenter ? "h-5" : "h-3"
+                      } ${lit ? activeColor : isCenter ? "bg-oled-muted/50" : "bg-oled-border"}`}
+                    />
                   )
                 })}
+                {tuner.active && (
+                  <div
+                    className={`absolute top-0 bottom-0 w-0.5 transition-all duration-75 ${
+                      inTune ? "bg-signal-ok" : "bg-oled-foreground"
+                    }`}
+                    style={{ left: `calc(${needleLeftPct}% - 1px)` }}
+                  />
+                )}
               </div>
-            </CardContent>
-          </Card>
+              <div className="flex justify-between text-[10px] font-mono tabular-nums text-oled-muted px-1">
+                <span>-50 ct</span>
+                <span>0 ct</span>
+                <span>+50 ct</span>
+              </div>
+            </div>
 
-          {/* Controls: Tuner Mute + A4 Reference + Dry Signal Level */}
-          <div className="rounded-md border border-border bg-muted/35 p-3 space-y-2.5">
+            {/* 6-String Target Strip */}
+            <div className="grid grid-cols-6 gap-1.5">
+              {activePreset.strings.map((s) => {
+                const targetFreq = refA4Hz * Math.pow(2, (s.midi - 69) / 12)
+                const isTarget = nearestString?.target.num === s.num
+                const isStringLocked =
+                  isTarget && Math.abs(nearestString?.centsDiff ?? 99) <= 4
+                return (
+                  <div
+                    key={s.num}
+                    className={`rounded-sm border px-1.5 py-1.5 text-center font-mono tabular-nums transition-colors ${
+                      isStringLocked
+                        ? "border-signal-ok bg-signal-ok/15 text-signal-ok"
+                        : isTarget
+                          ? "border-primary bg-primary/20 text-oled-foreground"
+                          : "border-oled-border bg-oled-elevated text-oled-muted"
+                    }`}
+                  >
+                    <div className="text-[9px]">S{s.num}</div>
+                    <div className="font-bold text-xs">{s.name}</div>
+                    <div className="text-[9px] opacity-80">{targetFreq.toFixed(0)}</div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Controls */}
+          <div className="rounded-sm border border-border bg-background p-3 space-y-2.5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 {tunerMute ? (
-                  <VolumeX className="w-4 h-4 text-destructive" />
+                  <VolumeX className="size-4 text-signal-hot" />
                 ) : (
-                  <Volume2 className="w-4 h-4 text-muted-foreground" />
+                  <Volume2 className="size-4 text-muted-foreground" />
                 )}
-                <Label htmlFor="tuner-mute-switch" className="text-xs cursor-pointer">
-                  튜너 뮤트 (조율 중 출력 무음)
+                <Label htmlFor="tuner-mute-switch" className="cursor-pointer">
+                  {tx("튜너 뮤트 (조율 중 무음)", "Tuner Mute (Silent Tuning)")}
                 </Label>
                 <Switch
                   id="tuner-mute-switch"
@@ -385,61 +362,58 @@ export function TunerDialog({
                 />
               </div>
 
-              <div className="flex items-center gap-1">
-                <span className="text-[11px] text-muted-foreground mr-1">A4 기준</span>
+              <div className="flex items-center gap-1 font-mono">
+                <span className="text-[11px] text-muted-foreground mr-1">A4</span>
                 <Button
-                  size="icon"
-                  variant="outline"
-                  className="h-6 w-6"
+                  size="icon-xs"
+                  variant="keycap"
                   onClick={() => onTunerConfigChange({ refA4Hz: Math.max(430, refA4Hz - 1) })}
-                  title="A4 기준 -1 Hz"
                 >
-                  <Minus className="w-3 h-3" />
+                  <Minus className="size-3" />
                 </Button>
-                <button
-                  type="button"
-                  onClick={() => onTunerConfigChange({ refA4Hz: 440 })}
-                  className="h-6 px-2 rounded border border-border bg-secondary/50 font-mono text-[11px] hover:bg-secondary cursor-pointer"
-                  title="클릭하여 표준 440 Hz로 초기화"
-                >
-                  {refA4Hz.toFixed(0)} Hz
-                </button>
+                <Hint content={tx("클릭하여 표준 440 Hz 초기화", "Reset to 440 Hz")}>
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    className="tabular-nums"
+                    onClick={() => onTunerConfigChange({ refA4Hz: 440 })}
+                  >
+                    {refA4Hz.toFixed(0)} Hz
+                  </Button>
+                </Hint>
                 <Button
-                  size="icon"
-                  variant="outline"
-                  className="h-6 w-6"
+                  size="icon-xs"
+                  variant="keycap"
                   onClick={() => onTunerConfigChange({ refA4Hz: Math.min(450, refA4Hz + 1) })}
-                  title="A4 기준 +1 Hz"
                 >
-                  <Plus className="w-3 h-3" />
+                  <Plus className="size-3" />
                 </Button>
               </div>
             </div>
 
             <div className="space-y-1">
-              <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                <span>드라이 DI 입력 신호</span>
-                <span className="font-mono">{levelDb.toFixed(1)} dBFS</span>
+              <div className="flex items-center justify-between font-mono text-[10px] text-muted-foreground tabular-nums">
+                <span>{tx("드라이 DI 입력", "DRY DI SIGNAL")}</span>
+                <span>{levelDb.toFixed(1)} dBFS</span>
               </div>
               <Progress value={levelPct} className="h-1.5" />
             </div>
 
             {isAudioRunning && levelDb <= -85 && (
-              <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 flex items-center justify-between gap-2 text-[11px]">
-                <span className="text-amber-200">
-                  입력 신호가 -85 dBFS 이하입니다. 오디오 I/O 입력 채널(In 1/In 2) 또는 기타 볼륨을 확인하세요.
+              <div className="rounded-sm border border-signal-warn/50 bg-signal-warn/10 px-2.5 py-2 flex items-center justify-between gap-2 text-[11px]">
+                <span className="text-signal-warn">
+                  {tx("입력 신호가 -85 dBFS 이하입니다.", "Signal below -85 dBFS. Check input channel.")}
                 </span>
                 <Button
-                  size="sm"
-                  variant="secondary"
-                  className="h-6 text-[10px] shrink-0 gap-1"
+                  size="xs"
+                  variant="keycap"
                   onClick={() => {
                     onOpenChange(false)
                     onOpenAudioSettings()
                   }}
                 >
-                  <SlidersHorizontal className="w-3 h-3" />
-                  오디오 I/O
+                  <SlidersHorizontal className="size-3" />
+                  AUDIO I/O
                 </Button>
               </div>
             )}

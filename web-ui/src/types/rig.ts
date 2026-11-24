@@ -46,6 +46,7 @@ export type DeviceCategoryId =
   | "mod"
   | "eq"
   | "dyn"
+  | "pitch"
 
 export interface CabMicConfigDto {
   dualEnabled: boolean
@@ -102,7 +103,16 @@ export interface SignalChainConfigDto {
 }
 
 export interface MidiBindingDto {
-  targetKind: "param" | "bypass" | "scene" | "tapTempo" | "tunerMute" | string
+  targetKind:
+    | "param"
+    | "bypass"
+    | "scene"
+    | "tapTempo"
+    | "tunerMute"
+    | "looperRecDub"
+    | "looperPlayStop"
+    | "looperUndo"
+    | string
   cc: number
   channel: number
   slotIndex: number
@@ -155,6 +165,11 @@ export interface AppSettingsDto {
   whiteBox?: WhiteBoxParamsDto
   signalChain?: SignalChainConfigDto
   savedPresets?: SignalChainConfigDto[]
+  hasChosenAuthMode?: boolean
+  hasCompletedTutorial?: boolean
+  cloudApiBaseUrl?: string | null
+  lastCloudSyncUtc?: string | null
+  autoCloudSync?: boolean
 }
 
 export interface ModelProfileSummary {
@@ -169,6 +184,85 @@ export interface ModelProfileSummary {
   createdAt: string
   namFilePath: string
   hasCabIr: boolean
+}
+
+export interface LooperSnapshotDto {
+  state: "empty" | "recording" | "playing" | "overdubbing" | "stopped" | string
+  loopLengthFrames: number
+  playheadFrames: number
+  durationSec: number
+  positionSec: number
+  progressPct: number
+  overdubLayers: number
+  canUndo: boolean
+  canRedo: boolean
+  halfSpeed: boolean
+  reverse: boolean
+  quantizeSync: boolean
+  level: number
+  sampleRate: number
+  maxDurationSec: number
+}
+
+export interface ToneHubItemDto {
+  id: string
+  title: string
+  author: string
+  category: "nam" | "ir" | "nrig" | string
+  architecture: string
+  archPreset: string
+  genre: string
+  description: string
+  tags: string[]
+  esrDb: number
+  sampleRate: number
+  taps: number
+  downloads: number
+  rating: number
+  isInstalled: boolean
+  downloadUrl: string
+}
+
+export interface DawPluginParamDto {
+  id: number
+  name: string
+  module: string
+  unit: string
+  min: number
+  max: number
+  defaultVal: number
+  steps: number
+}
+
+export interface DawPluginInspectorDto {
+  pluginName: string
+  vendor: string
+  version: string
+  clapId: string
+  vst3ProcessorCid: string
+  vst3ControllerCid: string
+  subCategories: string
+  nativeAotCommand: string
+  defaultOutputDir: string
+  parameters: DawPluginParamDto[]
+}
+
+export interface RecorderReampSnapshotDto {
+  recording: boolean
+  recordedSec: number
+  droppedFrames: number
+  lastDryPath: string
+  lastWetPath: string
+  lastDryName: string
+  recordingsDir: string
+  reampAvailable: boolean
+  reampEnabled: boolean
+  reampPlaying: boolean
+  reampLoop: boolean
+  reampPositionSec: number
+  reampDurationSec: number
+  reampName: string
+  reampPath: string
 }
 
 export interface BackingTrackStateDto {
@@ -271,6 +365,34 @@ export interface GuitarAnalysisLiveStateDto {
   draftProfile?: GuitarProfileDto | null
 }
 
+export interface SpiceKnobDefDto {
+  index: number
+  label: string
+  min: number
+  max: number
+  default: number
+  unit?: string
+  isSwitch?: boolean
+}
+
+export interface CustomDeviceSpecDto {
+  id: string
+  name: string
+  shortName: string
+  originalName?: string
+  aliases?: string[]
+  category: "drive" | "amp" | "cab" | string
+  categoryLabel: string
+  schematicSourceUrl?: string
+  schematicSummary?: string
+  referencedModels?: string[]
+  spiceCircuit?: {
+    knobs?: SpiceKnobDefDto[]
+  } | null
+  defaults: number[]
+  paramLabels: string[]
+}
+
 export interface StudioInitSnapshot {
   settings: AppSettingsDto
   presets: PresetDef[]
@@ -292,8 +414,13 @@ export interface StudioInitSnapshot {
   tunerMute?: boolean
   tunerRefA4Hz?: number
   backing?: BackingTrackStateDto
+  looper?: LooperSnapshotDto
+  recorder?: RecorderReampSnapshotDto
   midi?: MidiSnapshotDto
+  customDevices?: CustomDeviceSpecDto[]
   isAudioRunning: boolean
+  appVersion?: string
+  cloudState?: CloudStateDto
 }
 
 export interface TelemetryFrame {
@@ -317,6 +444,8 @@ export interface TelemetryFrame {
     sampleRate: number
   }
   backing?: BackingTrackStateDto
+  looper?: LooperSnapshotDto
+  recorder?: RecorderReampSnapshotDto
   vis: {
     running: boolean
     hasSignal: boolean
@@ -329,3 +458,159 @@ export interface TelemetryFrame {
     tuner?: TunerSnapshotDto
   }
 }
+
+export interface HardwareSimilarityItemDto {
+  id: string
+  deviceName: string
+  originalHardware: string
+  topologySummary: string
+  metricLabel: string
+  measuredValue: string
+  referenceTarget: string
+  deviationSummary: string
+  similarityPct: number
+  passed: boolean
+}
+
+export interface LatencyBenchItemDto {
+  profileName: string
+  sampleRate: number
+  bufferFrames: number
+  budgetMs: number
+  avgBlockMs: number
+  p99BlockMs: number
+  cpuLoadPct: number
+  algorithmicLatencySamples: number
+  algorithmicLatencyMs: number
+  estimatedRoundTripMs: number
+  rtAllocBytes: number
+  passed: boolean
+}
+
+export interface MultiChainStressItemDto {
+  scenarioName: string
+  activeBlocks: number
+  routingMode: string
+  avgBlockMs: number
+  peakDbfs: number
+  rmsDbfs: number
+  tailDcOffsetDbfs: number
+  finiteSamplesOnly: boolean
+  rtAllocBytes: number
+  passed: boolean
+  detail: string
+}
+
+export interface RigBenchmarkReportDto {
+  generatedAtUtc: string
+  sampleRate: number
+  liveAudioRoundTripMs?: number | null
+  overallSimilarityPct: number
+  minBuffer64Pass: boolean
+  zeroRtAllocAll: boolean
+  overallPassed: boolean
+  totalDurationMs: number
+  similarityItems: HardwareSimilarityItemDto[]
+  latencyItems: LatencyBenchItemDto[]
+  multiChainItems: MultiChainStressItemDto[]
+}
+
+export interface CloudUserDto {
+  id: string
+  email: string
+  displayName: string
+  avatarUrl?: string
+  isAdmin: boolean
+}
+
+export interface CloudStateDto {
+  mode: "unselected" | "guest" | "google" | string
+  cloudApiBaseUrl: string
+  isConfigured: boolean
+  isAuthenticated: boolean
+  user?: CloudUserDto | null
+  lastSyncUtc?: string | null
+  pendingBugReportsCount: number
+}
+
+export interface CommunityGearItemDto {
+  id: string
+  ownerId: string
+  ownerName: string
+  slug: string
+  name: string
+  shortName: string
+  originalName?: string
+  aliases?: string[]
+  category: "drive" | "amp" | "cab" | "preset" | string
+  summary: string
+  schematicSourceUrl?: string
+  tags: string[]
+  downloads: number
+  likes: number
+  createdAt: string
+  specJson?: string
+  spec?: CustomDeviceSpecDto | null
+}
+
+export interface OtaCheckResultDto {
+  checked: boolean
+  currentVersion: string
+  latestVersion: string
+  minSupportedVersion: string
+  updateAvailable: boolean
+  forceUpdate: boolean
+  releaseNotesKo: string
+  releaseNotesEn: string
+  installerUrl?: string
+  standaloneExeUrl?: string
+  sha256Installer?: string
+  releasePageUrl: string
+  source: string
+  error?: string
+}
+
+export interface AdminBugItemDto {
+  id: string
+  title: string
+  category: string
+  severity: string
+  status: string
+  appVersion: string
+  userEmail?: string
+  description: string
+  sanitizedLogs: string
+  diagnosticsJson?: string
+  createdAt: string
+}
+
+export interface AdminReleasePolicyDto {
+  version: string
+  minSupportedVersion: string
+  forceUpdate: boolean
+  releaseNotesKo: string
+  releaseNotesEn: string
+  installerUrl?: string
+  standaloneExeUrl?: string
+  updatedAt?: string
+}
+
+export interface AdminOverviewDto {
+  ok: boolean
+  source: string
+  kpis: {
+    totalUsers: number
+    active24hUsers: number
+    totalSyncedConfigs: number
+    communityGearCount: number
+    openBugCount: number
+    totalBugCount: number
+    totalHubDownloads: number
+  }
+  topGears: { name: string; category: string; downloads: number; ownerName: string }[]
+  recentTelemetry: { eventType: string; appVersion: string; platform: string; createdAt: string }[]
+  bugs: AdminBugItemDto[]
+  releasePolicy: AdminReleasePolicyDto
+}
+
+

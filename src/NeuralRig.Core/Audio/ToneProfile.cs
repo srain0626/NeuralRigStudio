@@ -883,13 +883,14 @@ public static class ToneProfileStore
         return prof;
     }
 
-    public static List<ToneProfile> LoadAll()
+    public static List<ToneProfile> LoadAll(string? modelsRootOverride = null)
     {
+        string root = string.IsNullOrWhiteSpace(modelsRootOverride) ? ModelsRoot : modelsRootOverride;
         var list = new List<ToneProfile>();
-        if (!Directory.Exists(ModelsRoot))
+        if (!Directory.Exists(root))
             return list;
 
-        foreach (var dir in Directory.GetDirectories(ModelsRoot))
+        foreach (var dir in Directory.GetDirectories(root))
         {
             string jsonPath = Path.Combine(dir, "tone_profile.json");
             if (!File.Exists(jsonPath)) continue;
@@ -910,12 +911,24 @@ public static class ToneProfileStore
     /// 순수 C# 네이티브 .nam (Neural Amp Modeler v0.5+) 파서/임포터.
     /// Python 없이 WaveNet / LSTM / ConvNet 가중치를 검증·컴파일하고 NeuralRigStudio 라이브러리로 저장한다.
     /// </summary>
-    public static ToneProfile ImportNamFile(string namPath, string? customName = null)
+    public static ToneProfile ImportNamFile(string namPath, string? customName = null, string? modelsRootOverride = null)
     {
         if (!File.Exists(namPath))
             throw new FileNotFoundException(".nam 파일을 찾을 수 없습니다.", namPath);
 
         string json = File.ReadAllText(namPath);
+        return ImportNamJson(json, customName, namPath, modelsRootOverride);
+    }
+
+    public static ToneProfile ImportNamJson(
+        string json,
+        string? customName = null,
+        string? sourceNameOrPath = null,
+        string? modelsRootOverride = null)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            throw new InvalidOperationException(".nam JSON 내용이 비어 있습니다.");
+
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
 
@@ -984,21 +997,25 @@ public static class ToneProfileStore
             throw new InvalidOperationException($"지원되지 않는 .nam 아키텍처입니다: '{(string.IsNullOrEmpty(rawArch) ? "unknown" : rawArch)}' (WaveNet / LSTM / ConvNet 지원)");
         }
 
+        string fallbackTitle = !string.IsNullOrWhiteSpace(sourceNameOrPath)
+            ? Path.GetFileNameWithoutExtension(sourceNameOrPath)
+            : "ImportedModel";
         string displayName = !string.IsNullOrWhiteSpace(customName)
             ? customName.Trim()
-            : (!string.IsNullOrWhiteSpace(metaName) ? metaName.Trim() : Path.GetFileNameWithoutExtension(namPath));
+            : (!string.IsNullOrWhiteSpace(metaName) ? metaName.Trim() : fallbackTitle);
         string safeFile = string.Concat(displayName.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
         if (string.IsNullOrWhiteSpace(safeFile)) safeFile = "ImportedModel";
 
         double esrDb = esr > 0.0 ? Math.Round(10.0 * Math.Log10(Math.Max(esr, 1e-12)), 2) : 0.0;
         double similarityPct = esr > 0.0 ? Math.Round(Math.Clamp((1.0 - Math.Sqrt(esr)) * 100.0, 0.0, 100.0), 2) : 0.0;
 
+        string targetRoot = string.IsNullOrWhiteSpace(modelsRootOverride) ? ModelsRoot : modelsRootOverride;
         string id = $"{DateTime.UtcNow:yyyyMMdd_HHmmss}_{Guid.NewGuid().ToString("N")[..6]}";
-        string folder = Path.Combine(ModelsRoot, id);
+        string folder = Path.Combine(targetRoot, id);
         Directory.CreateDirectory(folder);
 
         string destNam = Path.Combine(folder, $"{safeFile}.nam");
-        File.Copy(namPath, destNam, overwrite: true);
+        File.WriteAllText(destNam, json);
 
         var prof = new ToneProfile
         {
@@ -1017,7 +1034,7 @@ public static class ToneProfileStore
             EsrDb = esrDb,
             SimilarityPct = similarityPct,
             CreatedAt = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"),
-            SourceUrl = namPath,
+            SourceUrl = sourceNameOrPath ?? "",
             WaveNetConfig = wnCfg,
             LstmConfig = lstmCfg,
             ConvNetConfig = convCfg,
@@ -1070,8 +1087,15 @@ public static class ToneProfileStore
             File.Copy(prof.NamFilePath, destinationPath, overwrite: true);
             return;
         }
+        File.WriteAllText(destinationPath, SerializeNamJson(prof));
+    }
+
+    public static string SerializeNamJson(ToneProfile prof)
+    {
+        if (!string.IsNullOrEmpty(prof.NamFilePath) && File.Exists(prof.NamFilePath))
+            return File.ReadAllText(prof.NamFilePath);
         if (prof.Weights.Length == 0)
-            throw new InvalidOperationException("신경망 가중치가 없는 프로파일은 .nam으로 내보낼 수 없습니다.");
+            throw new InvalidOperationException("신경망 가중치가 없는 프로파일은 .nam으로 직렬화할 수 없습니다.");
 
         object? cfgObj = prof.WaveNetConfig is not null
             ? prof.WaveNetConfig
@@ -1100,7 +1124,7 @@ public static class ToneProfileStore
             config = cfgObj,
             weights = prof.Weights,
         };
-        File.WriteAllText(destinationPath, JsonSerializer.Serialize(namObj, WriteOpts));
+        return JsonSerializer.Serialize(namObj, WriteOpts);
     }
 }
 

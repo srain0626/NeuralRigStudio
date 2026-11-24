@@ -3,16 +3,21 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
+    <Version>3.0.0</Version>
+    <Authors>Ray Kim</Authors>
+    <Company>NeuralRig Audio</Company>
+    <Copyright>Copyright (c) 2026 Ray Kim</Copyright>
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ForceDesignerDpiUnaware>false</ForceDesignerDpiUnaware>
-    <DefaultItemExcludes>$(DefaultItemExcludes);src\**;tools\**;web-ui\**;wwwroot\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);src\**;tools\**;web-ui\**;wwwroot\**;cloud\**;packages\**;installer\**;scripts\**;dist-release\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="src\NeuralRig.Core\NeuralRig.Core.csproj" />
+    <ProjectReference Include="src\NeuralRig.Plugin\NeuralRig.Plugin.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -21,10 +26,14 @@
     <PackageReference Include="NAudio.Asio" Version="3.3.0" />
   </ItemGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(EmbedWwwRootBundle)' != 'true'">
     <Content Include="wwwroot\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(EmbedWwwRootBundle)' == 'true' AND Exists('obj\wwwroot.bundle.zip')">
+    <EmbeddedResource Include="obj\wwwroot.bundle.zip" LogicalName="NeuralRigStudio.wwwroot.zip" />
   </ItemGroup>
 
 </Project>

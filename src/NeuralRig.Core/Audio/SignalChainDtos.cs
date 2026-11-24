@@ -12,6 +12,7 @@ public enum ChainBlockCategory
     Modulation = 7,
     Delay = 8,
     Reverb = 9,
+    Pitch = 10,
 }
 
 public enum ChainRoutingMode

@@ -10,15 +10,15 @@ function Slider({
     <SliderPrimitive.Root
       data-slot="slider"
       className={cn(
-        "relative flex w-full touch-none items-center select-none data-[disabled]:opacity-50",
+        "relative flex w-full touch-none items-center select-none data-[disabled]:opacity-45",
         className
       )}
       {...props}
     >
-      <SliderPrimitive.Track className="bg-muted relative h-1.5 w-full grow overflow-hidden rounded-full">
+      <SliderPrimitive.Track className="bg-secondary border border-border relative h-1.5 w-full grow overflow-hidden rounded-sm">
         <SliderPrimitive.Range className="bg-primary absolute h-full" />
       </SliderPrimitive.Track>
-      <SliderPrimitive.Thumb className="border-primary bg-background ring-ring/50 block size-4 shrink-0 rounded-full border shadow-sm transition-[color,box-shadow] hover:ring-4 focus-visible:ring-4 focus-visible:outline-hidden cursor-pointer" />
+      <SliderPrimitive.Thumb className="border-foreground bg-card ring-ring/40 block size-3.5 shrink-0 rounded-sm border-2 transition-[color,box-shadow] hover:ring-2 focus-visible:ring-2 focus-visible:outline-hidden cursor-pointer" />
     </SliderPrimitive.Root>
   )
 }

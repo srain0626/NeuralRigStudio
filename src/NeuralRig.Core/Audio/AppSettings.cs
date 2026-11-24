@@ -53,6 +53,13 @@ public sealed class AppSettings
     public string? MidiInputName { get; set; }
     public List<MidiBindingDto> MidiBindings { get; set; } = new();
 
+    // Onboarding & Public Cloud Sync (v3.0)
+    public bool HasChosenAuthMode { get; set; }
+    public bool HasCompletedTutorial { get; set; }
+    public string? CloudApiBaseUrl { get; set; }
+    public string? LastCloudSyncUtc { get; set; }
+    public bool AutoCloudSync { get; set; } = true;
+
     private static string FilePath
     {
         get

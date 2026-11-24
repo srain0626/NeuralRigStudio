@@ -101,6 +101,16 @@ export const CategoryVectorIcon: React.FC<{ category: DeviceCategoryId; classNam
           <circle cx="19.5" cy="10.5" r="1.6" fill="currentColor" />
         </svg>
       )
+    case "pitch":
+      return (
+        <svg viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className={className}>
+          <path d="M9 19V7" />
+          <polyline points="5.5,10.5 9,7 12.5,10.5" />
+          <path d="M19 9v12" />
+          <polyline points="15.5,17.5 19,21 22.5,17.5" />
+          <line x1="6" y1="14" x2="22" y2="14" opacity={0.35} />
+        </svg>
+      )
     case "dyn":
     default:
       // Compressor / Gate knee transfer curve (matches screenshot gray block)

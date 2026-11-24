@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Runtime.InteropServices;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -11,7 +12,7 @@ public sealed class MainForm : Form
     private readonly WebView2 _web = new()
     {
         Dock = DockStyle.Fill,
-        DefaultBackgroundColor = Color.FromArgb(9, 9, 11),
+        DefaultBackgroundColor = Color.FromArgb(232, 229, 222),
     };
 
     private readonly AudioRouter _router = new();
@@ -24,12 +25,12 @@ public sealed class MainForm : Form
 
     public MainForm()
     {
-        Text = "NeuralRig Studio";
+        Text = "NeuralRig Studio // NR-01";
         Width = 1440;
         Height = 900;
         MinimumSize = new Size(1160, 760);
         StartPosition = FormStartPosition.CenterScreen;
-        BackColor = Color.FromArgb(9, 9, 11);
+        BackColor = Color.FromArgb(232, 229, 222);
 
         _settings = AppSettings.Load();
         _bridge = new RigWebBridge(
@@ -48,7 +49,35 @@ public sealed class MainForm : Form
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
-        EnableDarkTitlebar(Handle);
+        ApplyWindowTheme("#F3F1EC", "#C5C0B6", "#151514", isDark: false);
+    }
+
+    public void ApplyWindowTheme(string bgHex, string borderHex, string textHex, bool isDark)
+    {
+        try
+        {
+            Color bgCol = ColorTranslator.FromHtml(bgHex);
+            Color borderCol = ColorTranslator.FromHtml(borderHex);
+            Color textCol = ColorTranslator.FromHtml(textHex);
+
+            BackColor = bgCol;
+            _web.DefaultBackgroundColor = bgCol;
+
+            if (!IsHandleCreated) return;
+            int darkFlag = isDark ? 1 : 0;
+            int bgrBg = (bgCol.B << 16) | (bgCol.G << 8) | bgCol.R;
+            int bgrBorder = (borderCol.B << 16) | (borderCol.G << 8) | borderCol.R;
+            int bgrText = (textCol.B << 16) | (textCol.G << 8) | textCol.R;
+
+            DwmSetWindowAttribute(Handle, 20, ref darkFlag, sizeof(int));
+            DwmSetWindowAttribute(Handle, 34, ref bgrBorder, sizeof(int));
+            DwmSetWindowAttribute(Handle, 35, ref bgrBg, sizeof(int));
+            DwmSetWindowAttribute(Handle, 36, ref bgrText, sizeof(int));
+        }
+        catch
+        {
+            // Ignore DWM calls on unsupported Windows builds
+        }
     }
 
     private async Task InitializeStudioAsync()
@@ -123,6 +152,44 @@ public sealed class MainForm : Form
         foreach (var c in candidates)
             if (File.Exists(Path.Combine(c, "index.html")))
                 return c;
+
+        using var bundleStream = typeof(MainForm).Assembly.GetManifestResourceStream("NeuralRigStudio.wwwroot.zip");
+        if (bundleStream != null)
+        {
+            string ver = typeof(MainForm).Assembly.GetName().Version?.ToString() ?? "3.0.0";
+            string targetDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "NeuralRigStudio",
+                "wwwroot_bundle",
+                $"v{ver}_{bundleStream.Length}");
+
+            if (!File.Exists(Path.Combine(targetDir, "index.html")))
+            {
+                string tmpDir = targetDir + "_tmp_" + Guid.NewGuid().ToString("N")[..8];
+                Directory.CreateDirectory(tmpDir);
+                ZipFile.ExtractToDirectory(bundleStream, tmpDir, overwriteFiles: true);
+                Directory.CreateDirectory(Path.GetDirectoryName(targetDir)!);
+                try
+                {
+                    if (Directory.Exists(targetDir)) Directory.Delete(targetDir, true);
+                    Directory.Move(tmpDir, targetDir);
+                }
+                catch
+                {
+                    if (File.Exists(Path.Combine(targetDir, "index.html")))
+                    {
+                        try { Directory.Delete(tmpDir, true); } catch { }
+                    }
+                    else
+                    {
+                        targetDir = tmpDir;
+                    }
+                }
+            }
+            if (File.Exists(Path.Combine(targetDir, "index.html")))
+                return targetDir;
+        }
+
         Directory.CreateDirectory(candidates[0]);
         return candidates[0];
     }
@@ -150,16 +217,4 @@ public sealed class MainForm : Form
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
-
-    private static void EnableDarkTitlebar(IntPtr hwnd)
-    {
-        int dark = 1;
-        DwmSetWindowAttribute(hwnd, 20, ref dark, sizeof(int));
-        int bg = 0x000b0909;     // #09090b (BGR)
-        int border = 0x002b2626; // #26262b
-        int text = 0x00fafafa;   // #fafafa
-        DwmSetWindowAttribute(hwnd, 34, ref border, sizeof(int));
-        DwmSetWindowAttribute(hwnd, 35, ref bg, sizeof(int));
-        DwmSetWindowAttribute(hwnd, 36, ref text, sizeof(int));
-    }
 }

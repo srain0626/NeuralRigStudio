@@ -1,4 +1,15 @@
 import React, { useRef, useState } from "react"
+import { RotateCcw, Radio } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
+import { Hint } from "@/components/ui/tooltip"
+import { useI18n } from "@/lib/i18n"
 
 interface CortexKnobProps {
   label: string
@@ -16,6 +27,8 @@ interface CortexKnobProps {
   onContextLearn?: () => void
 }
 
+const TICK_COUNT = 11
+
 export const CortexKnob: React.FC<CortexKnobProps> = ({
   label,
   value,
@@ -31,24 +44,16 @@ export const CortexKnob: React.FC<CortexKnobProps> = ({
   onChange,
   onContextLearn,
 }) => {
+  const { tx } = useI18n()
   const dragRef = useRef<{ startY: number; startVal: number } | null>(null)
   const [editing, setEditing] = useState(false)
   const [draftVal, setDraftVal] = useState("")
 
   const clamped = Math.min(max, Math.max(min, value))
   const norm = max > min ? (clamped - min) / (max - min) : 0
-
-  // 270 deg sweep: -135 deg to +135 deg
   const startAngle = -135
   const sweep = 270
   const angleDeg = startAngle + norm * sweep
-
-  const r = 20
-  const cx = 26
-  const cy = 26
-  const circ = 2 * Math.PI * r
-  const trackLen = (sweep / 360) * circ
-  const activeLen = norm * trackLen
 
   const quantize = (v: number) => {
     const q = Math.round(v / step) * step
@@ -66,7 +71,7 @@ export const CortexKnob: React.FC<CortexKnobProps> = ({
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragRef.current) return
     const dy = dragRef.current.startY - e.clientY
-    const sens = e.shiftKey ? 450 : 150
+    const sens = e.shiftKey ? 450 : 145
     const next = quantize(dragRef.current.startVal + (dy / sens) * (max - min))
     if (next !== clamped) onChange(next)
   }
@@ -86,7 +91,8 @@ export const CortexKnob: React.FC<CortexKnobProps> = ({
     onChange(quantize(clamped + dir * inc))
   }
 
-  const formattedVal = step >= 1 ? clamped.toFixed(0) : step >= 0.1 ? clamped.toFixed(1) : clamped.toFixed(2)
+  const formattedVal =
+    step >= 1 ? clamped.toFixed(0) : step >= 0.1 ? clamped.toFixed(1) : clamped.toFixed(2)
 
   const commitDraft = () => {
     setEditing(false)
@@ -96,10 +102,12 @@ export const CortexKnob: React.FC<CortexKnobProps> = ({
     }
   }
 
-  return (
+  const activeStroke = syncedText ? "var(--signal-warn)" : accentHex
+
+  const knobCell = (
     <div
-      className={`relative flex items-center justify-between px-3.5 py-2.5 bg-card/70 hover:bg-card transition-colors border-r border-b border-border cursor-ns-resize group ${
-        isMidiLearning ? "ring-1 ring-inset ring-amber-400/80 bg-amber-500/10" : ""
+      className={`relative flex items-center justify-between px-3 py-2.5 bg-card hover:bg-secondary/55 transition-colors border-r border-b border-border cursor-ns-resize select-none ${
+        isMidiLearning ? "ring-1 ring-inset ring-signal-warn bg-signal-warn/10" : ""
       }`}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -108,27 +116,20 @@ export const CortexKnob: React.FC<CortexKnobProps> = ({
       onDoubleClick={() => {
         if (!editing) onChange(defaultVal)
       }}
-      onContextMenu={(e) => {
-        if (onContextLearn) {
-          e.preventDefault()
-          onContextLearn()
-        }
-      }}
-      title={`${label}: 드래그·휠 조절 / 값 클릭 직접 입력 / 더블클릭 기본값(${defaultVal}) / 우클릭 MIDI CC 학습`}
     >
       <div className="flex flex-col justify-between h-12 min-w-0 pr-2">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <span className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase truncate">
+        <div className="flex items-center gap-1 min-w-0">
+          <span className="font-mono text-[10px] font-bold tracking-wider text-muted-foreground uppercase truncate">
             {label}
           </span>
           {isMidiLearning ? (
-            <span className="px-1 py-0.2 rounded bg-amber-500/25 border border-amber-400/60 text-[9px] font-mono font-bold text-amber-300 animate-pulse shrink-0">
+            <Badge variant="warn" size="xs">
               MIDI…
-            </span>
+            </Badge>
           ) : midiCc !== null && midiCc !== undefined ? (
-            <span className="px-1 py-0.2 rounded bg-secondary border border-border text-[9px] font-mono text-emerald-300 shrink-0">
+            <Badge variant="ok" size="xs">
               CC{midiCc}
-            </span>
+            </Badge>
           ) : null}
         </div>
 
@@ -145,11 +146,11 @@ export const CortexKnob: React.FC<CortexKnobProps> = ({
               if (e.key === "Enter") commitDraft()
               if (e.key === "Escape") setEditing(false)
             }}
-            className="w-16 h-5 px-1 rounded bg-background border border-foreground/40 font-mono text-xs text-foreground outline-none"
+            className="w-16 h-5 px-1 rounded-sm bg-background border border-primary font-mono text-xs text-foreground outline-none tabular-nums"
           />
         ) : syncedText ? (
-          <div className="flex items-baseline gap-1 font-mono text-xs text-amber-300" title="글로벌 BPM에 동기화됨">
-            <span className="font-semibold tabular-nums">{syncedText}</span>
+          <div className="flex items-baseline gap-1 font-mono text-xs font-bold text-signal-warn tabular-nums">
+            <span>{syncedText}</span>
           </div>
         ) : (
           <button
@@ -160,58 +161,110 @@ export const CortexKnob: React.FC<CortexKnobProps> = ({
               setDraftVal(formattedVal)
               setEditing(true)
             }}
-            className="flex items-baseline gap-1 font-mono text-xs text-foreground hover:text-emerald-300 transition-colors text-left cursor-text"
-            title="클릭하여 수치 직접 입력"
+            className="flex items-baseline gap-1 font-mono text-xs text-foreground hover:text-primary transition-colors text-left cursor-text"
           >
-            <span className="font-semibold tabular-nums">{formattedVal}</span>
+            <span className="font-bold tabular-nums text-[13px]">{formattedVal}</span>
             {unit && <span className="text-[10px] text-muted-foreground">{unit}</span>}
           </button>
         )}
       </div>
 
+      {/* 11-Tick Precision Hardware Rotary Encoder */}
       <svg width={52} height={52} viewBox="0 0 52 52" className="shrink-0 overflow-visible">
-        {/* Background track arc */}
+        {Array.from({ length: TICK_COUNT }, (_, idx) => {
+          const tickFrac = idx / (TICK_COUNT - 1)
+          const rad = ((startAngle + tickFrac * sweep) * Math.PI) / 180
+          const rInner = 20.5
+          const rOuter = idx === 0 || idx === 5 || idx === 10 ? 24.5 : 22.8
+          const x1 = 26 + Math.sin(rad) * rInner
+          const y1 = 26 - Math.cos(rad) * rInner
+          const x2 = 26 + Math.sin(rad) * rOuter
+          const y2 = 26 - Math.cos(rad) * rOuter
+          const lit = tickFrac <= norm + 0.008
+          return (
+            <line
+              key={idx}
+              x1={x1}
+              y1={y1}
+              x2={x2}
+              y2={y2}
+              stroke={lit ? activeStroke : "currentColor"}
+              strokeOpacity={lit ? 1 : 0.25}
+              strokeWidth={lit ? 1.9 : 1.2}
+              strokeLinecap="round"
+              className={lit ? "" : "text-foreground"}
+            />
+          )
+        })}
+
+        {/* Machined Dial Cap */}
         <circle
-          cx={cx}
-          cy={cy}
-          r={r}
-          fill="none"
-          stroke="currentColor"
-          className="text-secondary"
-          strokeWidth={3.2}
-          strokeLinecap="round"
-          strokeDasharray={`${trackLen} ${circ}`}
-          transform={`rotate(135 ${cx} ${cy})`}
+          cx={26}
+          cy={26}
+          r={15.5}
+          className="fill-background stroke-foreground/80"
+          strokeWidth={1.4}
         />
-        {/* Active value arc */}
         <circle
-          cx={cx}
-          cy={cy}
-          r={r}
-          fill="none"
-          stroke={syncedText ? "var(--cat-scene)" : accentHex}
-          strokeWidth={3.2}
-          strokeLinecap="round"
-          strokeDasharray={`${Math.max(0.5, activeLen)} ${circ}`}
-          transform={`rotate(135 ${cx} ${cy})`}
+          cx={26}
+          cy={26}
+          r={12}
+          className="fill-none stroke-border"
+          strokeWidth={0.8}
         />
-        {/* Inner hardware dial */}
-        <circle cx={cx} cy={cy} r={14.5} className="fill-background stroke-border" strokeWidth={1} />
-        {/* Indicator needle */}
-        <g transform={`rotate(${angleDeg} ${cx} ${cy})`}>
+
+        {/* Pointer Needle */}
+        <g transform={`rotate(${angleDeg} 26 26)`}>
           <line
-            x1={cx}
-            y1={cy - 4}
-            x2={cx}
-            y2={cy - 13.5}
-            stroke="currentColor"
-            className="text-foreground"
-            strokeWidth={2}
+            x1={26}
+            y1={12}
+            x2={26}
+            y2={21}
+            stroke={activeStroke}
+            strokeWidth={2.3}
             strokeLinecap="round"
           />
         </g>
       </svg>
     </div>
+  )
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div>
+          <Hint
+            content={tx(
+              `${label} — 상하 드래그/휠 조절 · 클릭 직접 입력 · 더블클릭 기본값(${defaultVal})`,
+              `${label} — Drag/wheel to adjust · Click to type · Double-click reset (${defaultVal})`
+            )}
+          >
+            {knobCell}
+          </Hint>
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onSelect={() => onChange(defaultVal)}>
+          <span className="flex items-center gap-2">
+            <RotateCcw className="size-3.5" />
+            {tx(`기본값 복원 (${defaultVal})`, `Reset to Default (${defaultVal})`)}
+          </span>
+        </ContextMenuItem>
+        {onContextLearn && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={onContextLearn}>
+              <span className="flex items-center gap-2">
+                <Radio className="size-3.5 text-primary" />
+                {midiCc !== null && midiCc !== undefined
+                  ? tx(`MIDI CC#${midiCc} 매핑 해제`, `Clear MIDI CC#${midiCc}`)
+                  : tx("MIDI CC 학습 시작", "Learn MIDI CC")}
+              </span>
+            </ContextMenuItem>
+          </>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
   )
 }
 
@@ -227,8 +280,8 @@ interface CortexToggleCellProps {
 export const CortexToggleCell: React.FC<CortexToggleCellProps> = ({
   label,
   checked,
-  onLabel = "On",
-  offLabel = "Off",
+  onLabel = "ON",
+  offLabel = "OFF",
   accentHex,
   onChange,
 }) => {
@@ -236,26 +289,25 @@ export const CortexToggleCell: React.FC<CortexToggleCellProps> = ({
     <button
       type="button"
       onClick={() => onChange(!checked)}
-      className="flex flex-col justify-between px-3.5 py-2.5 bg-card/70 hover:bg-card transition-colors border-r border-b border-border text-left h-full min-h-[72px]"
+      className="flex flex-col justify-between px-3 py-2.5 bg-card hover:bg-secondary/55 transition-colors border-r border-b border-border text-left h-full min-h-[72px] cursor-pointer"
     >
-      <span className="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
+      <span className="font-mono text-[10px] font-bold tracking-wider text-muted-foreground uppercase">
         {label}
       </span>
       <div className="flex items-center gap-3 mt-1">
-        <div className="w-5 h-9 rounded-full bg-background border border-border p-0.5 flex flex-col justify-between items-center relative">
+        <div className="w-5 h-9 rounded-sm bg-background border border-border p-0.5 flex flex-col justify-between items-center relative">
           <div
-            className="w-3.5 h-3.5 rounded-full transition-all duration-150"
+            className="w-3.5 h-3.5 rounded-[2px] transition-transform duration-150"
             style={{
               transform: checked ? "translateY(0px)" : "translateY(16px)",
-              border: `2px solid ${accentHex}`,
-              backgroundColor: checked ? accentHex : "transparent",
-              boxShadow: checked ? `0 0 8px ${accentHex}88` : "none",
+              border: `1.5px solid ${checked ? accentHex : "var(--border)"}`,
+              backgroundColor: checked ? accentHex : "var(--secondary)",
             }}
           />
         </div>
-        <div className="flex flex-col text-[11px] leading-tight font-medium">
-          <span className={checked ? "text-foreground" : "text-muted-foreground/50"}>{onLabel}</span>
-          <span className={!checked ? "text-foreground" : "text-muted-foreground/50"}>{offLabel}</span>
+        <div className="flex flex-col font-mono text-[11px] leading-tight font-bold">
+          <span className={checked ? "text-foreground" : "text-muted-foreground/45"}>{onLabel}</span>
+          <span className={!checked ? "text-foreground" : "text-muted-foreground/45"}>{offLabel}</span>
         </div>
       </div>
     </button>

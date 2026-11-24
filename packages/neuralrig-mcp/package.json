@@ -1,0 +1,36 @@
+{
+  "name": "neuralrig-mcp",
+  "version": "3.0.0",
+  "description": "Universal MCP server and multi-AI provider installer for NeuralRig Studio (75+ pedals/amps/cabs, MNA SPICE schematic solver, live audio bridge)",
+  "type": "module",
+  "license": "MIT",
+  "author": "Ray Kim <raykim@users.noreply.github.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/srain0626/NeuralRigStudio.git",
+    "directory": "packages/neuralrig-mcp"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "guitar",
+    "amp-sim",
+    "spice",
+    "dsp",
+    "neuralrig"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "bin": {
+    "neuralrig-mcp": "./bin/neuralrig-mcp.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node test/verify-mcp.mjs"
+  }
+}

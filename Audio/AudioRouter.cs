@@ -54,7 +54,7 @@ internal sealed record BackingBuffer(float[] Left, float[] Right, int SampleRate
 }
 
 /// <summary>
-/// 범용 오디오 입력(ASIO 다채널 오디오 인터페이스 / GP-100 / Windows WASAPI USB 케이블·라인인·마이크)
+/// 범용 오디오 입력(ASIO 다채널 오디오 인터페이스 / 멀티이펙터 USB ASIO / Windows WASAPI USB 케이블·라인인·마이크)
 /// → (단일 ASIO 풀듀플렉스 직결 OR Lock-free 링 버퍼 → WASAPI / 제2 ASIO) 초저지연 오디오 라우터.
 /// + Lock-free MR 백킹 트랙 믹서 + 50fps 비주얼라이저 / MPM 크로매틱 튜너 스냅샷 버퍼.
 /// </summary>
@@ -93,8 +93,9 @@ public sealed class AudioRouter : IAudioTelemetrySource
     private long _clipTick;
     private bool _scratchWarned;
 
-    // ── 실시간 AVX2 WaveNet / 4x WhiteBox 톤 프로세서 ──
+    // ── 실시간 AVX2 WaveNet / 4x WhiteBox 톤 프로세서 + Dual-Stream 레코더/리앰퍼 ──
     public ToneProcessor Tone { get; } = new();
+    public DualStreamRecorder Recorder { get; } = new();
 
     // ── 백킹 트랙 (MR 합주) 락프리 믹서 ──
     private BackingBuffer? _backing;
@@ -391,6 +392,7 @@ public sealed class AudioRouter : IAudioTelemetrySource
             _scratchR = new float[capScratch];
             _scratchWarned = false;
             Tone.Prepare(capScratch, rate);
+            Recorder.Prepare(rate);
 
             RaiseLog($"범용 WASAPI 입력 '{capDev.FriendlyName}': {_wasapiInChannels}ch {(stdFmt.Encoding == WaveFormatEncoding.IeeeFloat ? "Float32" : $"PCM{_wasapiInBits}")} @ {rate}Hz (지연 ≈ {_usedInLatencyMs:F1}ms, 저지연={wasapiIn.LowLatencyActive})");
 
@@ -601,7 +603,7 @@ public sealed class AudioRouter : IAudioTelemetrySource
         return rec;
     }
 
-    // ── 경로 B: ASIO 입력 파이프라인 (다채널 범용 오디오 인터페이스 + Valeton GP-100) ──
+    // ── 경로 B: ASIO 입력 파이프라인 (다채널 범용 오디오 인터페이스 / USB ASIO) ──
     private async Task StartAsioInputPipelineAsync(RouterConfig cfg, CancellationToken token)
     {
         AsioDevice? input = null;
@@ -660,6 +662,7 @@ public sealed class AudioRouter : IAudioTelemetrySource
                 _scratchR = new float[maxScratch];
                 _scratchWarned = false;
                 Tone.Prepare(maxScratch, rate);
+                Recorder.Prepare(rate);
 
                 _directDuplex = true;
                 input.Stopped += (s, e) => { if (_runningFlag == 1) RaiseStoppedUnexpected("ASIO 풀듀플렉스 스트림 정지됨"); };
@@ -799,6 +802,7 @@ public sealed class AudioRouter : IAudioTelemetrySource
             _scratchR = new float[capScratch];
             _scratchWarned = false;
             Tone.Prepare(capScratch, rate);
+            Recorder.Prepare(rate);
 
             input.AudioCaptured += OnCaptured;
             input.Stopped += (s, e) => { if (_runningFlag == 1) RaiseStoppedUnexpected("입력 스트림(ASIO) 정지됨"); };
@@ -1092,6 +1096,12 @@ public sealed class AudioRouter : IAudioTelemetrySource
 
     private void ProcessInputFrameBlock(float[] sl, float[] sr, int frames)
     {
+        // 0) 원클릭 실시간 DI 리앰핑 (활성 시 라이브 입력 대신 로드된 Dry DI 트랙 주입, 할당 0)
+        Recorder.InjectReampDryRt(sl.AsSpan(0, frames), sr.AsSpan(0, frames), frames);
+
+        // 0.5) Dual-Stream Dry DI 무할당 캡처 (ToneProcessor 직전)
+        Recorder.CaptureDryRt(sl.AsSpan(0, frames), sr.AsSpan(0, frames), frames);
+
         // 1) 크로매틱 튜너 / 기타 분석용 드라이 입력 스냅샷
         int dp = _dryVisPos;
         for (int i = 0; i < frames; i++)
@@ -1102,7 +1112,7 @@ public sealed class AudioRouter : IAudioTelemetrySource
         Volatile.Write(ref _dryVisPos, dp);
         Volatile.Write(ref _dryTotalWritten, _dryTotalWritten + frames);
 
-        // 2) 실시간 신경망 톤 프로세싱 (Bypass일 때는 즉시 리턴, 할당 0)
+        // 2) 실시간 신경망 톤 프로세싱 (Bypass일 때도 루퍼는 계속 동작, 할당 0)
         Tone.Process(sl, sr, frames);
 
         // 2.5) 튜너 무음 모드: 드라이 링 버퍼(_dryVisRing)에는 계속 적재하되 출력은 무음(할당 0)
@@ -1111,6 +1121,9 @@ public sealed class AudioRouter : IAudioTelemetrySource
             Array.Clear(sl, 0, frames);
             Array.Clear(sr, 0, frames);
         }
+
+        // 2.8) Dual-Stream Post-Tone Stereo Wet 무할당 캡처 (백킹 트랙 믹스 전 순수 기타 톤)
+        Recorder.CaptureWetRt(sl.AsSpan(0, frames), sr.AsSpan(0, frames), frames);
 
         // 3) 비주얼라이저용 포스트 톤 스냅샷 (MR 믹스 전 단계)
         int vp = _visPos;
@@ -1206,6 +1219,10 @@ public sealed class AudioRouter : IAudioTelemetrySource
         Volatile.Write(ref _dryTotalWritten, 0);
         Volatile.Write(ref _tunerMute, 0);
         Volatile.Write(ref _runningFlag, 0);
+        if (Recorder.IsRecording)
+        {
+            try { Recorder.StopRecording(); } catch { }
+        }
 
         if (w != null)
         {

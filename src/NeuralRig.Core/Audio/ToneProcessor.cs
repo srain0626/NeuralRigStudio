@@ -64,6 +64,7 @@ public sealed class ToneProcessor
 
     public WhiteBoxAmpEngine WhiteBox { get; } = new();
     public SignalChainEngine Chain { get; } = new();
+    public StereoLooper Looper { get; } = new();
 
     public ToneProcessor()
     {
@@ -126,7 +127,18 @@ public sealed class ToneProcessor
     }
 
     public string CustomCabIrName => Volatile.Read(ref _customCabIrName);
+    public string? CustomCabIrPath => Volatile.Read(ref _customCabIrPath);
     public bool HasCustomCabIr => Volatile.Read(ref _customCabIrRev) != null;
+
+    public (float[]? samples, int sampleRate, string name) GetCustomCabIrSnapshot()
+    {
+        var ir = Volatile.Read(ref _customCabIr);
+        int sr = _customCabIrRate > 0 ? _customCabIrRate : (_sampleRate > 0 ? _sampleRate : 44100);
+        string name = Volatile.Read(ref _customCabIrName);
+        return (ir, sr, name);
+    }
+
+    public IReadOnlyCollection<ToneProfile> GetModelLibrarySnapshot() => Volatile.Read(ref _modelRegistry).Values;
 
     public float[]? GetEffectiveCabIr()
     {
@@ -207,9 +219,24 @@ public sealed class ToneProcessor
             throw new InvalidOperationException("IR 파일이 비어 있거나 너무 짧습니다.");
 
         float[] mono = raw.ToArray();
+        return LoadCustomCabIrFromSamples(mono, srcRate, Path.GetFileName(wavPath), wavPath);
+    }
+
+    /// <summary>메모리 내 모노 IR 샘플 배열을 현재 샘플레이트에 맞춰 리샘플·정규화 후 커스텀 IR로 원자적 적용한다.</summary>
+    public (string name, int taps) LoadCustomCabIrFromSamples(
+        float[] monoSamples,
+        int sourceSampleRate,
+        string displayName,
+        string? backingPath = null)
+    {
+        if (monoSamples is null || monoSamples.Length < 8)
+            throw new InvalidOperationException("IR 샘플이 비어 있거나 너무 짧습니다.");
+
+        int srcRate = Math.Max(8000, sourceSampleRate);
         int dstRate = _sampleRate > 0 ? _sampleRate : 44100;
-        if (srcRate != dstRate && srcRate > 0)
-            mono = SincResampler.Resample(mono, srcRate, dstRate);
+        float[] mono = srcRate != dstRate
+            ? SincResampler.Resample(monoSamples, srcRate, dstRate)
+            : (float[])monoSamples.Clone();
 
         float maxAbs = 0f;
         for (int i = 0; i < mono.Length; i++)
@@ -253,8 +280,8 @@ public sealed class ToneProcessor
             rev[i] = ir[len - 1 - i];
 
         var partIr = PartitionedIr.Compile(ir);
-        string name = Path.GetFileName(wavPath);
-        _customCabIrPath = wavPath;
+        string name = string.IsNullOrWhiteSpace(displayName) ? "CustomIR.wav" : Path.GetFileName(displayName);
+        Volatile.Write(ref _customCabIrPath, backingPath);
         _customCabIrRate = dstRate;
         Volatile.Write(ref _customCabIr, ir);
         Volatile.Write(ref _customCabIrRev, rev);
@@ -297,6 +324,7 @@ public sealed class ToneProcessor
         _singleCabConvolver.Prepare(_maxFrames);
         WhiteBox.Prepare(_maxFrames, _sampleRate);
         Chain.Prepare(_maxFrames, _sampleRate);
+        Looper.Prepare(_sampleRate, maxSeconds: 60);
         ResetState();
     }
 
@@ -343,12 +371,21 @@ public sealed class ToneProcessor
         var ws = rt?.Nam;
         var customCab = Volatile.Read(ref _customCabIrRev);
 
-        if (mode == ToneMode.Bypass || frames <= 0) return;
+        if (frames <= 0) return;
         if (frames > _maxFrames) frames = _maxFrames;
+
+        if (mode == ToneMode.Bypass)
+        {
+            if (Looper.HasPendingOrActive)
+                Looper.Process(chL, chR, frames, Chain.TempoBpm);
+            return;
+        }
 
         if (mode == ToneMode.SignalChain)
         {
             Chain.Process(chL, chR, frames, this);
+            if (Looper.HasPendingOrActive)
+                Looper.Process(chL, chR, frames, Chain.TempoBpm);
             for (int i = 0; i < frames; i++)
             {
                 float outL = chL[i];
@@ -370,7 +407,11 @@ public sealed class ToneProcessor
         }
 
         if (prof is null && customCab is null && mode != ToneMode.WhiteBoxRig && mode != ToneMode.HybridPreampNam)
+        {
+            if (Looper.HasPendingOrActive)
+                Looper.Process(chL, chR, frames, Chain.TempoBpm);
             return;
+        }
         if (prof is null && (mode == ToneMode.FullRig || mode == ToneMode.AmpHeadOnly))
             mode = ToneMode.CabIrOnly;
 
@@ -531,6 +572,16 @@ public sealed class ToneProcessor
 
             chL[i] = SoftKneeCeiling(yL);
             chR[i] = SoftKneeCeiling(yR);
+        }
+
+        if (Looper.HasPendingOrActive)
+        {
+            Looper.Process(chL, chR, frames, Chain.TempoBpm);
+            for (int i = 0; i < frames; i++)
+            {
+                chL[i] = SoftKneeCeiling(chL[i]);
+                chR[i] = SoftKneeCeiling(chR[i]);
+            }
         }
     }
 

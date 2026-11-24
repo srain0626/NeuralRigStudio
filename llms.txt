@@ -1,0 +1,17 @@
+# NeuralRig Studio (v3.0.0) — LLM Context Map
+
+> Native C# .NET 10 Zero-Allocation Guitar DSP, MNA SPICE Engine, .nam Host, Universal npx MCP & Vercel/Supabase Cloud
+
+## Core Entry Docs
+- [AGENTS.md](AGENTS.md): Build commands, hard real-time invariants, and module routing.
+- [docs/INDEX.md](docs/INDEX.md): Symbol-to-file lookup table with approximate line counts for surgical partial reads.
+- [README.md](README.md): English maintainer & user overview.
+- [README.ko.md](README.ko.md): Korean maintainer & user overview.
+
+## Focused Technical Specs (Token-Saving)
+- [docs/ai/01-dsp-and-spice.md](docs/ai/01-dsp-and-spice.md): DSP blocks, `ToneProcessor`, `SignalChainEngine`, `WhiteBoxAmpEngine`, `RealtimeSpiceCircuit`, `RigBenchmarkSuite`.
+- [docs/ai/02-audio-and-bridge.md](docs/ai/02-audio-and-bridge.md): `AudioRouter` ASIO/WASAPI routing, `RigWebBridge` IPC actions & events, React `web-ui/` layout.
+- [docs/ai/03-mcp-and-npx.md](docs/ai/03-mcp-and-npx.md): `tools/NeuralRigMcp` C# server, `packages/neuralrig-mcp` npm CLI/stdio bridge across 7 AI clients.
+- [docs/ai/04-cloud-ota-admin.md](docs/ai/04-cloud-ota-admin.md): `cloud/` Next.js API routes, `001_neuralrig_cloud.sql` RLS schema, `CloudPlatformService`, `OtaUpdateService`, `LogSanitizer`.
+- [docs/MCP_INTEGRATION.md](docs/MCP_INTEGRATION.md): Complete MCP tool reference & schematic verification protocol.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): High-level component topology & threading diagrams.
