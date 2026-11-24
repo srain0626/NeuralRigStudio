@@ -268,7 +268,28 @@ RunWhiteBoxVerification();
         CloudPlatformService.IsAccessTokenExpiringSoon("not-a-jwt", TimeSpan.FromMinutes(2), nowRef))
         throw new Exception("CloudPlatformService.IsAccessTokenExpiringSoon check failed.");
 
-    Console.WriteLine("[PASS] Platform Gate (LogSanitizer PII/Secret Scrub + OTA Choice/Force SemVer Policy + Community Hub SPICE Safety + JWT Expiry Check)");
+    var promptToday = new DateOnly(2026, 11, 24);
+    var pNow = new DateTimeOffset(2026, 11, 24, 12, 0, 0, TimeSpan.Zero);
+    var (gUnselected, sUnselected) = CloudPlatformService.EvaluatePrompts(new AppSettings(), false, "unselected", pNow, promptToday);
+    var (gGuestNew, sGuestNew) = CloudPlatformService.EvaluatePrompts(new AppSettings { LastGuestLoginPromptDate = null }, false, "guest", pNow, promptToday);
+    var (gGuestSameDay, sGuestSameDay) = CloudPlatformService.EvaluatePrompts(new AppSettings { LastGuestLoginPromptDate = "2026-11-24" }, false, "guest", pNow, promptToday);
+    var (gGuestPrevDay, sGuestPrevDay) = CloudPlatformService.EvaluatePrompts(new AppSettings { LastGuestLoginPromptDate = "2026-11-23" }, false, "guest", pNow, promptToday);
+    var (g6d, s6d) = CloudPlatformService.EvaluatePrompts(new AppSettings { FirstGoogleSignInUtc = pNow.AddDays(-7).AddHours(1).ToString("O") }, true, "google", pNow, promptToday);
+    var (g7d, s7d) = CloudPlatformService.EvaluatePrompts(new AppSettings { FirstGoogleSignInUtc = pNow.AddDays(-7).ToString("O") }, true, "google", pNow, promptToday);
+    var (gShown, sShown) = CloudPlatformService.EvaluatePrompts(new AppSettings { FirstGoogleSignInUtc = pNow.AddDays(-14).ToString("O"), HasShownSponsorPrompt = true }, true, "google", pNow, promptToday);
+    var (gSignedOut14d, sSignedOut14d) = CloudPlatformService.EvaluatePrompts(new AppSettings { FirstGoogleSignInUtc = pNow.AddDays(-14).ToString("O"), LastGuestLoginPromptDate = "2026-11-24" }, false, "guest", pNow, promptToday);
+
+    if (gUnselected || sUnselected ||
+        !gGuestNew || sGuestNew ||
+        gGuestSameDay || sGuestSameDay ||
+        !gGuestPrevDay || sGuestPrevDay ||
+        g6d || s6d ||
+        g7d || !s7d ||
+        gShown || sShown ||
+        gSignedOut14d || sSignedOut14d)
+        throw new Exception("CloudPlatformService.EvaluatePrompts regression check failed.");
+
+    Console.WriteLine("[PASS] Platform Gate (LogSanitizer PII/Secret Scrub + OTA Choice/Force SemVer Policy + Community Hub SPICE Safety + JWT Expiry & Prompt Policy)");
 }
 
 static ToneProfile BenchmarkWaveNetPreset(string label, (int inSz, int ch, int headSz, int[] dils, bool headBias)[] specs)

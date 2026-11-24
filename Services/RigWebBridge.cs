@@ -374,6 +374,7 @@ public sealed class RigWebBridge : IDisposable
                 "setWindowTheme" => SetWindowTheme(payload),
                 "runBenchmarkSuite" => await Task.Run(() => RunBenchmarkSuite(payload)),
                 "updateOnboardingState" => UpdateOnboardingState(payload),
+                "openExternalUrl" => OpenExternalUrl(GetStr(payload, "url")),
                 "cloudSignInGoogle" => await SignInGoogleAndNotifyAsync(),
                 "cloudContinueGuest" => ContinueGuestAndNotify(),
                 "cloudSignOut" => SignOutAndNotify(),
@@ -409,6 +410,7 @@ public sealed class RigWebBridge : IDisposable
 
     private object BuildInitSnapshot()
     {
+        _cloud.EnsureFirstSignInTracked(_settings);
         var audio = BuildAudioDevicesSnapshot();
         var active = _router.Tone.ActiveProfile;
         return new
@@ -2329,6 +2331,7 @@ public sealed class RigWebBridge : IDisposable
 
     private object UpdateOnboardingState(JsonElement payload)
     {
+        bool cloudPromptChanged = false;
         if (payload.ValueKind == JsonValueKind.Object)
         {
             if (payload.TryGetProperty("hasChosenAuthMode", out var authEl))
@@ -2341,13 +2344,53 @@ public sealed class RigWebBridge : IDisposable
                 if (tutEl.ValueKind == JsonValueKind.True) _settings.HasCompletedTutorial = true;
                 else if (tutEl.ValueKind == JsonValueKind.False) _settings.HasCompletedTutorial = false;
             }
+            if (payload.TryGetProperty("lastGuestLoginPromptDate", out var guestDateEl) &&
+                guestDateEl.ValueKind == JsonValueKind.String)
+            {
+                _settings.LastGuestLoginPromptDate = guestDateEl.GetString()?.Trim();
+                cloudPromptChanged = true;
+            }
+            if (payload.TryGetProperty("hasShownSponsorPrompt", out var sponsorEl))
+            {
+                if (sponsorEl.ValueKind == JsonValueKind.True)
+                {
+                    _settings.HasShownSponsorPrompt = true;
+                    cloudPromptChanged = true;
+                }
+                else if (sponsorEl.ValueKind == JsonValueKind.False)
+                {
+                    _settings.HasShownSponsorPrompt = false;
+                    cloudPromptChanged = true;
+                }
+            }
             _settings.Save();
+            if (cloudPromptChanged)
+                EmitEvent("cloudStateChanged", _cloud.GetState(_settings));
         }
         return new
         {
             hasChosenAuthMode = _settings.HasChosenAuthMode,
             hasCompletedTutorial = _settings.HasCompletedTutorial,
+            lastGuestLoginPromptDate = _settings.LastGuestLoginPromptDate,
+            hasShownSponsorPrompt = _settings.HasShownSponsorPrompt,
         };
+    }
+
+    private static object OpenExternalUrl(string? rawUrl)
+    {
+        if (string.IsNullOrWhiteSpace(rawUrl) ||
+            !Uri.TryCreate(rawUrl.Trim(), UriKind.Absolute, out var uri) ||
+            uri.Scheme != Uri.UriSchemeHttps)
+        {
+            throw new InvalidOperationException("유효한 HTTPS 외부 URL만 열 수 있습니다.");
+        }
+
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = uri.AbsoluteUri,
+            UseShellExecute = true,
+        });
+        return new { ok = true, url = uri.AbsoluteUri };
     }
 
     private async Task<CloudStateDto> SignInGoogleAndNotifyAsync()

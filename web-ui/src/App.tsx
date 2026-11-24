@@ -31,6 +31,7 @@ import { CustomGearGuideDialog } from "@/components/CustomGearGuideDialog"
 import { GuitarAnalyzerDialog } from "@/components/GuitarAnalyzerDialog"
 import { OnboardingTutorialModal } from "@/components/OnboardingTutorialModal"
 import { OtaUpdateModal } from "@/components/OtaUpdateModal"
+import { SponsorPromptModal } from "@/components/SponsorPromptModal"
 import { ToneHubModal } from "@/components/ToneHubModal"
 import { TunerDialog } from "@/components/TunerDialog"
 import { Button } from "@/components/ui/button"
@@ -95,6 +96,8 @@ export default function App() {
   const [tutorialOpen, setTutorialOpen] = useState(false)
   const [gearGuideOpen, setGearGuideOpen] = useState(false)
   const [authOpen, setAuthOpen] = useState(false)
+  const [authDailyPrompt, setAuthDailyPrompt] = useState(false)
+  const [sponsorOpen, setSponsorOpen] = useState(false)
   const [bugOpen, setBugOpen] = useState(false)
   const [otaOpen, setOtaOpen] = useState(false)
   const [otaInfo, setOtaInfo] = useState<OtaCheckResultDto | null>(null)
@@ -188,6 +191,48 @@ export default function App() {
   })
 
   const syncTimerRef = useRef<number | null>(null)
+  const lastGuestPromptDateRef = useRef<string | null>(null)
+  const firstSignInUtcRef = useRef<string | null>(null)
+  const hasShownSponsorRef = useRef(false)
+
+  const getLocalYmd = () => {
+    const d = new Date()
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, "0")
+    const day = String(d.getDate()).padStart(2, "0")
+    return `${y}-${m}-${day}`
+  }
+
+  const syncPromptRefsFromCloudState = (st?: CloudStateDto | null) => {
+    if (!st) return
+    if (st.lastGuestLoginPromptDate !== undefined) {
+      lastGuestPromptDateRef.current = st.lastGuestLoginPromptDate ?? null
+    }
+    if (st.firstGoogleSignInUtc !== undefined) {
+      firstSignInUtcRef.current = st.firstGoogleSignInUtc ?? null
+    }
+    if (st.hasShownSponsorPrompt !== undefined) {
+      hasShownSponsorRef.current = Boolean(st.hasShownSponsorPrompt)
+    }
+  }
+
+  const markGuestDailyPromptShown = (todayYmd: string) => {
+    lastGuestPromptDateRef.current = todayYmd
+    if (studioBridge.isWebView2) {
+      void studioBridge
+        .invoke("updateOnboardingState", { lastGuestLoginPromptDate: todayYmd })
+        .catch(() => {})
+    }
+  }
+
+  const markSponsorPromptShown = () => {
+    hasShownSponsorRef.current = true
+    if (studioBridge.isWebView2) {
+      void studioBridge
+        .invoke("updateOnboardingState", { hasShownSponsorPrompt: true })
+        .catch(() => {})
+    }
+  }
 
   const addLog = (text: string, level: "info" | "success" | "error" = "info") => {
     const line = text.startsWith("[") ? text : `[${new Date().toLocaleTimeString()}] ${text}`
@@ -322,7 +367,10 @@ export default function App() {
       }
     })
     const unsubCloud = studioBridge.on<CloudStateDto>("cloudStateChanged", (st) => {
-      if (st) setCloudState(st)
+      if (st) {
+        setCloudState(st)
+        syncPromptRefsFromCloudState(st)
+      }
     })
     const unsubChain = studioBridge.on<{
       signalChain?: SignalChainConfigDto
@@ -440,13 +488,28 @@ export default function App() {
             setCatalogVersion((v) => v + 1)
           }
           if (snap.appVersion) setAppVersion(snap.appVersion)
-          if (snap.cloudState) setCloudState(snap.cloudState)
+          if (snap.cloudState) {
+            setCloudState(snap.cloudState)
+            syncPromptRefsFromCloudState(snap.cloudState)
+          } else {
+            lastGuestPromptDateRef.current = s.lastGuestLoginPromptDate ?? null
+            firstSignInUtcRef.current = s.firstGoogleSignInUtc ?? null
+            hasShownSponsorRef.current = Boolean(s.hasShownSponsorPrompt)
+          }
           const tutDone = Boolean(s.hasCompletedTutorial)
           setHasCompletedTutorial(tutDone)
           if (!s.hasChosenAuthMode && snap.cloudState?.mode === "unselected") {
+            setAuthDailyPrompt(false)
             setAuthOpen(true)
           } else if (!tutDone) {
             setTutorialOpen(true)
+          } else if (snap.cloudState?.shouldShowGuestDailyLoginPrompt) {
+            markGuestDailyPromptShown(getLocalYmd())
+            setAuthDailyPrompt(true)
+            setAuthOpen(true)
+          } else if (snap.cloudState?.shouldShowSponsorPrompt) {
+            markSponsorPromptShown()
+            setSponsorOpen(true)
           }
           studioBridge
             .invoke<OtaCheckResultDto>("checkOtaUpdate")
@@ -496,6 +559,58 @@ export default function App() {
       unsubTel()
     }
   }, [])
+
+  useEffect(() => {
+    if (!studioBridge.isWebView2) return
+
+    const evaluateActivePrompts = () => {
+      const blockingOta = Boolean(otaOpen && otaInfo?.updateAvailable && otaInfo?.forceUpdate)
+      if (!hasCompletedTutorial || authOpen || tutorialOpen || sponsorOpen || blockingOta) {
+        return
+      }
+
+      const today = getLocalYmd()
+      if (
+        cloudState.mode === "guest" &&
+        !cloudState.isAuthenticated &&
+        lastGuestPromptDateRef.current !== today
+      ) {
+        markGuestDailyPromptShown(today)
+        setAuthDailyPrompt(true)
+        setAuthOpen(true)
+        return
+      }
+
+      if (
+        cloudState.isAuthenticated &&
+        !hasShownSponsorRef.current &&
+        firstSignInUtcRef.current
+      ) {
+        const firstMs = Date.parse(firstSignInUtcRef.current)
+        if (!Number.isNaN(firstMs) && Date.now() - firstMs >= 7 * 24 * 60 * 60 * 1000) {
+          markSponsorPromptShown()
+          setSponsorOpen(true)
+        }
+      }
+    }
+
+    window.addEventListener("focus", evaluateActivePrompts)
+    const timer = window.setInterval(evaluateActivePrompts, 15 * 60 * 1000)
+    return () => {
+      window.removeEventListener("focus", evaluateActivePrompts)
+      window.clearInterval(timer)
+    }
+  }, [
+    cloudState.mode,
+    cloudState.isAuthenticated,
+    hasCompletedTutorial,
+    authOpen,
+    tutorialOpen,
+    sponsorOpen,
+    otaOpen,
+    otaInfo?.updateAvailable,
+    otaInfo?.forceUpdate,
+  ])
 
   const handleManualCheckUpdates = async () => {
     if (!studioBridge.isWebView2) return
@@ -1091,6 +1206,7 @@ export default function App() {
               type="button"
               onClick={() => {
                 setStudioMenuOpen(false)
+                setAuthDailyPrompt(false)
                 setAuthOpen(true)
               }}
               className="w-full flex items-center justify-between px-3 py-2.5 rounded-[12px] bg-secondary/70 hover:bg-secondary border border-border text-left transition-colors cursor-pointer"
@@ -1338,7 +1454,10 @@ export default function App() {
         onOpenBenchmark={() => setBenchOpen(true)}
         onOpenTutorial={() => setTutorialOpen(true)}
         onOpenGearGuide={() => setGearGuideOpen(true)}
-        onOpenAuth={() => setAuthOpen(true)}
+        onOpenAuth={() => {
+          setAuthDailyPrompt(false)
+          setAuthOpen(true)
+        }}
         onOpenBugReport={() => setBugOpen(true)}
         onOpenUpdates={() => void handleManualCheckUpdates()}
         onOpenAdmin={() => setAdminOpen(true)}
@@ -1446,7 +1565,10 @@ export default function App() {
         onOpenChange={setToneHubOpen}
         cloudState={cloudState}
         customDevices={customDevices}
-        onRequestLogin={() => setAuthOpen(true)}
+        onRequestLogin={() => {
+          setAuthDailyPrompt(false)
+          setAuthOpen(true)
+        }}
         onLog={addLog}
       />
 
@@ -1486,20 +1608,32 @@ export default function App() {
       {/* ── Google Cloud Sign-In / Guest Mode / Settings Sync ── */}
       <AuthAccountModal
         open={authOpen}
+        dailyPrompt={authDailyPrompt}
         onOpenChange={(nextOpen) => {
           setAuthOpen(nextOpen)
-          if (!nextOpen && !hasCompletedTutorial) {
-            setTutorialOpen(true)
+          if (!nextOpen) {
+            setAuthDailyPrompt(false)
+            if (!hasCompletedTutorial) {
+              setTutorialOpen(true)
+            }
           }
         }}
         cloudState={cloudState}
         onCloudStateChange={(nextState) => {
           setCloudState(nextState)
+          syncPromptRefsFromCloudState(nextState)
           if (nextState.mode !== "unselected" && !hasCompletedTutorial) {
             setTutorialOpen(true)
           }
         }}
         onCheckUpdates={() => void handleManualCheckUpdates()}
+        onLog={addLog}
+      />
+
+      {/* ── One-Time Patreon Support Prompt (7+ Days Signed-In Creators) ── */}
+      <SponsorPromptModal
+        open={sponsorOpen}
+        onOpenChange={setSponsorOpen}
         onLog={addLog}
       />
 
@@ -1527,6 +1661,7 @@ export default function App() {
           onOpenChange={setAdminOpen}
           onReLogin={() => {
             setAdminOpen(false)
+            setAuthDailyPrompt(false)
             setAuthOpen(true)
           }}
           onLog={addLog}

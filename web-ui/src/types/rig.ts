@@ -169,6 +169,9 @@ export interface AppSettingsDto {
   hasCompletedTutorial?: boolean
   lastCloudSyncUtc?: string | null
   autoCloudSync?: boolean
+  lastGuestLoginPromptDate?: string | null
+  firstGoogleSignInUtc?: string | null
+  hasShownSponsorPrompt?: boolean
 }
 
 export interface ModelProfileSummary {
@@ -529,6 +532,11 @@ export interface CloudStateDto {
   user?: CloudUserDto | null
   lastSyncUtc?: string | null
   pendingBugReportsCount: number
+  lastGuestLoginPromptDate?: string | null
+  firstGoogleSignInUtc?: string | null
+  hasShownSponsorPrompt?: boolean
+  shouldShowGuestDailyLoginPrompt?: boolean
+  shouldShowSponsorPrompt?: boolean
 }
 
 export interface CommunityGearItemDto {

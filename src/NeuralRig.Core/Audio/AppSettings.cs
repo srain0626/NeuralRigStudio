@@ -59,6 +59,9 @@ public sealed class AppSettings
     public string? CloudApiBaseUrl { get; set; }
     public string? LastCloudSyncUtc { get; set; }
     public bool AutoCloudSync { get; set; } = true;
+    public string? LastGuestLoginPromptDate { get; set; }
+    public string? FirstGoogleSignInUtc { get; set; }
+    public bool HasShownSponsorPrompt { get; set; }
 
     private static string FilePath
     {

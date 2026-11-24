@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -28,6 +29,11 @@ public sealed class CloudStateDto
     public CloudUserDto? User { get; set; }
     public string? LastSyncUtc { get; set; }
     public int PendingBugReportsCount { get; set; }
+    public string? LastGuestLoginPromptDate { get; set; }
+    public string? FirstGoogleSignInUtc { get; set; }
+    public bool HasShownSponsorPrompt { get; set; }
+    public bool ShouldShowGuestDailyLoginPrompt { get; set; }
+    public bool ShouldShowSponsorPrompt { get; set; }
 }
 
 public sealed class CommunityGearItemDto
@@ -127,9 +133,59 @@ public sealed class CloudPlatformService
     }
 
     public const string DefaultCloudBaseUrl = "https://neuralrigstudio.seltum.xyz";
+    public const string PatreonMembershipUrl = "https://www.patreon.com/cw/srain0626/membership";
 
     public static string ResolveCloudBaseUrl(AppSettings _)
         => DefaultCloudBaseUrl;
+
+    public static (bool ShouldShowGuestDailyLoginPrompt, bool ShouldShowSponsorPrompt) EvaluatePrompts(
+        AppSettings settings,
+        bool isAuthenticated,
+        string mode,
+        DateTimeOffset utcNow,
+        DateOnly localToday)
+    {
+        bool showGuestDaily =
+            !isAuthenticated &&
+            string.Equals(mode, "guest", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(
+                settings.LastGuestLoginPromptDate?.Trim(),
+                localToday.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                StringComparison.Ordinal);
+
+        bool showSponsor = false;
+        if (isAuthenticated &&
+            !settings.HasShownSponsorPrompt &&
+            DateTimeOffset.TryParse(
+                settings.FirstGoogleSignInUtc,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind,
+                out var firstUtc))
+        {
+            showSponsor = (utcNow - firstUtc) >= TimeSpan.FromDays(7);
+        }
+
+        return (showGuestDaily, showSponsor);
+    }
+
+    public void EnsureFirstSignInTracked(AppSettings settings)
+    {
+        bool updated = false;
+        lock (_lock)
+        {
+            if (_session != null &&
+                !string.IsNullOrWhiteSpace(_session.AccessToken) &&
+                string.IsNullOrWhiteSpace(settings.FirstGoogleSignInUtc))
+            {
+                settings.FirstGoogleSignInUtc = !string.IsNullOrWhiteSpace(_session.SignedInUtc)
+                    ? _session.SignedInUtc
+                    : DateTime.UtcNow.ToString("O");
+                updated = true;
+            }
+        }
+        if (updated)
+            settings.Save();
+    }
 
     public CloudStateDto GetState(AppSettings settings)
     {
@@ -140,6 +196,13 @@ public sealed class CloudPlatformService
                 ? "google"
                 : (settings.HasChosenAuthMode ? "guest" : "unselected");
 
+            var (showGuestDaily, showSponsor) = EvaluatePrompts(
+                settings,
+                authed,
+                mode,
+                DateTimeOffset.UtcNow,
+                DateOnly.FromDateTime(DateTime.Now));
+
             return new CloudStateDto
             {
                 Mode = mode,
@@ -148,6 +211,11 @@ public sealed class CloudPlatformService
                 User = authed ? _session!.User : null,
                 LastSyncUtc = settings.LastCloudSyncUtc,
                 PendingBugReportsCount = _bugOutbox.Count,
+                LastGuestLoginPromptDate = settings.LastGuestLoginPromptDate,
+                FirstGoogleSignInUtc = settings.FirstGoogleSignInUtc,
+                HasShownSponsorPrompt = settings.HasShownSponsorPrompt,
+                ShouldShowGuestDailyLoginPrompt = showGuestDaily,
+                ShouldShowSponsorPrompt = showSponsor,
             };
         }
     }
@@ -155,6 +223,7 @@ public sealed class CloudPlatformService
     public CloudStateDto ContinueAsGuest(AppSettings settings)
     {
         settings.HasChosenAuthMode = true;
+        settings.LastGuestLoginPromptDate = DateOnly.FromDateTime(DateTime.Now).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         settings.Save();
         return GetState(settings);
     }
@@ -167,6 +236,7 @@ public sealed class CloudPlatformService
             try { if (File.Exists(SessionPath)) File.Delete(SessionPath); } catch { }
         }
         settings.HasChosenAuthMode = true;
+        settings.LastGuestLoginPromptDate = DateOnly.FromDateTime(DateTime.Now).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         settings.Save();
         return GetState(settings);
     }
@@ -246,6 +316,8 @@ public sealed class CloudPlatformService
         }
 
         settings.HasChosenAuthMode = true;
+        if (string.IsNullOrWhiteSpace(settings.FirstGoogleSignInUtc))
+            settings.FirstGoogleSignInUtc = session.SignedInUtc;
         settings.Save();
         return GetState(settings);
     }

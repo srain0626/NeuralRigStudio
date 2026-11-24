@@ -30,6 +30,7 @@ interface AuthAccountModalProps {
   onCloudStateChange: (next: CloudStateDto) => void
   onCheckUpdates: () => void
   onLog: (msg: string, level?: "info" | "success" | "error") => void
+  dailyPrompt?: boolean
 }
 
 export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
@@ -39,6 +40,7 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
   onCloudStateChange,
   onCheckUpdates,
   onLog,
+  dailyPrompt = false,
 }) => {
   const { tx } = useI18n()
   const [busy, setBusy] = useState<string | null>(null)
@@ -51,6 +53,7 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
   }, [open])
 
   const isFirstGate = cloudState.mode === "unselected"
+  const isDailyReminder = Boolean(dailyPrompt && !cloudState.isAuthenticated && !isFirstGate)
 
   const handleGoogleLogin = async () => {
     if (!studioBridge.isWebView2) {
@@ -151,13 +154,20 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
               <DialogTitle>
                 {isFirstGate
                   ? tx("NEURALRIG STUDIO · 계정 또는 게스트 선택", "NEURALRIG STUDIO · ACCOUNT OR GUEST")
-                  : tx("GOOGLE 클라우드 계정 & 동기화", "GOOGLE CLOUD ACCOUNT & SYNC")}
+                  : isDailyReminder
+                    ? tx("오늘의 로그인 안내 · 클라우드 백업", "DAILY REMINDER · SIGN IN WITH GOOGLE")
+                    : tx("GOOGLE 클라우드 계정 & 동기화", "GOOGLE CLOUD ACCOUNT & SYNC")}
               </DialogTitle>
               <DialogDescription>
-                {tx(
-                  "Google 로그인 시 프리셋·프로필·커스텀 SPICE 기어 동기화 및 커뮤니티 허브 게시가 해금됩니다.",
-                  "Sign in with Google to sync presets & custom SPICE gear across PCs, or play offline anytime in Guest mode."
-                )}
+                {isDailyReminder
+                  ? tx(
+                      "게스트 모드로 사용 중입니다. Google 계정으로 로그인하면 프리셋·기타 프로필·SPICE 커스텀 기어가 자동 동기화됩니다.",
+                      "You are in Guest mode. Sign in with Google to sync presets, guitar profiles, and custom SPICE gear across PCs."
+                    )
+                  : tx(
+                      "Google 로그인 시 프리셋·프로필·커스텀 SPICE 기어 동기화 및 커뮤니티 허브 게시가 해금됩니다.",
+                      "Sign in with Google to sync presets & custom SPICE gear across PCs, or play offline anytime in Guest mode."
+                    )}
               </DialogDescription>
             </div>
           </div>
@@ -294,7 +304,11 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
                   className="w-full h-10"
                 >
                   <CloudOff className="size-4 text-muted-foreground" />
-                  <span>{tx("로그인 없이 게스트 / 오프라인 모드로 연주 시작", "CONTINUE AS GUEST (OFFLINE MODE)")}</span>
+                  <span>
+                    {isDailyReminder
+                      ? tx("오늘은 게스트로 계속하기", "CONTINUE AS GUEST TODAY")
+                      : tx("로그인 없이 게스트 / 오프라인 모드로 연주 시작", "CONTINUE AS GUEST (OFFLINE MODE)")}
+                  </span>
                 </Button>
               </div>
             </div>
