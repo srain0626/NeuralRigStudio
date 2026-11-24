@@ -92,8 +92,10 @@ public sealed class RigWebBridge : IDisposable
                 EmitEvent("audioState", new { isRunning = false, busy = false, state = $"예기치 않게 중지됨: {reason}", error = reason });
             });
         };
+        _cloud.SessionStateChanged += () => EmitEvent("cloudStateChanged", _cloud.GetState(_settings));
 
         LoadInitialState();
+        _ = Task.Run(() => _cloud.EnsureFreshSessionAsync(_settings, _mcpCts.Token));
         _ = Task.Run(() => RunMcpPipeServerLoopAsync(_mcpCts.Token));
     }
 

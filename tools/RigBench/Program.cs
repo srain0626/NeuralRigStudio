@@ -251,7 +251,24 @@ RunWhiteBoxVerification();
         },
     };
     CloudPlatformService.ValidateCustomDeviceSpecSafety(sampleSpec);
-    Console.WriteLine("[PASS] Platform Gate (LogSanitizer PII/Secret Scrub + OTA Choice/Force SemVer Policy + Community Hub SPICE Safety)");
+
+    static string MakeTestJwt(long expUnix)
+    {
+        static string B64Url(string s) => Convert.ToBase64String(Encoding.UTF8.GetBytes(s)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        return $"{B64Url("{\"alg\":\"HS256\",\"typ\":\"JWT\"}")}.{B64Url($"{{\"exp\":{expUnix}}}")}.sig";
+    }
+
+    var nowRef = DateTimeOffset.FromUnixTimeSeconds(1_760_000_000);
+    string expiredJwt = MakeTestJwt(nowRef.ToUnixTimeSeconds() - 60);
+    string validJwt = MakeTestJwt(nowRef.ToUnixTimeSeconds() + 3600);
+    string soonJwt = MakeTestJwt(nowRef.ToUnixTimeSeconds() + 30);
+    if (!CloudPlatformService.IsAccessTokenExpiringSoon(expiredJwt, TimeSpan.FromMinutes(2), nowRef) ||
+        CloudPlatformService.IsAccessTokenExpiringSoon(validJwt, TimeSpan.FromMinutes(2), nowRef) ||
+        !CloudPlatformService.IsAccessTokenExpiringSoon(soonJwt, TimeSpan.FromMinutes(2), nowRef) ||
+        CloudPlatformService.IsAccessTokenExpiringSoon("not-a-jwt", TimeSpan.FromMinutes(2), nowRef))
+        throw new Exception("CloudPlatformService.IsAccessTokenExpiringSoon check failed.");
+
+    Console.WriteLine("[PASS] Platform Gate (LogSanitizer PII/Secret Scrub + OTA Choice/Force SemVer Policy + Community Hub SPICE Safety + JWT Expiry Check)");
 }
 
 static ToneProfile BenchmarkWaveNetPreset(string label, (int inSz, int ch, int headSz, int[] dils, bool headBias)[] specs)

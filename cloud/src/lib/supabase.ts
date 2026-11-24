@@ -1,4 +1,4 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
 import type { NextRequest } from "next/server";
 
 export function isSupabaseConfigured(): boolean {
@@ -35,7 +35,7 @@ export function getSupabaseAdmin(): SupabaseClient | null {
   });
 }
 
-export function getSupabaseForRequest(req?: NextRequest): SupabaseClient | null {
+export function getSupabaseForToken(token?: string): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -48,13 +48,17 @@ export function getSupabaseForRequest(req?: NextRequest): SupabaseClient | null 
   }
   if (!anonKey) return null;
 
-  const token = extractBearerToken(req);
+  const trimmed = (token || "").trim();
   return createClient(url, anonKey, {
     auth: { persistSession: false, autoRefreshToken: false },
-    ...(token
-      ? { global: { headers: { Authorization: `Bearer ${token}` } } }
+    ...(trimmed
+      ? { global: { headers: { Authorization: `Bearer ${trimmed}` } } }
       : {}),
   });
+}
+
+export function getSupabaseForRequest(req?: NextRequest): SupabaseClient | null {
+  return getSupabaseForToken(extractBearerToken(req));
 }
 
 export interface AuthContext {
@@ -75,19 +79,10 @@ export function isAdminEmail(email: string | undefined | null): boolean {
   return list.includes(email.trim().toLowerCase());
 }
 
-export async function authenticateRequest(
-  req: NextRequest
-): Promise<AuthContext | null> {
-  const token = extractBearerToken(req);
-  if (!token) return null;
-
-  const anon = getSupabaseAnon();
-  if (!anon) return null;
-
-  const { data, error } = await anon.auth.getUser(token);
-  if (error || !data.user) return null;
-
-  const user = data.user;
+export async function resolveAuthContextForUser(
+  user: User,
+  accessToken: string
+): Promise<AuthContext> {
   const email = user.email || "";
   const meta = (user.user_metadata || {}) as Record<string, unknown>;
   const displayName =
@@ -95,7 +90,7 @@ export async function authenticateRequest(
   const avatarUrl = String(meta.avatar_url || meta.picture || "");
 
   let dbAdmin = false;
-  const db = getSupabaseForRequest(req);
+  const db = getSupabaseForToken(accessToken);
   if (db) {
     const { data: prof } = await db
       .from("profiles")
@@ -120,6 +115,21 @@ export async function authenticateRequest(
     avatarUrl,
     isAdmin: dbAdmin || isAdminEmail(email),
   };
+}
+
+export async function authenticateRequest(
+  req: NextRequest
+): Promise<AuthContext | null> {
+  const token = extractBearerToken(req);
+  if (!token) return null;
+
+  const anon = getSupabaseAnon();
+  if (!anon) return null;
+
+  const { data, error } = await anon.auth.getUser(token);
+  if (error || !data.user) return null;
+
+  return resolveAuthContextForUser(data.user, token);
 }
 
 export function scrubText(input: string): string {

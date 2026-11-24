@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateRequest, getSupabaseForRequest, scrubText } from "@/lib/supabase";
+import { authenticateRequest, getSupabaseAnon, getSupabaseForRequest, scrubText } from "@/lib/supabase";
 
 export async function POST(req: NextRequest) {
   const auth = await authenticateRequest(req);
-  const db = getSupabaseForRequest(req);
+  const db = auth ? getSupabaseForRequest(req) : getSupabaseAnon();
 
   const body = (await req.json()) as {
     title?: string;

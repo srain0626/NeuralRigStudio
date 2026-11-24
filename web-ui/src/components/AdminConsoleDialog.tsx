@@ -29,6 +29,7 @@ import type { AdminOverviewDto } from "@/types/rig"
 interface AdminConsoleDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  onReLogin?: () => void
   onLog: (msg: string, level?: "info" | "success" | "error") => void
 }
 
@@ -37,6 +38,7 @@ type AdminTab = "analytics" | "bugs" | "ota"
 export const AdminConsoleDialog: React.FC<AdminConsoleDialogProps> = ({
   open,
   onOpenChange,
+  onReLogin,
   onLog,
 }) => {
   const { tx } = useI18n()
@@ -159,8 +161,13 @@ export const AdminConsoleDialog: React.FC<AdminConsoleDialogProps> = ({
 
         <ScrollArea className="h-[480px] px-5 py-4 bg-background">
           {errorMsg && (
-            <div className="mb-3 rounded-sm border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
-              {errorMsg}
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-sm border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+              <span>{errorMsg}</span>
+              {onReLogin && /만료|로그인|401|Unauthorized/i.test(errorMsg) && (
+                <Button size="xs" variant="signal" onClick={onReLogin}>
+                  {tx("다시 로그인", "SIGN IN AGAIN")}
+                </Button>
+              )}
             </div>
           )}
 

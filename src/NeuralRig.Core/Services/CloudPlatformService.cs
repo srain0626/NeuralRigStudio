@@ -103,6 +103,16 @@ public sealed class CloudPlatformService
     private CloudAuthSession? _session;
     private readonly List<QueuedBugReportDto> _bugOutbox = new();
     private readonly object _lock = new();
+    private readonly SemaphoreSlim _refreshGate = new(1, 1);
+
+    public event Action? SessionStateChanged;
+
+    private enum RefreshOutcome
+    {
+        Refreshed,
+        SessionExpired,
+        TransientError,
+    }
 
     private static string AppDataDir
         => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "NeuralRigStudio");
@@ -246,7 +256,7 @@ public sealed class CloudPlatformService
         Action<List<SignalChainConfigDto>?, List<GuitarProfileDto>?, List<CustomDeviceSpecDto>?> mergeRemoteData,
         CancellationToken ct = default)
     {
-        var (baseUrl, session) = RequireAuthenticatedEndpoint(settings);
+        var (baseUrl, _) = RequireAuthenticatedEndpoint(settings);
 
         // 1) Push local state first (uploading active settings, presets, guitar profiles, custom SPICE gear)
         var putPayload = new
@@ -271,11 +281,15 @@ public sealed class CloudPlatformService
             customDevices = localCustomDevices,
         };
 
-        using (var req = BuildAuthRequest(HttpMethod.Put, $"{baseUrl}/api/sync", session.AccessToken, putPayload))
-        using (var resp = await SharedHttp.SendAsync(req, ct))
+        using (var resp = await SendAuthenticatedAsync(
+                   settings,
+                   token => BuildAuthRequest(HttpMethod.Put, $"{baseUrl}/api/sync", token, putPayload),
+                   ct))
         {
-            resp.EnsureSuccessStatusCode();
             string body = await resp.Content.ReadAsStringAsync(ct);
+            if (!resp.IsSuccessStatusCode)
+                throw new InvalidOperationException($"클라우드 동기화 실패 ({(int)resp.StatusCode}): {LogSanitizer.Scrub(body)}");
+
             using var doc = JsonDocument.Parse(body);
             if (doc.RootElement.TryGetProperty("user", out var uEl))
             {
@@ -295,8 +309,10 @@ public sealed class CloudPlatformService
         }
 
         // 2) Pull latest cloud snapshot (merge safely)
-        using (var getReq = BuildAuthRequest(HttpMethod.Get, $"{baseUrl}/api/sync", session.AccessToken))
-        using (var getResp = await SharedHttp.SendAsync(getReq, ct))
+        using (var getResp = await SendAuthenticatedAsync(
+                   settings,
+                   token => BuildAuthRequest(HttpMethod.Get, $"{baseUrl}/api/sync", token),
+                   ct))
         {
             if (getResp.IsSuccessStatusCode)
             {
@@ -390,7 +406,7 @@ public sealed class CloudPlatformService
         string[] tags,
         CancellationToken ct = default)
     {
-        var (baseUrl, session) = RequireAuthenticatedEndpoint(settings);
+        var (baseUrl, _) = RequireAuthenticatedEndpoint(settings);
         ValidateCustomDeviceSpecSafety(spec);
 
         var payload = new
@@ -406,8 +422,10 @@ public sealed class CloudPlatformService
             spec,
         };
 
-        using var req = BuildAuthRequest(HttpMethod.Post, $"{baseUrl}/api/hub", session.AccessToken, payload);
-        using var resp = await SharedHttp.SendAsync(req, ct);
+        using var resp = await SendAuthenticatedAsync(
+            settings,
+            token => BuildAuthRequest(HttpMethod.Post, $"{baseUrl}/api/hub", token, payload),
+            ct);
         string raw = await resp.Content.ReadAsStringAsync(ct);
         if (!resp.IsSuccessStatusCode)
             throw new InvalidOperationException($"Community Hub 업로드 실패 ({(int)resp.StatusCode}): {LogSanitizer.Scrub(raw)}");
@@ -570,6 +588,19 @@ public sealed class CloudPlatformService
         {
             string? token;
             lock (_lock) { token = _session?.AccessToken; }
+            if (!string.IsNullOrWhiteSpace(token) && IsAccessTokenExpiringSoon(token, TimeSpan.FromMinutes(2)))
+            {
+                var outcome = await TryRefreshSessionAsync(settings, token, ct);
+                if (outcome == RefreshOutcome.Refreshed)
+                {
+                    lock (_lock) { token = _session?.AccessToken; }
+                }
+                else if (outcome == RefreshOutcome.SessionExpired)
+                {
+                    token = null;
+                }
+            }
+
             using var req = BuildAuthRequest(HttpMethod.Post, $"{baseUrl}/api/bugs", token, new
             {
                 title = entry.Title,
@@ -595,8 +626,10 @@ public sealed class CloudPlatformService
         if (!session.User.IsAdmin)
             throw new InvalidOperationException("관리자(Admin) 권한이 있는 Google 계정으로만 열람할 수 있습니다.");
 
-        using var req = BuildAuthRequest(HttpMethod.Get, $"{baseUrl}/api/admin/overview", session.AccessToken);
-        using var resp = await SharedHttp.SendAsync(req, ct);
+        using var resp = await SendAuthenticatedAsync(
+            settings,
+            token => BuildAuthRequest(HttpMethod.Get, $"{baseUrl}/api/admin/overview", token),
+            ct);
         string json = await resp.Content.ReadAsStringAsync(ct);
         if (!resp.IsSuccessStatusCode)
             throw new InvalidOperationException($"어드민 통계 조회 실패 ({(int)resp.StatusCode}): {LogSanitizer.Scrub(json)}");
@@ -610,9 +643,14 @@ public sealed class CloudPlatformService
         var (baseUrl, session) = RequireAuthenticatedEndpoint(settings);
         if (!session.User.IsAdmin) throw new InvalidOperationException("Admin privilege required.");
 
-        using var req = BuildAuthRequest(HttpMethod.Patch, $"{baseUrl}/api/admin/bugs", session.AccessToken, new { id, status });
-        using var resp = await SharedHttp.SendAsync(req, ct);
-        resp.EnsureSuccessStatusCode();
+        using var resp = await SendAuthenticatedAsync(
+            settings,
+            token => BuildAuthRequest(HttpMethod.Patch, $"{baseUrl}/api/admin/bugs", token, new { id, status }),
+            ct);
+        string raw = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new InvalidOperationException($"버그 상태 변경 실패 ({(int)resp.StatusCode}): {LogSanitizer.Scrub(raw)}");
+
         return new { ok = true, id, status };
     }
 
@@ -621,13 +659,228 @@ public sealed class CloudPlatformService
         var (baseUrl, session) = RequireAuthenticatedEndpoint(settings);
         if (!session.User.IsAdmin) throw new InvalidOperationException("Admin privilege required.");
 
-        using var req = BuildAuthRequest(HttpMethod.Post, $"{baseUrl}/api/admin/releases", session.AccessToken, payload);
-        using var resp = await SharedHttp.SendAsync(req, ct);
+        using var resp = await SendAuthenticatedAsync(
+            settings,
+            token => BuildAuthRequest(HttpMethod.Post, $"{baseUrl}/api/admin/releases", token, payload),
+            ct);
         string raw = await resp.Content.ReadAsStringAsync(ct);
         if (!resp.IsSuccessStatusCode)
             throw new InvalidOperationException($"OTA 정책 저장 실패 ({(int)resp.StatusCode}): {LogSanitizer.Scrub(raw)}");
 
         return new { ok = true };
+    }
+
+    public async Task EnsureFreshSessionAsync(AppSettings settings, CancellationToken ct = default)
+    {
+        try
+        {
+            string? token;
+            lock (_lock) { token = _session?.AccessToken; }
+            if (string.IsNullOrWhiteSpace(token) || !IsAccessTokenExpiringSoon(token, TimeSpan.FromMinutes(5)))
+                return;
+
+            await TryRefreshSessionAsync(settings, token, ct);
+        }
+        catch
+        {
+            // Non-fatal background check
+        }
+    }
+
+    public static bool IsAccessTokenExpiringSoon(string? jwt, TimeSpan leeway, DateTimeOffset? utcNow = null)
+    {
+        if (string.IsNullOrWhiteSpace(jwt)) return false;
+        string[] parts = jwt.Split('.');
+        if (parts.Length != 3 || string.IsNullOrWhiteSpace(parts[1])) return false;
+
+        try
+        {
+            string padded = parts[1].Replace('-', '+').Replace('_', '/');
+            int mod = padded.Length % 4;
+            if (mod == 1) return false;
+            if (mod > 0) padded += new string('=', 4 - mod);
+
+            byte[] bytes = Convert.FromBase64String(padded);
+            using var doc = JsonDocument.Parse(bytes);
+            if (!doc.RootElement.TryGetProperty("exp", out var expEl) || !expEl.TryGetInt64(out long expUnix))
+                return false;
+
+            DateTimeOffset now = utcNow ?? DateTimeOffset.UtcNow;
+            return DateTimeOffset.FromUnixTimeSeconds(expUnix) <= now + leeway;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void ClearSessionAndNotify()
+    {
+        lock (_lock)
+        {
+            _session = null;
+            try { if (File.Exists(SessionPath)) File.Delete(SessionPath); } catch { }
+        }
+        SessionStateChanged?.Invoke();
+    }
+
+    private async Task<RefreshOutcome> TryRefreshSessionAsync(AppSettings settings, string staleAccessToken, CancellationToken ct)
+    {
+        await _refreshGate.WaitAsync(ct);
+        try
+        {
+            string refreshToken;
+            lock (_lock)
+            {
+                if (_session == null)
+                    return RefreshOutcome.SessionExpired;
+
+                if (!string.Equals(_session.AccessToken, staleAccessToken, StringComparison.Ordinal) &&
+                    !string.IsNullOrWhiteSpace(_session.AccessToken) &&
+                    !IsAccessTokenExpiringSoon(_session.AccessToken, TimeSpan.FromMinutes(1)))
+                {
+                    return RefreshOutcome.Refreshed;
+                }
+
+                refreshToken = _session.RefreshToken ?? "";
+            }
+
+            if (string.IsNullOrWhiteSpace(refreshToken))
+            {
+                ClearSessionAndNotify();
+                return RefreshOutcome.SessionExpired;
+            }
+
+            string baseUrl = ResolveCloudBaseUrl(settings);
+            if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out _))
+                return RefreshOutcome.TransientError;
+
+            HttpResponseMessage resp;
+            try
+            {
+                using var req = BuildAuthRequest(HttpMethod.Post, $"{baseUrl}/api/auth/refresh", null, new { refreshToken });
+                resp = await SharedHttp.SendAsync(req, ct);
+            }
+            catch (HttpRequestException)
+            {
+                return RefreshOutcome.TransientError;
+            }
+            catch (TaskCanceledException)
+            {
+                return RefreshOutcome.TransientError;
+            }
+
+            using (resp)
+            {
+                if (resp.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.BadRequest)
+                {
+                    ClearSessionAndNotify();
+                    return RefreshOutcome.SessionExpired;
+                }
+
+                if (!resp.IsSuccessStatusCode)
+                    return RefreshOutcome.TransientError;
+
+                string body = await resp.Content.ReadAsStringAsync(ct);
+                using var doc = JsonDocument.Parse(body);
+                var root = doc.RootElement;
+
+                string newAccess = root.TryGetProperty("accessToken", out var atEl) && atEl.ValueKind == JsonValueKind.String
+                    ? atEl.GetString() ?? ""
+                    : "";
+                if (string.IsNullOrWhiteSpace(newAccess))
+                    return RefreshOutcome.TransientError;
+
+                string newRefresh = root.TryGetProperty("refreshToken", out var rtEl) && rtEl.ValueKind == JsonValueKind.String
+                    ? rtEl.GetString() ?? ""
+                    : "";
+
+                CloudUserDto? updatedUser = null;
+                if (root.TryGetProperty("user", out var uEl) && uEl.ValueKind == JsonValueKind.Object)
+                    updatedUser = JsonSerializer.Deserialize<CloudUserDto>(uEl.GetRawText(), JsonOpts);
+
+                lock (_lock)
+                {
+                    if (_session == null)
+                        return RefreshOutcome.SessionExpired;
+
+                    _session.AccessToken = newAccess;
+                    if (!string.IsNullOrWhiteSpace(newRefresh))
+                        _session.RefreshToken = newRefresh;
+                    if (updatedUser != null)
+                    {
+                        if (!string.IsNullOrWhiteSpace(updatedUser.Id)) _session.User.Id = updatedUser.Id;
+                        if (!string.IsNullOrWhiteSpace(updatedUser.Email)) _session.User.Email = updatedUser.Email;
+                        if (!string.IsNullOrWhiteSpace(updatedUser.DisplayName)) _session.User.DisplayName = updatedUser.DisplayName;
+                        if (!string.IsNullOrWhiteSpace(updatedUser.AvatarUrl)) _session.User.AvatarUrl = updatedUser.AvatarUrl;
+                        _session.User.IsAdmin = updatedUser.IsAdmin;
+                    }
+                    SaveSessionToDiskLocked();
+                }
+            }
+
+            SessionStateChanged?.Invoke();
+            return RefreshOutcome.Refreshed;
+        }
+        finally
+        {
+            _refreshGate.Release();
+        }
+    }
+
+    private async Task<HttpResponseMessage> SendAuthenticatedAsync(
+        AppSettings settings,
+        Func<string, HttpRequestMessage> requestFactory,
+        CancellationToken ct)
+    {
+        var (_, session) = RequireAuthenticatedEndpoint(settings);
+        string token = session.AccessToken;
+
+        if (IsAccessTokenExpiringSoon(token, TimeSpan.FromMinutes(2)))
+        {
+            var proactive = await TryRefreshSessionAsync(settings, token, ct);
+            if (proactive == RefreshOutcome.SessionExpired)
+                throw new InvalidOperationException("Google 로그인 세션이 만료되었습니다. 상단 계정 메뉴에서 다시 로그인해 주세요.");
+
+            if (proactive == RefreshOutcome.Refreshed)
+            {
+                lock (_lock)
+                {
+                    if (_session == null || string.IsNullOrWhiteSpace(_session.AccessToken))
+                        throw new InvalidOperationException("Google 로그인 세션이 만료되었습니다. 상단 계정 메뉴에서 다시 로그인해 주세요.");
+                    token = _session.AccessToken;
+                }
+            }
+        }
+
+        HttpResponseMessage resp;
+        using (var req1 = requestFactory(token))
+        {
+            resp = await SharedHttp.SendAsync(req1, ct);
+        }
+
+        if (resp.StatusCode != HttpStatusCode.Unauthorized)
+            return resp;
+
+        resp.Dispose();
+        var reactive = await TryRefreshSessionAsync(settings, token, ct);
+        if (reactive == RefreshOutcome.Refreshed)
+        {
+            string refreshedToken;
+            lock (_lock)
+            {
+                if (_session == null || string.IsNullOrWhiteSpace(_session.AccessToken))
+                    throw new InvalidOperationException("Google 로그인 세션이 만료되었습니다. 상단 계정 메뉴에서 다시 로그인해 주세요.");
+                refreshedToken = _session.AccessToken;
+            }
+            using var req2 = requestFactory(refreshedToken);
+            return await SharedHttp.SendAsync(req2, ct);
+        }
+
+        if (reactive == RefreshOutcome.SessionExpired)
+            throw new InvalidOperationException("Google 로그인 세션이 만료되었습니다. 상단 계정 메뉴에서 다시 로그인해 주세요.");
+
+        throw new InvalidOperationException("인증 세션을 갱신하지 못했습니다. 네트워크 상태를 확인하거나 상단 계정 메뉴에서 다시 로그인해 주세요.");
     }
 
     private (string BaseUrl, CloudAuthSession Session) RequireAuthenticatedEndpoint(AppSettings settings)

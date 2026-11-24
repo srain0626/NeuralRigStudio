@@ -1465,10 +1465,14 @@ export default function App() {
       />
 
       {/* ── Admin Analytics & OTA Release Console (Admin Only) ── */}
-      {cloudState.user?.isAdmin && (
+      {(cloudState.user?.isAdmin || adminOpen) && (
         <AdminConsoleDialog
           open={adminOpen}
           onOpenChange={setAdminOpen}
+          onReLogin={() => {
+            setAdminOpen(false)
+            setAuthOpen(true)
+          }}
           onLog={addLog}
         />
       )}

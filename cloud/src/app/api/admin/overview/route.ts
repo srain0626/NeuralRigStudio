@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
   ] = await Promise.all([
     db.from("profiles").select("id, updated_at", { count: "exact" }),
     db.from("user_settings_sync").select("user_id", { count: "exact" }),
-    db.from("hub_gears").select("name, category, downloads, owner_name").order("downloads", { ascending: false }).limit(8),
+    db.from("hub_gears").select("name, category, downloads, owner_name", { count: "exact" }).order("downloads", { ascending: false }).limit(8),
     db.from("bug_reports").select("*").order("created_at", { ascending: false }).limit(25),
     db.from("telemetry_events").select("event_type, app_version, platform, created_at").order("created_at", { ascending: false }).limit(30),
     db.from("app_releases").select("*").eq("is_active", true).order("created_at", { ascending: false }).limit(1),
@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
       totalUsers: usersRes.count || (usersRes.data?.length ?? 0),
       active24hUsers: active24h,
       totalSyncedConfigs: syncRes.count || 0,
-      communityGearCount: hubRes.data?.length ?? 0,
+      communityGearCount: hubRes.count ?? (hubRes.data?.length ?? 0),
       openBugCount: openBugs,
       totalBugCount: bugs.length,
       totalHubDownloads: totalDownloads,
