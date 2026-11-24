@@ -1,0 +1,798 @@
+/* ==========================================================================
+   NEURALRIG STUDIO — ACOUSTIC MONOGRAPH & ANODIZED HARDWARE DESIGN SYSTEM
+   Zero-gradient, zero-glassmorphism tactile industrial editorial sheet.
+   ========================================================================== */
+
+:root,
+[data-chassis="putty"] {
+  --bg: #e6e2d8;
+  --bg-elevated: #efece4;
+  --bg-recessed: #dad5c9;
+  --bg-hover: #e0dcd1;
+  --ink: #141413;
+  --ink-2: #45433d;
+  --ink-3: #736f66;
+  --hairline: #c4bfb2;
+  --hairline-strong: #1b1b19;
+  --signal: #ff4400;
+  --signal-ink: #ffffff;
+  --signal-soft: rgba(255, 68, 0, 0.1);
+
+  /* Recessed OLED Window (constant physical glass across finishes) */
+  --oled-bezel: #1b1c1a;
+  --oled-bg: #0a0b0a;
+  --oled-elevated: #131513;
+  --oled-panel: #181b18;
+  --oled-border: #272a26;
+  --oled-ink: #f2efe8;
+  --oled-muted: #8a887f;
+  --oled-dim: #57564f;
+
+  --led-ok: #22c55e;
+  --led-amber: #f59e0b;
+  --led-cyan: #2dd4bf;
+  --led-violet: #818cf8;
+
+  --shadow-bezel: inset 0 2px 6px rgba(0, 0, 0, 0.65), 0 1px 0 rgba(255, 255, 255, 0.55);
+  --shadow-plate: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 2px 0 rgba(20, 20, 19, 0.08);
+  --topbar-bg: rgba(230, 226, 216, 0.88);
+}
+
+[data-chassis="carbon"] {
+  --bg: #111110;
+  --bg-elevated: #181816;
+  --bg-recessed: #0b0b0a;
+  --bg-hover: #1f1f1c;
+  --ink: #f0ede6;
+  --ink-2: #b5b1a7;
+  --ink-3: #7c7970;
+  --hairline: #2a2926;
+  --hairline-strong: #e6e2d8;
+  --signal: #ff4400;
+  --signal-ink: #ffffff;
+  --signal-soft: rgba(255, 68, 0, 0.14);
+
+  --oled-bezel: #070807;
+  --oled-bg: #080908;
+  --oled-elevated: #111311;
+  --oled-panel: #161916;
+  --oled-border: #252824;
+  --oled-ink: #f2efe8;
+  --oled-muted: #8a887f;
+  --oled-dim: #57564f;
+
+  --shadow-bezel: inset 0 2px 8px rgba(0, 0, 0, 0.85), 0 1px 0 rgba(255, 255, 255, 0.06);
+  --shadow-plate: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 2px 0 rgba(0, 0, 0, 0.45);
+  --topbar-bg: rgba(17, 17, 16, 0.88);
+}
+
+:root {
+  --font-sans: "Space Grotesk", "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
+    "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-serif: "Instrument Serif", Georgia, "Times New Roman", serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  margin: 0;
+  background-color: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  word-break: keep-all;
+  overflow-wrap: break-word;
+  transition: background-color 220ms ease, color 220ms ease;
+  position: relative;
+  overflow-x: hidden;
+}
+
+/* Subtle anodized bead-blasted surface grain (no blur orbs, pure tactile grain) */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.028;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+::selection {
+  background: var(--signal);
+  color: #ffffff;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* ==========================================================================
+   ARCHITECTURAL FRAME & EXPOSED 1PX SWISS HAIRLINE GRID
+   ========================================================================== */
+
+.nr-viewport {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.nr-sheet {
+  width: 100%;
+  max-width: 1380px;
+  margin: 0 auto;
+  border-left: 1px solid var(--hairline);
+  border-right: 1px solid var(--hairline);
+  background: var(--bg);
+  transition: background-color 220ms ease, border-color 220ms ease;
+}
+
+/* Sticky Machined Utility Bar */
+.nr-topbar-wrap {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--topbar-bg);
+  backdrop-filter: blur(10px);
+}
+
+.nr-topbar {
+  max-width: 1380px;
+  margin: 0 auto;
+  height: 54px;
+  padding: 0 24px;
+  border-left: 1px solid var(--hairline);
+  border-right: 1px solid var(--hairline);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.nr-brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  font-size: 15px;
+}
+
+.nr-brand-mark {
+  width: 26px;
+  height: 26px;
+  border-radius: 2px;
+  background: var(--oled-bg);
+  border: 1px solid var(--oled-border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.nr-stamp {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border: 1px solid var(--hairline);
+  border-radius: 2px;
+  color: var(--ink-2);
+  background: var(--bg-elevated);
+  font-variant-numeric: tabular-nums;
+}
+
+.nr-nav {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.nr-nav a {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: var(--ink-2);
+  transition: color 140ms ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.nr-nav a span {
+  color: var(--ink-3);
+  font-size: 10px;
+}
+
+.nr-nav a:hover {
+  color: var(--signal);
+}
+
+.nr-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Tactile Hardware Segmented Switch */
+.nr-hw-switch {
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-recessed);
+  border: 1px solid var(--hairline);
+  border-radius: 2px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.nr-hw-switch button {
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  padding: 4px 8px;
+  border-radius: 1px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 130ms ease;
+}
+
+.nr-hw-switch button[data-active="true"] {
+  background: var(--bg-elevated);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
+}
+
+.nr-swatch-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+/* Spec Ribbon */
+.nr-spec-ribbon {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+  padding: 9px 24px;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--bg-elevated);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.nr-spec-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.nr-spec-key {
+  color: var(--ink-3);
+}
+
+/* Section Frame + Corner Fiducial Crosshairs (+) */
+.nr-section {
+  position: relative;
+  border-bottom: 1px solid var(--hairline);
+  scroll-margin-top: 56px;
+}
+
+.nr-section::before,
+.nr-section::after {
+  content: "+";
+  position: absolute;
+  bottom: -8.5px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--ink-3);
+  pointer-events: none;
+  z-index: 4;
+}
+
+.nr-section::before {
+  left: -4px;
+}
+
+.nr-section::after {
+  right: -4px;
+}
+
+/* Editorial Typography */
+.nr-index-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.nr-index-tag::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  background: var(--signal);
+  display: inline-block;
+}
+
+.nr-serif-accent {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  font-size: 1.08em;
+}
+
+.nr-hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+}
+
+.nr-hero-copy {
+  padding: 40px 32px;
+  border-right: 1px solid var(--hairline);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 28px;
+}
+
+.nr-hero-title {
+  margin: 16px 0 0;
+  font-size: clamp(2.05rem, 3.05vw, 3.05rem);
+  line-height: 1.1;
+  letter-spacing: -0.038em;
+  font-weight: 700;
+}
+
+.nr-hero-lead {
+  margin: 20px 0 0;
+  font-size: 15.5px;
+  line-height: 1.68;
+  color: var(--ink-2);
+  max-width: 48ch;
+}
+
+.nr-hero-stage {
+  padding: 28px;
+  background: var(--bg-recessed);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* Machined Buttons */
+.nr-cta-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  align-items: stretch;
+}
+
+.nr-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 15px;
+  background: var(--signal);
+  color: var(--signal-ink);
+  border: 1px solid #cc3600;
+  border-radius: 2px;
+  font-weight: 600;
+  font-size: 13.5px;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  transition: transform 100ms ease, filter 140ms ease;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.24) inset, 0 2px 0 rgba(0, 0, 0, 0.22);
+}
+
+.nr-btn-primary:hover {
+  filter: brightness(1.06);
+}
+
+.nr-btn-primary:active {
+  transform: translateY(1px);
+}
+
+.nr-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 14px;
+  background: var(--bg-elevated);
+  color: var(--ink);
+  border: 1px solid var(--hairline-strong);
+  border-radius: 2px;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  box-shadow: var(--shadow-plate);
+  transition: background-color 140ms ease, transform 100ms ease;
+}
+
+.nr-btn-secondary:hover {
+  background: var(--bg-hover);
+}
+
+.nr-btn-secondary:active {
+  transform: translateY(1px);
+}
+
+.nr-btn-sub {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  opacity: 0.85;
+  letter-spacing: 0.03em;
+}
+
+/* Hero Micro Metrics Strip */
+.nr-micro-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid var(--hairline);
+  padding-top: 18px;
+  gap: 14px;
+}
+
+.nr-metric-val {
+  font-family: var(--font-mono);
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.nr-metric-lbl {
+  margin-top: 3px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  letter-spacing: 0.04em;
+}
+
+/* ==========================================================================
+   RECESSED OLED HARDWARE DECK
+   ========================================================================== */
+
+.nr-oled-bezel {
+  background: var(--oled-bezel);
+  border: 1px solid #2b2d29;
+  border-radius: 4px;
+  padding: 10px;
+  box-shadow: var(--shadow-bezel);
+  position: relative;
+}
+
+.nr-oled-screen {
+  background-color: var(--oled-bg);
+  background-image: radial-gradient(rgba(242, 239, 232, 0.09) 1px, transparent 1px);
+  background-size: 14px 14px;
+  border: 1px solid var(--oled-border);
+  border-radius: 2px;
+  color: var(--oled-ink);
+  overflow: hidden;
+}
+
+.nr-screw-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 7px;
+  padding: 0 2px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  color: #7c7e78;
+}
+
+.nr-screw {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid #3f423d;
+  background: #141513;
+  position: relative;
+  display: inline-block;
+}
+
+.nr-screw::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 1px;
+  right: 1px;
+  height: 1px;
+  background: #3f423d;
+  transform: rotate(-32deg);
+}
+
+@keyframes nrCableDash {
+  to {
+    stroke-dashoffset: -18;
+  }
+}
+
+.nr-cable-live {
+  stroke-dasharray: 5 4;
+  animation: nrCableDash 0.68s linear infinite;
+}
+
+@keyframes nrLedPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.38;
+  }
+}
+
+.nr-led-live {
+  animation: nrLedPulse 1.4s ease-in-out infinite;
+}
+
+/* ==========================================================================
+   EDITORIAL SECTION HEADERS & GRIDS
+   ========================================================================== */
+
+.nr-sec-head {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.nr-sec-head-left {
+  padding: 32px;
+  border-right: 1px solid var(--hairline);
+}
+
+.nr-sec-head-right {
+  padding: 32px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.nr-sec-title {
+  margin: 12px 0 0;
+  font-size: clamp(1.65rem, 2.5vw, 2.35rem);
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+  font-weight: 700;
+}
+
+.nr-sec-desc {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.68;
+  color: var(--ink-2);
+  max-width: 58ch;
+}
+
+/* Audio Topologies + Patch Sheet Split */
+.nr-split-2 {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+}
+
+.nr-split-bench {
+  display: grid;
+  grid-template-columns: minmax(0, 6.6fr) minmax(0, 5.4fr);
+}
+
+.nr-col-left {
+  border-right: 1px solid var(--hairline);
+}
+
+.nr-topo-card {
+  padding: 20px 28px;
+  border-bottom: 1px solid var(--hairline);
+  transition: background-color 140ms ease;
+}
+
+.nr-topo-card:last-child {
+  border-bottom: 0;
+}
+
+.nr-topo-card:hover {
+  background: var(--bg-elevated);
+}
+
+/* Vinyl Patch Liner Sheet */
+.nr-patch-row {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--hairline);
+  padding: 15px 28px;
+  display: grid;
+  grid-template-columns: 52px minmax(160px, 1.1fr) minmax(0, 2fr) auto;
+  align-items: center;
+  gap: 16px;
+  cursor: pointer;
+  color: var(--ink);
+  transition: background-color 130ms ease;
+}
+
+.nr-patch-row:last-child {
+  border-bottom: 0;
+}
+
+.nr-patch-row:hover {
+  background: var(--bg-elevated);
+}
+
+.nr-patch-row[data-selected="true"] {
+  background: var(--bg-elevated);
+  box-shadow: inset 3px 0 0 var(--signal);
+}
+
+/* MCP Blueprint Pipeline */
+.nr-mcp-steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border-top: 1px solid var(--hairline);
+}
+
+.nr-mcp-step {
+  padding: 24px 22px;
+  border-right: 1px solid var(--hairline);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.nr-mcp-step:last-child {
+  border-right: 0;
+}
+
+/* Calibration Certificate Table */
+.nr-calib-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.nr-calib-table th,
+.nr-calib-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--hairline);
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+
+.nr-calib-table th {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-3);
+  background: var(--bg-recessed);
+  white-space: nowrap;
+}
+
+/* Responsive Refinements */
+@media (max-width: 1080px) {
+  .nr-hero-grid,
+  .nr-sec-head,
+  .nr-split-2,
+  .nr-split-bench {
+    grid-template-columns: 1fr;
+  }
+
+  .nr-hero-copy,
+  .nr-sec-head-left,
+  .nr-col-left {
+    border-right: 0;
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .nr-mcp-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .nr-mcp-step {
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .nr-nav {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .nr-sheet,
+  .nr-topbar {
+    border-left: 0;
+    border-right: 0;
+  }
+
+  .nr-topbar {
+    padding: 0 16px;
+  }
+
+  .nr-hero-copy {
+    padding: 32px 18px;
+  }
+
+  .nr-hero-stage {
+    padding: 14px;
+  }
+
+  .nr-sec-head-left,
+  .nr-sec-head-right {
+    padding: 24px 18px;
+  }
+
+  .nr-patch-row {
+    grid-template-columns: 42px 1fr;
+    gap: 8px 12px;
+    padding: 14px 18px;
+  }
+
+  .nr-patch-chain-cell {
+    grid-column: 2 / -1;
+  }
+
+  .nr-patch-tag-cell {
+    display: none;
+  }
+
+  .nr-mcp-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .nr-mcp-step {
+    border-right: 0;
+  }
+
+  .nr-micro-metrics {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .nr-cta-row {
+    grid-template-columns: 1fr;
+  }
+}
