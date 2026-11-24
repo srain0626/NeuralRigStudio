@@ -117,12 +117,14 @@ public sealed class CloudPlatformService
         LoadBugOutboxFromDisk();
     }
 
+    public const string DefaultCloudBaseUrl = "https://neuralrig-studio-cloud.vercel.app";
+
     public static string ResolveCloudBaseUrl(AppSettings settings)
     {
         string? envUrl = Environment.GetEnvironmentVariable("NEURALRIG_CLOUD_URL");
         string raw = !string.IsNullOrWhiteSpace(settings.CloudApiBaseUrl)
             ? settings.CloudApiBaseUrl
-            : (envUrl ?? "");
+            : (!string.IsNullOrWhiteSpace(envUrl) ? envUrl : DefaultCloudBaseUrl);
         return raw.Trim().TrimEnd('/');
     }
 

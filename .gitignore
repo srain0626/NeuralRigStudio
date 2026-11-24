@@ -16,8 +16,12 @@ cloud/node_modules/
 cloud/.next/
 cloud/.env*.local
 cloud/next-env.d.ts
+.vercel/
 packages/*/node_modules/
 packages/*/*.tgz
 dist-release/
 *.tsbuildinfo
 *.zip
+
+.vercel
+.env*
