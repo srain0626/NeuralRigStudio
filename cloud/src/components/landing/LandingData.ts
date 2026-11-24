@@ -1,16 +1,34 @@
 export type Locale = "ko" | "en";
 
+export interface StudioSlotPreview {
+  cat: string;
+  dot: string;
+  name: string;
+  pct: number;
+  badge?: string;
+}
+
 export interface RigPresetVoice {
   id: "clean" | "crunch" | "fuzz";
   bank: string;
+  presetTitle: string;
+  scene: "A" | "B" | "C" | "D";
+  bpm: number;
+  parallel: boolean;
   labelKo: string;
   labelEn: string;
-  circuit: string;
+  inspectorBadge: string;
+  inspectorModel: string;
   drive: number;
   asymmetry: number;
   tone: number;
-  metricLabel: string;
-  metricValue: string;
+  knobs: [
+    { label: string; val: number; unit?: string },
+    { label: string; val: number; unit?: string },
+    { label: string; val: number; unit?: string },
+  ];
+  row1: (StudioSlotPreview | null)[];
+  row2: (StudioSlotPreview | null)[];
   notes: { freqs: number[]; dur: number }[];
 }
 
@@ -18,14 +36,38 @@ export const HERO_VOICES: RigPresetVoice[] = [
   {
     id: "clean",
     bank: "1A",
+    presetTitle: "Velvet Neo-Soul Clean",
+    scene: "D",
+    bpm: 120,
+    parallel: true,
     labelKo: "벨벳 클린",
     labelEn: "Velvet Clean",
-    circuit: "12AX7 + FMV Stack",
+    inspectorBadge: "Guitar Amp",
+    inspectorModel: "JP Stereo Jazz 120",
     drive: 0.24,
     asymmetry: 0.14,
     tone: 0.62,
-    metricLabel: "650Hz Scoop",
-    metricValue: "-9.7 dB",
+    knobs: [
+      { label: "VOLUME", val: 4.6 },
+      { label: "TREBLE", val: 6.4 },
+      { label: "MASTER", val: 5.5 },
+    ],
+    row1: [
+      { cat: "DYN", dot: "#64748b", name: "OTA Comp", pct: 46 },
+      { cat: "DRIVE", dot: "#ff8c42", name: "Brass Ray", pct: 28 },
+      { cat: "AMP", dot: "#ff6b24", name: "JP Jazz 120", pct: 74 },
+      { cat: "CAB", dot: "#4353ff", name: "2x12 Jazz", pct: 22, badge: "2×" },
+      { cat: "DELAY", dot: "#0e8a7d", name: "White Dly", pct: 34, badge: "1/8." },
+      { cat: "REVERB", dot: "#2b8a6e", name: "Celestial", pct: 42 },
+    ],
+    row2: [
+      null,
+      { cat: "MOD", dot: "#15803d", name: "Dimension", pct: 52 },
+      null,
+      null,
+      null,
+      null,
+    ],
     notes: [
       { freqs: [164.81, 246.94, 311.13, 392.0], dur: 0.7 },
       { freqs: [329.63, 493.88], dur: 0.42 },
@@ -36,14 +78,38 @@ export const HERO_VOICES: RigPresetVoice[] = [
   {
     id: "crunch",
     bank: "1C",
-    labelKo: "비대칭 크런치",
-    labelEn: "Asym Crunch",
-    circuit: "SD-1 3×Diode + 2203",
+    presetTitle: "Brit 800 Arena Crunch",
+    scene: "B",
+    bpm: 128,
+    parallel: true,
+    labelKo: "아레나 크런치",
+    labelEn: "Arena Crunch",
+    inspectorBadge: "Overdrive",
+    inspectorModel: "BOSS SD-1 MNA",
     drive: 0.68,
     asymmetry: 0.58,
     tone: 0.64,
-    metricLabel: "Even H2",
-    metricValue: "-23.6 dBc",
+    knobs: [
+      { label: "DRIVE", val: 6.8 },
+      { label: "TONE", val: 6.4 },
+      { label: "LEVEL", val: 5.8 },
+    ],
+    row1: [
+      { cat: "DYN", dot: "#64748b", name: "Adapt Gate", pct: 38 },
+      { cat: "DRIVE", dot: "#ff8c42", name: "SD-1 MNA", pct: 68 },
+      { cat: "AMP", dot: "#ff6b24", name: "Brit 800", pct: 76 },
+      { cat: "CAB", dot: "#4353ff", name: "1960BV V30", pct: 54, badge: "2×" },
+      { cat: "DELAY", dot: "#0e8a7d", name: "Tape Echo", pct: 30 },
+      { cat: "REVERB", dot: "#2b8a6e", name: "Arena Hall", pct: 36 },
+    ],
+    row2: [
+      null,
+      null,
+      { cat: "NAM", dot: "#9aa4a7", name: "JCM Capture", pct: 65 },
+      { cat: "CAB", dot: "#4353ff", name: "4x12 G12M", pct: 48 },
+      null,
+      null,
+    ],
     notes: [
       { freqs: [110.0, 164.81, 220.0], dur: 0.52 },
       { freqs: [110.0, 164.81], dur: 0.26 },
@@ -54,14 +120,31 @@ export const HERO_VOICES: RigPresetVoice[] = [
   {
     id: "fuzz",
     bank: "2D",
+    presetTitle: "Psychedelic '68 Fuzz",
+    scene: "A",
+    bpm: 108,
+    parallel: false,
     labelKo: "'68 게르마늄",
     labelEn: "'68 Ge Fuzz",
-    circuit: "PNP AC128 MNA",
+    inspectorBadge: "SPICE Fuzz",
+    inspectorModel: "Ge AC128 Fuzz Face",
     drive: 0.92,
     asymmetry: 0.8,
     tone: 0.46,
-    metricLabel: "Collector Vc2",
-    metricValue: "-4.52 V",
+    knobs: [
+      { label: "FUZZ", val: 9.2 },
+      { label: "BIAS", val: 4.5, unit: "V" },
+      { label: "VOLUME", val: 7.4 },
+    ],
+    row1: [
+      { cat: "MOD", dot: "#15803d", name: "Fasel Wah", pct: 44 },
+      { cat: "DRIVE", dot: "#ff6b24", name: "Ge AC128", pct: 92 },
+      { cat: "AMP", dot: "#ff6b24", name: "Plexi 100", pct: 82 },
+      { cat: "CAB", dot: "#4353ff", name: "Basket 4x12", pct: 60 },
+      { cat: "MOD", dot: "#15803d", name: "Photo Vibe", pct: 58 },
+      { cat: "REVERB", dot: "#2b8a6e", name: "Spring Tank", pct: 39 },
+    ],
+    row2: [null, null, null, null, null, null],
     notes: [
       { freqs: [82.41, 164.81, 246.94], dur: 0.62 },
       { freqs: [196.0, 293.66], dur: 0.44 },
@@ -74,49 +157,49 @@ export const HERO_VOICES: RigPresetVoice[] = [
 export const MINIMAL_COPY = {
   ko: {
     downloadBtn: "Windows 다운로드",
-    heroWhisper: "REAL-TIME SPICE & .NAM ENGINE",
+    heroWhisper: "NEURALRIG STUDIO v3.0 · WINDOWS x64",
     heroLines: ["살아있는 물리 회로,", "제로 바이트", "기타 스튜디오."],
-    trioHeading: ["핵심만 남긴 세 가지", "사운드 엔진"],
+    trioHeading: ["실제 스튜디오 화면 속", "세 가지 핵심 엔진"],
     trioCta: "무료로 시작하기",
     trio: [
       {
-        title: "SPICE 물리 회로",
-        line: "다이오드와 12AX7 진공관 방정식을 매 샘플 직접 풉니다.",
-        action: "파형 전환하기",
+        title: "2×8 병렬 시그널 체인",
+        line: "SPICE 회로와 .NAM 캡처를 두 줄로 분기해 0 B 무할당으로 합성합니다.",
+        action: "프리셋 전환하기",
       },
       {
-        title: "2×8 병렬 & .NAM",
-        line: "아날로그 회로와 .NAM 캡처를 0 B 무할당으로 병렬 결합합니다.",
-        action: "라우팅 살펴보기",
+        title: "11-틱 노브 & 버추얼 캡 룸",
+        line: "스피커 콘 위 SM57·R-121 듀얼 마이크 위치와 위상을 실시간 조합합니다.",
+        action: "마이크 위치 바꾸기",
       },
       {
-        title: "AI 회로도 제작",
-        line: "명령어 한 줄로 실제 회로도를 검증해 새 페달을 즉시 꽂습니다.",
-        action: "명령어 복사하기",
+        title: "TP-7 루퍼 & AI 페달 제작",
+        line: "DI+WET 동시 녹음 리앰핑부터 npx MCP 회로도 페달 생성까지 내장했습니다.",
+        action: "MCP 명령어 복사",
       },
     ],
-    stickyTabs: ["SPICE 물리 회로", "2×8 병렬 .NAM", "AI 페달 핫스왑"],
+    stickyTabs: ["2×8 체인 & 인스펙터", "버추얼 캡 룸 & 스펙트럼", "AI 회로도 페달 제작"],
     stickyChapters: [
       {
-        title: ["만지는 즉시 반응하는", "실제 회로 파형"],
+        title: ["필요한 순간에만 열리는", "포슬린 시그널 체인"],
         cta: "사운드 들어보기",
         stopCta: "사운드 멈추기",
-        subTitle: "0 B 오디오 콜백",
-        subLine: "가비지 컬렉션 멈춤 없는 순수 네이티브 C# AVX2 연산.",
+        subTitle: "Scene A–H 무지연 전환",
+        subLine: "블록을 클릭할 때만 하단 11-틱 로터리 인스펙터가 떠오릅니다.",
       },
       {
-        title: ["두 줄로 갈라지는", "2×8 병렬 체인"],
+        title: ["눈으로 보고 맞추는", "듀얼 마이크 & DI 분석"],
         cta: "사운드 들어보기",
         stopCta: "사운드 멈추기",
-        subTitle: "0.054 ms 연산",
-        subLine: "64프레임 버퍼에서도 여유롭게 도는 듀얼 앰프 + 16k탭 IR.",
+        subTitle: "16,384탭 무지연 IR & 36밴드 FFT",
+        subLine: "콘 중심부터 엣지까지 마이크를 옮기고 내 기타 DI를 계측합니다.",
       },
       {
-        title: ["없는 페달은 도면으로", "즉시 제작"],
+        title: ["없는 장비는 회로도로", "즉시 검증·장착"],
         cta: "명령어 복사",
         stopCta: "복사 완료",
-        subTitle: "npx neuralrig-mcp",
-        subLine: "Claude · Cursor · Gemini · Antigravity 원클릭 연동.",
+        subTitle: "npx -y neuralrig-mcp",
+        subLine: "실제 데이터시트가 확인된 회로만 0 B 검증 후 슬롯에 꽂습니다.",
       },
     ],
     outroTyped: "가볍게 설치하고, 지연 없이 연주하세요.",
@@ -125,49 +208,49 @@ export const MINIMAL_COPY = {
   },
   en: {
     downloadBtn: "Download app",
-    heroWhisper: "REAL-TIME SPICE & .NAM ENGINE",
+    heroWhisper: "NEURALRIG STUDIO v3.0 · WINDOWS x64",
     heroLines: ["Live circuit physics,", "zero-byte", "guitar studio."],
-    trioHeading: ["Three engines built", "for pure tone"],
+    trioHeading: ["Inside the actual", "studio workspace"],
     trioCta: "Get Studio free",
     trio: [
       {
-        title: "Live SPICE circuits",
-        line: "Solves diode junctions and 12AX7 triodes on every sample.",
-        action: "Morph waveform",
+        title: "2×8 parallel signal grid",
+        line: "Split SPICE circuits and .NAM captures across dual rows at 0 B alloc.",
+        action: "Cycle preset",
       },
       {
-        title: "2×8 parallel & .NAM",
-        line: "Blend physical amps and .NAM captures at 0 B heap allocation.",
-        action: "Inspect routing",
+        title: "11-tick knobs & Cab Room",
+        line: "Drag dual SM57 + R-121 mics across the speaker cone in real time.",
+        action: "Shift mic placement",
       },
       {
-        title: "AI schematic craft",
-        line: "Turn verified schematics into playable pedals in one command.",
-        action: "Copy CLI command",
+        title: "TP-7 Looper & AI Craft",
+        line: "Record DI+WET for instant re-amping or compile new pedals via MCP.",
+        action: "Copy MCP command",
       },
     ],
-    stickyTabs: ["Live SPICE circuit", "2×8 parallel .NAM", "AI pedal hot-swap"],
+    stickyTabs: ["2×8 Grid & Inspector", "Cab Room & Spectrum Lab", "AI Schematic Craft"],
     stickyChapters: [
       {
-        title: ["Touch-responsive", "analog waveforms"],
+        title: [" distraction-free", "2×8 porcelain grid"],
         cta: "Audition tone",
         stopCta: "Stop audio",
-        subTitle: "0 B audio callback",
-        subLine: "Native C# AVX2 DSP with zero garbage-collector stalls.",
+        subTitle: "Gapless Scene A–H switching",
+        subLine: "Click any block to summon the 11-tick parameter inspector.",
       },
       {
-        title: ["Dual-row split", "2×8 signal matrix"],
+        title: ["Visual dual-mic radar", "& Guitar DI Profiler"],
         cta: "Audition tone",
         stopCta: "Stop audio",
-        subTitle: "0.054 ms runtime",
-        subLine: "Dual amps, .NAM WaveNet, and 16k-tap IR inside 64 frames.",
+        subTitle: "16,384-tap IR & 36-band FFT",
+        subLine: "Blend SM57 + R-121 phase and profile your guitar pickups.",
       },
       {
-        title: ["Missing a pedal?", "Compile its schematic"],
+        title: ["Missing a boutique pedal?", "Compile its schematic"],
         cta: "Copy command",
         stopCta: "Copied",
-        subTitle: "npx neuralrig-mcp",
-        subLine: "One-line setup for Claude, Cursor, Gemini & Antigravity.",
+        subTitle: "npx -y neuralrig-mcp",
+        subLine: "Validates real datasheets and 0 B RT budget before hot-swap.",
       },
     ],
     outroTyped: "Built for zero-latency guitarists.",

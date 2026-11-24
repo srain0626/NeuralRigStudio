@@ -2,6 +2,12 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { HERO_VOICES, Locale, RigPresetVoice } from "./LandingData";
+import {
+  StudioKnobCell,
+  StudioLiquidDock,
+  StudioScenePill,
+  StudioSlotCard,
+} from "./StudioUiPrimitives";
 import { GuitarAuditionController } from "./webAudioEngine";
 
 interface HeroFloatingCardsProps {
@@ -10,93 +16,79 @@ interface HeroFloatingCardsProps {
 }
 
 export function HeroFloatingCards({ locale, ready }: HeroFloatingCardsProps) {
-  const [voiceIndex, setVoiceIndex] = useState(1); // 1C Asym Crunch default
-  const voice: RigPresetVoice = HERO_VOICES[voiceIndex];
-  const [drive, setDrive] = useState(voice.drive);
+  const [voiceIdx, setVoiceIdx] = useState(0); // Default 1A Velvet Neo-Soul Clean (matches real Studio first boot!)
+  const voice: RigPresetVoice = HERO_VOICES[voiceIdx];
+  const [selectedSlotIdx, setSelectedSlotIdx] = useState(2); // AMP slot highlighted
+  const [knobValues, setKnobValues] = useState<[number, number, number]>(
+    voice.knobs.map((k) => k.val) as [number, number, number]
+  );
   const [playing, setPlaying] = useState(false);
-  const [latencyTick, setLatencyTick] = useState("0.054");
 
   const stageRef = useRef<HTMLDivElement | null>(null);
-  const backCardRef = useRef<HTMLDivElement | null>(null);
-  const frontCardRef = useRef<HTMLDivElement | null>(null);
-  const scopeRef = useRef<HTMLCanvasElement | null>(null);
-  const audioCtrlRef = useRef<GuitarAuditionController | null>(null);
-  const liveParamsRef = useRef({ drive, asymmetry: voice.asymmetry, playing });
+  const windowRef = useRef<HTMLDivElement | null>(null);
+  const inspectorRef = useRef<HTMLDivElement | null>(null);
+  const audioRef = useRef<GuitarAuditionController | null>(null);
 
   useEffect(() => {
-    setDrive(voice.drive);
+    setKnobValues(voice.knobs.map((k) => k.val) as [number, number, number]);
   }, [voice]);
 
   useEffect(() => {
-    liveParamsRef.current = { drive, asymmetry: voice.asymmetry, playing };
-    audioCtrlRef.current?.update(voice, drive);
-  }, [drive, voice, playing]);
-
-  useEffect(() => {
-    audioCtrlRef.current = new GuitarAuditionController();
+    audioRef.current = new GuitarAuditionController();
     return () => {
-      audioCtrlRef.current?.stop();
+      audioRef.current?.stop();
     };
   }, []);
 
-  // Subtle live micro-telemetry jitter (0.052 ~ 0.055 ms, mirroring live $122.10 counter in reference)
   useEffect(() => {
-    const id = window.setInterval(() => {
-      const jitter = 0.052 + Math.random() * 0.004;
-      setLatencyTick(jitter.toFixed(3));
-    }, 1500);
-    return () => window.clearInterval(id);
-  }, []);
+    const normalizedDrive = Math.max(0.1, Math.min(0.98, knobValues[0] / 10));
+    audioRef.current?.update(voice, normalizedDrive);
+  }, [voice, knobValues]);
 
-  // Smooth 60fps pointer spring parallax + ambient float across the 2 card planes
+  // Smooth 60fps pointer spring parallax across the real Studio Window & Floating Inspector Sheet
   useEffect(() => {
-    let targetX = 0;
-    let targetY = 0;
-    let curX = 0;
-    let curY = 0;
+    let tx = 0;
+    let ty = 0;
+    let cx = 0;
+    let cy = 0;
     let raf = 0;
     let t = 0;
 
     const onMove = (e: PointerEvent) => {
       const rect = stageRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const nx = ((e.clientX - rect.left) / rect.width - 0.5) * 2;
-      const ny = ((e.clientY - rect.top) / rect.height - 0.5) * 2;
-      targetX = Math.max(-1, Math.min(1, nx));
-      targetY = Math.max(-1, Math.min(1, ny));
+      tx = Math.max(-1, Math.min(1, ((e.clientX - rect.left) / rect.width - 0.5) * 2));
+      ty = Math.max(-1, Math.min(1, ((e.clientY - rect.top) / rect.height - 0.5) * 2));
     };
 
     const onLeave = () => {
-      targetX = 0;
-      targetY = 0;
+      tx = 0;
+      ty = 0;
     };
 
-    const tick = () => {
-      t += 0.02;
-      curX += (targetX - curX) * 0.075;
-      curY += (targetY - curY) * 0.075;
+    const loop = () => {
+      t += 0.018;
+      cx += (tx - cx) * 0.075;
+      cy += (ty - cy) * 0.075;
 
-      const idleY1 = Math.sin(t) * 4;
-      const idleY2 = Math.cos(t * 1.15) * 6;
-
-      if (backCardRef.current) {
-        backCardRef.current.style.transform = `translate3d(${(curX * -9).toFixed(2)}px, ${(
-          curY * -7 +
-          idleY1
+      if (windowRef.current) {
+        windowRef.current.style.transform = `translate3d(${(cx * -7).toFixed(2)}px, ${(
+          cy * -5 +
+          Math.sin(t) * 3.5
         ).toFixed(2)}px, 0)`;
       }
-      if (frontCardRef.current) {
-        frontCardRef.current.style.transform = `translate3d(${(curX * 15).toFixed(2)}px, ${(
-          curY * 11 +
-          idleY2
+      if (inspectorRef.current) {
+        inspectorRef.current.style.transform = `translate3d(${(cx * 13).toFixed(2)}px, ${(
+          cy * 9 +
+          Math.cos(t * 1.1) * 5
         ).toFixed(2)}px, 0)`;
       }
-      raf = window.requestAnimationFrame(tick);
+      raf = window.requestAnimationFrame(loop);
     };
 
     window.addEventListener("pointermove", onMove, { passive: true });
     window.addEventListener("pointerleave", onLeave);
-    raf = window.requestAnimationFrame(tick);
+    raf = window.requestAnimationFrame(loop);
 
     return () => {
       window.removeEventListener("pointermove", onMove);
@@ -105,411 +97,384 @@ export function HeroFloatingCards({ locale, ready }: HeroFloatingCardsProps) {
     };
   }, []);
 
-  // 60fps Glowing Waveform inside Floating Front Modal
-  useEffect(() => {
-    const canvas = scopeRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+  const stepPreset = (dir: -1 | 1) => {
+    setVoiceIdx((prev) => (prev + dir + HERO_VOICES.length) % HERO_VOICES.length);
+  };
 
-    let raf = 0;
-    let phase = 0;
-
-    const draw = () => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const w = canvas.clientWidth;
-      const h = canvas.clientHeight;
-      if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) {
-        canvas.width = Math.floor(w * dpr);
-        canvas.height = Math.floor(h * dpr);
-      }
-
-      ctx.save();
-      ctx.scale(dpr, dpr);
-      ctx.clearRect(0, 0, w, h);
-
-      // Center hairline
-      ctx.strokeStyle = "rgba(255,255,255,0.08)";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(0, h / 2);
-      ctx.lineTo(w, h / 2);
-      ctx.stroke();
-
-      const { drive: drv, asymmetry: asym, playing: isPlay } = liveParamsRef.current;
-      phase += isPlay ? 0.095 : 0.034;
-
-      // Soft Dry Sine Shadow
-      ctx.strokeStyle = "rgba(255,255,255,0.18)";
-      ctx.lineWidth = 1.2;
-      ctx.beginPath();
-      for (let x = 0; x <= w; x += 2) {
-        const u = (x / w) * Math.PI * 3.5 + phase;
-        const y = h / 2 - Math.sin(u) * (h * 0.32);
-        if (x === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.stroke();
-
-      // Solved MNA Clipped Wave
-      ctx.strokeStyle = "#ff7730";
-      ctx.lineWidth = 2.1;
-      ctx.beginPath();
-      const pre = 1 + drv * 10.5;
-      const bias = asym * 0.48;
-      for (let x = 0; x <= w; x += 2) {
-        const u = (x / w) * Math.PI * 3.5 + phase;
-        const raw = Math.sin(u) * 0.82 + Math.sin(u * 2 + 0.3) * 0.14;
-        const s = raw * pre + bias;
-        const c = s >= 0 ? Math.tanh(s) : Math.tanh(s * (1 + asym * 1.4)) / (1 + asym * 0.35);
-        const norm = Math.max(-0.94, Math.min(0.94, c - Math.tanh(bias) * 0.52));
-        const y = h / 2 - norm * (h * 0.37);
-        if (x === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.stroke();
-
-      ctx.restore();
-      raf = window.requestAnimationFrame(draw);
-    };
-
-    raf = window.requestAnimationFrame(draw);
-    return () => window.cancelAnimationFrame(raf);
-  }, []);
-
-  const togglePlay = () => {
+  const toggleAudio = () => {
     if (playing) {
-      audioCtrlRef.current?.stop();
+      audioRef.current?.stop();
       setPlaying(false);
     } else {
-      audioCtrlRef.current?.start(voice, drive, () => setPlaying(false));
+      const drv = Math.max(0.1, Math.min(0.98, knobValues[0] / 10));
+      audioRef.current?.start(voice, drv, () => setPlaying(false));
       setPlaying(true);
     }
   };
+
+  const activeSlot = voice.row1[selectedSlotIdx] || voice.row1[2];
 
   return (
     <div
       ref={stageRef}
       style={{
         position: "relative",
-        minHeight: 450,
+        minHeight: 470,
+        paddingBottom: 68,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         opacity: ready ? 1 : 0,
-        transform: ready ? "translate3d(0,0,0)" : "translate3d(0,36px,0)",
+        transform: ready ? "translate3d(0,0,0)" : "translate3d(0,32px,0)",
         transition:
-          "opacity 950ms cubic-bezier(0.16, 1, 0.3, 1) 140ms, transform 950ms cubic-bezier(0.16, 1, 0.3, 1) 140ms",
+          "opacity 920ms cubic-bezier(0.16, 1, 0.3, 1) 120ms, transform 920ms cubic-bezier(0.16, 1, 0.3, 1) 120ms",
       }}
     >
       {/* ====================================================================
-          PLANE 1 (BACK): ARCHITECTURAL STUDIO TELEMETRY & RIG CARD
+          PLANE 1: ACTUAL NEURALRIG STUDIO WORKSPACE WINDOW (step_4_shot_1)
          ==================================================================== */}
       <div
-        ref={backCardRef}
+        ref={windowRef}
         style={{
           width: "100%",
-          maxWidth: 382,
-          borderRadius: 12,
-          overflow: "hidden",
-          background: "#ecefed",
-          boxShadow: "0 30px 70px rgba(11, 14, 16, 0.16)",
-          border: "1px solid rgba(11, 14, 16, 0.08)",
-          marginRight: 148,
-          willChange: "transform",
-        }}
-      >
-        {/* Warm Tangerine-Mist Top Surface */}
-        <div
-          style={{
-            padding: "22px 22px 20px",
-            background:
-              "radial-gradient(circle at 92% 8%, rgba(255, 118, 42, 0.85) 0%, rgba(247, 160, 96, 0.36) 44%, rgba(236, 239, 237, 0.95) 78%)",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              fontSize: 12,
-              color: "#22282a",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-              <span
-                style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: "50%",
-                  background: "#0d1113",
-                  color: "#ffffff",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 10.5,
-                }}
-              >
-                {voice.bank}
-              </span>
-              <div>
-                <div style={{ fontWeight: 500, lineHeight: 1.2 }}>
-                  {locale === "ko" ? voice.labelKo : voice.labelEn}
-                </div>
-                <div
-                  style={{
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 10.5,
-                    color: "#5c6466",
-                  }}
-                >
-                  {voice.circuit}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Large Clean Live Latency Readout */}
-          <div style={{ marginTop: 42 }}>
-            <div
-              style={{
-                fontSize: 42,
-                fontWeight: 350,
-                letterSpacing: "-0.04em",
-                color: "#0b0e10",
-                fontVariantNumeric: "tabular-nums",
-                lineHeight: 1,
-              }}
-            >
-              {latencyTick}
-              <span style={{ fontSize: 22, opacity: 0.68, marginLeft: 4 }}>ms</span>
-            </div>
-            <div
-              style={{
-                marginTop: 8,
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                fontFamily: "var(--font-mono)",
-                fontSize: 11,
-                color: "#15803d",
-              }}
-            >
-              <span>●</span>
-              <span>0 B RT Heap Alloc</span>
-            </div>
-          </div>
-        </div>
-
-        {/* 3 Crisp White Voice Tiles */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            background: "#f7f9f8",
-            borderTop: "1px solid rgba(11, 14, 16, 0.07)",
-            borderBottom: "1px solid rgba(11, 14, 16, 0.07)",
-          }}
-        >
-          {HERO_VOICES.map((v, idx) => {
-            const active = idx === voiceIndex;
-            return (
-              <button
-                key={v.id}
-                type="button"
-                onClick={() => setVoiceIndex(idx)}
-                style={{
-                  border: 0,
-                  borderRight: idx < 2 ? "1px solid rgba(11, 14, 16, 0.07)" : 0,
-                  background: active ? "#ffffff" : "transparent",
-                  padding: "15px 8px",
-                  cursor: "pointer",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  gap: 6,
-                  color: active ? "#0b0e10" : "#687173",
-                  transition: "background-color 160ms ease, color 160ms ease",
-                }}
-              >
-                <span
-                  style={{
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 11,
-                    padding: "2px 6px",
-                    borderRadius: 2,
-                    background: active ? "#0b0e10" : "rgba(11,14,16,0.06)",
-                    color: active ? "#ffffff" : "#454d4f",
-                  }}
-                >
-                  {v.bank}
-                </span>
-                <span style={{ fontSize: 11.5, fontWeight: active ? 550 : 450 }}>
-                  {locale === "ko" ? v.labelKo : v.labelEn}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Bottom Obsidian Rows */}
-        <div style={{ background: "#0d1113", color: "#f5f7f6", padding: "6px 18px" }}>
-          <div
-            style={{
-              padding: "14px 2px",
-              borderBottom: "1px solid rgba(255,255,255,0.08)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 450 }}>SPICE MNA Solver</div>
-              <div style={{ fontSize: 11.5, color: "rgba(255,255,255,0.5)", marginTop: 2 }}>
-                {voice.metricLabel}: {voice.metricValue}
-              </div>
-            </div>
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "#ff7730" }}>
-              98.2%
-            </span>
-          </div>
-
-          <div
-            style={{
-              padding: "14px 2px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 450 }}>2×8 Parallel .NAM</div>
-              <div style={{ fontSize: 11.5, color: "rgba(255,255,255,0.5)", marginTop: 2 }}>
-                4× HIIR · 16,384-Tap Cab IR
-              </div>
-            </div>
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, opacity: 0.7 }}>→</span>
-          </div>
-        </div>
-      </div>
-
-      {/* ====================================================================
-          PLANE 2 (FRONT OVERLAPPING): LIVE WAVEFORM & AUDITION MODAL
-         ==================================================================== */}
-      <div
-        ref={frontCardRef}
-        style={{
-          position: "absolute",
-          right: 0,
-          top: "2%",
-          width: 252,
-          borderRadius: 10,
-          padding: "14px 15px 13px",
+          maxWidth: 630,
+          borderRadius: 20,
+          padding: "16px 18px 18px",
           background:
-            "radial-gradient(circle at 12% 8%, rgba(255, 118, 42, 0.34) 0%, rgba(16, 21, 24, 0.96) 52%), #101518",
-          border: "1px solid rgba(255, 255, 255, 0.13)",
-          boxShadow: "0 28px 60px rgba(7, 10, 12, 0.44)",
-          color: "#f5f7f6",
+            "radial-gradient(circle at 12% 8%, rgba(255, 118, 42, 0.25) 0%, rgba(226, 232, 229, 0.92) 48%), #dde3e0",
+          border: "1px solid rgba(255, 255, 255, 0.72)",
+          boxShadow: "0 34px 80px rgba(11, 14, 16, 0.18)",
           willChange: "transform",
         }}
       >
+        {/* Studio Top Bar: Brand + Preset Stepper + Scene A-D Pill + BPM */}
         <div
           style={{
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            fontSize: 11.5,
-            color: "rgba(255,255,255,0.72)",
+            gap: 8,
+            flexWrap: "wrap",
+            marginBottom: 14,
           }}
         >
-          <span>Live Harmonic Scope</span>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "#ff8c42" }}>
-            DRV {(drive * 10).toFixed(1)}
-          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <button
+              type="button"
+              onClick={() => stepPreset(-1)}
+              aria-label="Previous preset"
+              style={{
+                width: 24,
+                height: 24,
+                borderRadius: "50%",
+                border: "1px solid rgba(11,14,16,0.12)",
+                background: "rgba(255,255,255,0.8)",
+                cursor: "pointer",
+                fontSize: 12,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              onClick={() => stepPreset(1)}
+              aria-label="Next preset"
+              style={{
+                width: 24,
+                height: 24,
+                borderRadius: "50%",
+                border: "1px solid rgba(11,14,16,0.12)",
+                background: "rgba(255,255,255,0.8)",
+                cursor: "pointer",
+                fontSize: 12,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              ›
+            </button>
+
+            <button
+              type="button"
+              onClick={() => stepPreset(1)}
+              style={{
+                border: 0,
+                background: "transparent",
+                display: "inline-flex",
+                alignItems: "baseline",
+                gap: 6,
+                cursor: "pointer",
+                padding: "2px 4px",
+              }}
+            >
+              <span
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 10.5,
+                  fontWeight: 700,
+                  color: "#ff6b24",
+                }}
+              >
+                {voice.bank}
+              </span>
+              <span
+                style={{
+                  fontFamily: "var(--font-display)",
+                  fontSize: 17,
+                  fontWeight: 300,
+                  letterSpacing: "-0.025em",
+                  color: "#0b0e10",
+                }}
+              >
+                {voice.presetTitle}
+              </span>
+            </button>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <StudioScenePill activeScene={voice.scene} compact />
+            <span
+              style={{
+                padding: "4px 9px",
+                borderRadius: 999,
+                background: "rgba(244,246,245,0.9)",
+                border: "1px solid rgba(11,14,16,0.1)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 9.5,
+                color: "#0b0e10",
+              }}
+            >
+              {voice.bpm} BPM · {voice.parallel ? (locale === "ko" ? "병렬" : "Parallel") : "Serial"}
+            </span>
+          </div>
         </div>
 
-        <canvas
-          ref={scopeRef}
-          style={{
-            width: "100%",
-            height: 62,
-            display: "block",
-            marginTop: 6,
-          }}
-        />
-
-        <input
-          type="range"
-          min={0.08}
-          max={0.98}
-          step={0.01}
-          value={drive}
-          onChange={(e) => setDrive(parseFloat(e.target.value))}
-          aria-label="Drive level"
-          style={{
-            width: "100%",
-            marginTop: 8,
-            accentColor: "#ff6b24",
-            cursor: "pointer",
-          }}
-        />
-
+        {/* Centerpiece: Actual Dark Obsidian 2x8 CortexGrid Stage */}
         <div
           style={{
-            marginTop: 10,
+            position: "relative",
+            borderRadius: 18,
+            padding: "18px 14px",
+            background:
+              "radial-gradient(circle at 18% 0%, rgba(255, 118, 42, 0.24) 0%, rgba(13, 17, 19, 0) 58%), #0d1113",
+            border: "1px solid rgba(255,255,255,0.1)",
+            overflow: "hidden",
+          }}
+        >
+          {/* SVG Orthogonal Parallel Routing Cable (matching step_4_shot_1.png!) */}
+          <svg
+            viewBox="0 0 580 156"
+            preserveAspectRatio="none"
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              pointerEvents: "none",
+            }}
+          >
+            {/* Row 1 Horizontal Spine */}
+            <line
+              x1={26}
+              y1={46}
+              x2={554}
+              y2={46}
+              stroke="rgba(255,255,255,0.16)"
+              strokeWidth={1.4}
+            />
+            {/* Orange Parallel Split & Merge Path */}
+            {voice.parallel && (
+              <path
+                d="M 188 46 L 188 76 Q 188 84 180 84 L 78 84 Q 70 84 70 92 L 70 112 Q 70 120 78 120 L 534 120"
+                fill="none"
+                stroke="#ff6b24"
+                strokeWidth={1.7}
+                strokeDasharray={playing ? "6 4" : undefined}
+              />
+            )}
+          </svg>
+
+          {/* Row 1: IN + 6 Porcelain Gear Slots */}
+          <div
+            style={{
+              position: "relative",
+              zIndex: 2,
+              display: "grid",
+              gridTemplateColumns: "34px repeat(6, minmax(0, 1fr))",
+              gap: 7,
+              alignItems: "center",
+            }}
+          >
+            <div
+              style={{
+                height: 54,
+                borderRadius: 9,
+                border: "1px solid rgba(255,255,255,0.12)",
+                background: "rgba(255,255,255,0.04)",
+                color: "rgba(255,255,255,0.7)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 9,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              IN
+            </div>
+            {voice.row1.map((slot, idx) => (
+              <StudioSlotCard
+                key={`${voice.bank}-r1-${idx}`}
+                slot={slot}
+                compact
+                selected={idx === selectedSlotIdx}
+                onClick={() => slot && setSelectedSlotIdx(idx)}
+              />
+            ))}
+          </div>
+
+          {/* Row 2: Parallel Row + OUT */}
+          <div
+            style={{
+              position: "relative",
+              zIndex: 2,
+              marginTop: 14,
+              display: "grid",
+              gridTemplateColumns: "repeat(6, minmax(0, 1fr)) 36px",
+              gap: 7,
+              alignItems: "center",
+            }}
+          >
+            {voice.row2.map((slot, idx) => (
+              <StudioSlotCard key={`${voice.bank}-r2-${idx}`} slot={slot} compact />
+            ))}
+            <div
+              style={{
+                height: 54,
+                borderRadius: 9,
+                border: "1px solid rgba(255,255,255,0.12)",
+                background: "rgba(255,255,255,0.04)",
+                color: "rgba(255,255,255,0.75)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 8.5,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              OUT
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom Centered Liquid Glass Floating Dock */}
+        <div style={{ marginTop: 14, display: "flex", justifyContent: "center" }}>
+          <StudioLiquidDock playing={playing} onTogglePlay={toggleAudio} locale={locale} />
+        </div>
+      </div>
+
+      {/* ====================================================================
+          PLANE 2 (FRONT OVERLAPPING): ACTUAL 11-TICK SLOT INSPECTOR SHEET
+         ==================================================================== */}
+      <div
+        ref={inspectorRef}
+        style={{
+          position: "absolute",
+          right: -6,
+          bottom: 0,
+          width: 356,
+          borderRadius: 15,
+          overflow: "hidden",
+          background: "rgba(247, 249, 248, 0.97)",
+          backdropFilter: "blur(16px)",
+          border: "1px solid rgba(11, 14, 16, 0.12)",
+          boxShadow: "0 24px 56px rgba(11, 14, 16, 0.22)",
+          willChange: "transform",
+          zIndex: 5,
+        }}
+      >
+        {/* Inspector Header Bar (matching step_8_shot_1.png!) */}
+        <div
+          style={{
+            padding: "8px 12px",
+            background: "rgba(226, 232, 229, 0.55)",
+            borderBottom: "1px solid rgba(11, 14, 16, 0.08)",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
             gap: 8,
           }}
         >
-          <div style={{ display: "flex", gap: 5 }}>
-            {["TS808", "SD-1", ".NAM"].map((chip) => (
-              <span
-                key={chip}
-                style={{
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 9.5,
-                  padding: "3px 6px",
-                  borderRadius: 3,
-                  background: "rgba(255,255,255,0.08)",
-                  color: "rgba(255,255,255,0.78)",
-                }}
-              >
-                {chip}
-              </span>
-            ))}
+          <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+            <span
+              style={{
+                width: 20,
+                height: 20,
+                borderRadius: 6,
+                background: "#ff6b24",
+                color: "#ffffff",
+                fontSize: 10,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              ⏻
+            </span>
+            <span
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 9.5,
+                padding: "2px 6px",
+                borderRadius: 4,
+                border: "1px solid rgba(11,14,16,0.14)",
+                background: "#ffffff",
+                color: "#0b0e10",
+                flexShrink: 0,
+              }}
+            >
+              {activeSlot?.cat || voice.inspectorBadge}
+            </span>
+            <span
+              style={{
+                fontSize: 12.5,
+                fontWeight: 500,
+                color: "#0b0e10",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {activeSlot?.name || voice.inspectorModel}
+            </span>
           </div>
 
-          <button
-            type="button"
-            onClick={togglePlay}
-            style={{
-              border: 0,
-              borderRadius: 3,
-              padding: "6px 11px",
-              background: playing ? "#ff6b24" : "#f5f7f6",
-              color: playing ? "#ffffff" : "#0b0e10",
-              fontSize: 11,
-              fontWeight: 550,
-              cursor: "pointer",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 5,
-            }}
-          >
-            <span>{playing ? "■" : "▶"}</span>
-            <span>
-              {playing
-                ? locale === "ko"
-                  ? "정지"
-                  : "Stop"
-                : locale === "ko"
-                  ? "오디션"
-                  : "Play"}
-            </span>
-          </button>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 9.5, color: "#616a6c" }}>
+            DRAG ↕
+          </span>
+        </div>
+
+        {/* 3 Interactive 11-Tick CortexKnob Cells */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+          {voice.knobs.map((k, idx) => (
+            <StudioKnobCell
+              key={`${voice.bank}-${k.label}`}
+              label={k.label}
+              value={knobValues[idx]}
+              unit={k.unit}
+              onChange={(next) =>
+                setKnobValues((prev) => {
+                  const copy = [...prev] as [number, number, number];
+                  copy[idx] = next;
+                  return copy;
+                })
+              }
+            />
+          ))}
         </div>
       </div>
     </div>

@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Locale, MINIMAL_COPY } from "./LandingData";
+import { HERO_VOICES, Locale, MINIMAL_COPY } from "./LandingData";
+import { StudioSlotCard } from "./StudioUiPrimitives";
 
 interface FeatureTrioStagesProps {
   locale: Locale;
@@ -9,22 +10,10 @@ interface FeatureTrioStagesProps {
   onJumpToChapter: (chapterIdx: number) => void;
 }
 
-const SPICE_PROFILES = [
-  { name: "BOSS SD-1", metric: "H2 -23.6 dBc", match: "99.2%", bars: [92, 68, 78, 48, 56, 34] },
-  { name: "Ibanez TS808", metric: "+10.3 dB @ 720Hz", match: "97.6%", bars: [94, 8, 82, 7, 60, 6] },
-  { name: "Ge AC128 Fuzz", metric: "Vc2 -4.52 V", match: "98.5%", bars: [96, 78, 88, 66, 74, 54] },
-  { name: "'65 Twin 12AX7", metric: "-9.7 dB Scoop", match: "95.9%", bars: [90, 52, 38, 24, 18, 11] },
-];
-
-const MATRIX_TILES = [
-  { code: "GATE", sub: "-68dB", accent: false },
-  { code: "SD-1", sub: "MNA", accent: true },
-  { code: "2203", sub: "12AX7", accent: true },
-  { code: "V30", sub: "16k IR", accent: false },
-  { code: "SPLIT", sub: "Row B", accent: false },
-  { code: ".NAM", sub: "AVX2", accent: true },
-  { code: "G12M", sub: "Cab B", accent: false },
-  { code: "0 B", sub: "0.05ms", accent: true },
+const MIC_PRESETS = [
+  { name: "57+121", ax: 78, ay: 58, bx: 128, by: 78, posA: "25%", posB: "55%" },
+  { name: "HAAS", ax: 64, ay: 48, bx: 158, by: 96, posA: "16%", posB: "74%" },
+  { name: "EDGE", ax: 142, ay: 64, bx: 172, by: 82, posA: "62%", posB: "82%" },
 ];
 
 export function FeatureTrioStages({
@@ -33,31 +22,33 @@ export function FeatureTrioStages({
   onJumpToChapter,
 }: FeatureTrioStagesProps) {
   const t = MINIMAL_COPY[locale];
-  const [spiceIdx, setSpiceIdx] = useState(0);
-  const [activeTile, setActiveTile] = useState(0);
-  const [mcpStep, setMcpStep] = useState(0);
+  const [presetIdx, setPresetIdx] = useState(1); // 1C Parallel .NAM
+  const [activeCol, setActiveCol] = useState(1);
+  const [micPresetIdx, setMicPresetIdx] = useState(0);
+  const [loopSec, setLoopSec] = useState(2.4);
   const [copied, setCopied] = useState(false);
 
-  // Autonomous cycling micro-animations across all 3 obsidian stages
+  // Continuous live studio micro-animations
   useEffect(() => {
-    const t1 = window.setInterval(() => {
-      setSpiceIdx((prev) => (prev + 1) % SPICE_PROFILES.length);
-    }, 2600);
-    const t2 = window.setInterval(() => {
-      setActiveTile((prev) => (prev + 1) % MATRIX_TILES.length);
-    }, 620);
-    const t3 = window.setInterval(() => {
-      setMcpStep((prev) => (prev + 1) % 3);
-    }, 2100);
+    const id1 = window.setInterval(() => {
+      setActiveCol((prev) => (prev + 1) % 4);
+    }, 900);
+    const id2 = window.setInterval(() => {
+      setMicPresetIdx((prev) => (prev + 1) % MIC_PRESETS.length);
+    }, 2400);
+    const id3 = window.setInterval(() => {
+      setLoopSec((prev) => Number(((prev + 0.1) % 8.0).toFixed(1)));
+    }, 180);
 
     return () => {
-      window.clearInterval(t1);
-      window.clearInterval(t2);
-      window.clearInterval(t3);
+      window.clearInterval(id1);
+      window.clearInterval(id2);
+      window.clearInterval(id3);
     };
   }, []);
 
-  const spice = SPICE_PROFILES[spiceIdx];
+  const rig = HERO_VOICES[presetIdx];
+  const mic = MIC_PRESETS[micPresetIdx];
 
   const handleCopyMcp = () => {
     navigator.clipboard?.writeText("npx -y neuralrig-mcp install --client all").catch(() => {});
@@ -67,7 +58,6 @@ export function FeatureTrioStages({
 
   return (
     <section className="nr-trio-section">
-      {/* Clean Header Row */}
       <div className="nr-trio-top">
         <h2 className="nr-display-h2">
           {t.trioHeading[0]}
@@ -81,111 +71,122 @@ export function FeatureTrioStages({
         </a>
       </div>
 
-      {/* 3 Square Dark Obsidian Stages */}
       <div className="nr-trio-grid">
         {/* ================================================================
-            STAGE 1: LIVE SPICE CIRCUIT MORPH
+            STAGE 1: ACTUAL CORTEXGRID 2x8 PORCELAIN CARDS + PARALLEL CABLE
            ================================================================ */}
         <article className="nr-stage-card">
           <div
             className="nr-obsidian-box"
-            onClick={() => setSpiceIdx((prev) => (prev + 1) % SPICE_PROFILES.length)}
+            onClick={() => setPresetIdx((prev) => (prev + 1) % HERO_VOICES.length)}
             style={{
               cursor: "pointer",
+              padding: "22px 20px",
               background:
-                "radial-gradient(circle at 18% 18%, rgba(255, 126, 48, 0.52) 0%, rgba(13, 17, 19, 0) 58%), #0d1113",
+                "radial-gradient(circle at 20% 14%, rgba(255, 118, 42, 0.36) 0%, rgba(13, 17, 19, 0) 58%), #0d1113",
             }}
           >
-            <div
-              style={{
-                width: "100%",
-                maxWidth: 288,
-                borderRadius: 10,
-                overflow: "hidden",
-                background: "rgba(255, 255, 255, 0.07)",
-                backdropFilter: "blur(12px)",
-                border: "1px solid rgba(255, 255, 255, 0.14)",
-                boxShadow: "0 20px 44px rgba(0, 0, 0, 0.35)",
-              }}
-            >
-              <div style={{ padding: "18px 18px 14px", color: "#f5f7f6" }}>
-                <div
+            <div style={{ width: "100%", position: "relative" }}>
+              {/* Mini Studio Preset Header */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  marginBottom: 14,
+                  color: "#f5f7f6",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                  <span
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 10.5,
+                      fontWeight: 700,
+                      color: "#ff6b24",
+                    }}
+                  >
+                    {rig.bank}
+                  </span>
+                  <span style={{ fontSize: 13.5, fontWeight: 450 }}>{rig.presetTitle}</span>
+                </div>
+                <span
                   style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
                     fontFamily: "var(--font-mono)",
-                    fontSize: 11,
-                    color: "rgba(255,255,255,0.65)",
+                    fontSize: 9.5,
+                    padding: "2px 7px",
+                    borderRadius: 999,
+                    background: "rgba(255,255,255,0.09)",
+                    color: "rgba(255,255,255,0.75)",
                   }}
                 >
-                  <span>{spice.name}</span>
-                  <span style={{ color: "#ff8c42" }}>{spice.match}</span>
-                </div>
+                  SCENE {rig.scene}
+                </span>
+              </div>
+
+              {/* 2x4 Cropped Focus of Real CortexGrid */}
+              <div style={{ position: "relative", padding: "6px 0" }}>
+                <svg
+                  viewBox="0 0 320 144"
+                  preserveAspectRatio="none"
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    width: "100%",
+                    height: "100%",
+                    pointerEvents: "none",
+                  }}
+                >
+                  <line
+                    x1={8}
+                    y1={34}
+                    x2={312}
+                    y2={34}
+                    stroke="rgba(255,255,255,0.18)"
+                    strokeWidth={1.5}
+                  />
+                  <path
+                    d="M 118 34 L 118 68 Q 118 74 124 74 L 154 74 Q 160 74 160 82 L 160 110 L 304 110"
+                    fill="none"
+                    stroke="#ff6b24"
+                    strokeWidth={1.8}
+                    strokeDasharray="5 4"
+                  />
+                </svg>
 
                 <div
                   style={{
-                    marginTop: 10,
-                    fontSize: 26,
-                    fontWeight: 350,
-                    letterSpacing: "-0.03em",
-                    fontVariantNumeric: "tabular-nums",
-                  }}
-                >
-                  {spice.metric}
-                </div>
-
-                {/* Morphing Harmonic Bars */}
-                <div
-                  style={{
-                    marginTop: 16,
-                    height: 58,
+                    position: "relative",
+                    zIndex: 2,
                     display: "grid",
-                    gridTemplateColumns: "repeat(6, 1fr)",
-                    gap: 7,
-                    alignItems: "end",
+                    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                    gap: 8,
                   }}
                 >
-                  {spice.bars.map((h, i) => (
-                    <div
-                      key={i}
-                      style={{
-                        height: `${h}%`,
-                        borderRadius: "2px 2px 0 0",
-                        background: i % 2 === 1 ? "#ff7730" : "rgba(245,247,246,0.85)",
-                        transition: "height 520ms cubic-bezier(0.22, 1, 0.36, 1)",
-                      }}
+                  {rig.row1.slice(0, 4).map((slot, idx) => (
+                    <StudioSlotCard key={idx} slot={slot} compact selected={idx === activeCol} />
+                  ))}
+                </div>
+
+                <div
+                  style={{
+                    position: "relative",
+                    zIndex: 2,
+                    marginTop: 14,
+                    display: "grid",
+                    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                    gap: 8,
+                  }}
+                >
+                  {rig.row2.slice(0, 4).map((slot, idx) => (
+                    <StudioSlotCard
+                      key={idx}
+                      slot={slot}
+                      compact
+                      selected={Boolean(slot) && activeCol === 2}
                     />
                   ))}
                 </div>
-              </div>
-
-              {/* Crisp White Bottom Strip */}
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(4, 1fr)",
-                  background: "#f4f6f5",
-                  color: "#0b0e10",
-                }}
-              >
-                {["SD-1", "TS808", "AC128", "12AX7"].map((lbl, idx) => (
-                  <div
-                    key={lbl}
-                    style={{
-                      padding: "9px 4px",
-                      textAlign: "center",
-                      fontFamily: "var(--font-mono)",
-                      fontSize: 10,
-                      fontWeight: idx === spiceIdx ? 600 : 400,
-                      background: idx === spiceIdx ? "#ffffff" : "transparent",
-                      color: idx === spiceIdx ? "#ff6b24" : "#5a6264",
-                      borderRight: idx < 3 ? "1px solid rgba(11,14,16,0.08)" : 0,
-                    }}
-                  >
-                    {lbl}
-                  </div>
-                ))}
               </div>
             </div>
           </div>
@@ -196,7 +197,7 @@ export function FeatureTrioStages({
             <button
               type="button"
               className="nr-dot-btn"
-              onClick={() => setSpiceIdx((prev) => (prev + 1) % SPICE_PROFILES.length)}
+              onClick={() => setPresetIdx((prev) => (prev + 1) % HERO_VOICES.length)}
             >
               <span className="nr-dot" />
               <span>{t.trio[0].action}</span>
@@ -205,79 +206,265 @@ export function FeatureTrioStages({
         </article>
 
         {/* ================================================================
-            STAGE 2: 2x8 PARALLEL & .NAM SIGNAL PULSE GRID
+            STAGE 2: ACTUAL VIRTUAL CAB ROOM 2D SPEAKER CONE RADAR (step_8)
            ================================================================ */}
         <article className="nr-stage-card">
           <div
             className="nr-obsidian-box"
-            onClick={() => onJumpToChapter(1)}
+            onClick={() => setMicPresetIdx((prev) => (prev + 1) % MIC_PRESETS.length)}
             style={{
               cursor: "pointer",
+              padding: "20px",
               background:
-                "radial-gradient(circle at 52% 56%, rgba(255, 122, 42, 0.46) 0%, rgba(13, 17, 19, 0) 62%), #0d1113",
+                "radial-gradient(circle at 80% 18%, rgba(255, 118, 42, 0.34) 0%, rgba(13, 17, 19, 0) 58%), #0d1113",
             }}
           >
+            {/* Porcelain Sheet Replica of VirtualCabRoom */}
             <div
               style={{
                 width: "100%",
-                maxWidth: 304,
-                display: "grid",
-                gridTemplateColumns: "repeat(4, 1fr)",
-                gap: 9,
+                borderRadius: 14,
+                overflow: "hidden",
+                background: "#f4f6f5",
+                color: "#0b0e10",
+                boxShadow: "0 20px 44px rgba(0,0,0,0.4)",
               }}
             >
-              {MATRIX_TILES.map((tile, idx) => {
-                const lit = idx === activeTile || (activeTile === 2 && idx === 5);
-                return (
-                  <div
-                    key={tile.code}
+              {/* Sheet Header */}
+              <div
+                style={{
+                  padding: "8px 11px",
+                  borderBottom: "1px solid rgba(11,14,16,0.08)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  background: "#e9eeec",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span
                     style={{
-                      aspectRatio: "1 / 1",
-                      borderRadius: 9,
-                      background: lit ? "#ffffff" : "rgba(244, 246, 245, 0.92)",
-                      color: "#0b0e10",
-                      display: "flex",
-                      flexDirection: "column",
+                      width: 16,
+                      height: 16,
+                      borderRadius: 4,
+                      background: "#ff6b24",
+                      color: "#fff",
+                      fontSize: 9,
+                      display: "inline-flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      gap: 3,
-                      transform: lit ? "translate3d(0, -5px, 0) scale(1.04)" : "translate3d(0, 0, 0)",
-                      boxShadow: lit
-                        ? "0 14px 28px rgba(255, 107, 36, 0.36), 0 0 0 2px #ff6b24"
-                        : "0 8px 18px rgba(0, 0, 0, 0.28)",
-                      transition:
-                        "transform 320ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 320ms ease",
                     }}
                   >
-                    <span
+                    ⏻
+                  </span>
+                  <span style={{ fontSize: 11.5, fontWeight: 600 }}>2x12 JP Stereo Jazz</span>
+                </div>
+                <span
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 8.5,
+                    fontWeight: 600,
+                    padding: "3px 7px",
+                    borderRadius: 999,
+                    background: "#0b0e10",
+                    color: "#ffffff",
+                  }}
+                >
+                  CAB ROOM 2×
+                </span>
+              </div>
+
+              {/* 2D Speaker Cone Radar + Mic Cards */}
+              <div
+                style={{
+                  padding: "10px",
+                  display: "grid",
+                  gridTemplateColumns: "1.15fr 0.85fr",
+                  gap: 8,
+                  alignItems: "stretch",
+                }}
+              >
+                <div
+                  style={{
+                    borderRadius: 8,
+                    background: "#dde3e0",
+                    border: "1px solid rgba(11,14,16,0.08)",
+                    padding: 6,
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <svg viewBox="0 0 210 116" style={{ width: "100%", height: "auto" }}>
+                    {/* Radar Gridlines */}
+                    {[32, 62, 92].map((y) => (
+                      <line
+                        key={y}
+                        x1={12}
+                        y1={y}
+                        x2={198}
+                        y2={y}
+                        stroke="rgba(11,14,16,0.12)"
+                        strokeDasharray="2 3"
+                      />
+                    ))}
+                    {/* Speaker Cone Concentric Rings */}
+                    <ellipse
+                      cx={38}
+                      cy={62}
+                      rx={26}
+                      ry={44}
+                      fill="rgba(11,14,16,0.04)"
+                      stroke="rgba(11,14,16,0.16)"
+                    />
+                    <ellipse
+                      cx={38}
+                      cy={62}
+                      rx={11}
+                      ry={19}
+                      fill="rgba(11,14,16,0.07)"
+                      stroke="rgba(11,14,16,0.2)"
+                    />
+
+                    {/* Mic A (SM57 Orange) */}
+                    <g
                       style={{
-                        fontFamily: "var(--font-mono)",
-                        fontSize: 12,
-                        fontWeight: 600,
-                        color: lit ? "#ff6b24" : "#0b0e10",
+                        transform: `translate(${mic.ax}px, ${mic.ay}px)`,
+                        transition: "transform 620ms cubic-bezier(0.22, 1, 0.36, 1)",
                       }}
                     >
-                      {tile.code}
-                    </span>
-                    <span
+                      <circle r={11} fill="rgba(255,107,36,0.2)" stroke="#ff6b24" strokeWidth={1.5} />
+                      <circle r={3.5} fill="#ff6b24" />
+                      <text
+                        y={-15}
+                        textAnchor="middle"
+                        fill="#ff6b24"
+                        fontFamily="var(--font-mono)"
+                        fontSize={8}
+                        fontWeight={700}
+                      >
+                        A·SM57
+                      </text>
+                    </g>
+
+                    {/* Mic B (R-121 Green) */}
+                    <g
                       style={{
-                        fontFamily: "var(--font-mono)",
-                        fontSize: 9,
-                        color: "#636b6d",
+                        transform: `translate(${mic.bx}px, ${mic.by}px)`,
+                        transition: "transform 620ms cubic-bezier(0.22, 1, 0.36, 1)",
                       }}
                     >
-                      {tile.sub}
-                    </span>
+                      <circle r={11} fill="rgba(21,128,61,0.18)" stroke="#15803d" strokeWidth={1.5} />
+                      <circle r={3.5} fill="#15803d" />
+                      <text
+                        y={21}
+                        textAnchor="middle"
+                        fill="#15803d"
+                        fontFamily="var(--font-mono)"
+                        fontSize={8}
+                        fontWeight={700}
+                      >
+                        B·R121
+                      </text>
+                    </g>
+                  </svg>
+
+                  {/* 57+121 | HAAS | EDGE Quick Buttons */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 4 }}>
+                    {MIC_PRESETS.map((mp, idx) => (
+                      <span
+                        key={mp.name}
+                        style={{
+                          textAlign: "center",
+                          fontFamily: "var(--font-mono)",
+                          fontSize: 8.5,
+                          fontWeight: 600,
+                          padding: "3px 0",
+                          borderRadius: 4,
+                          background: idx === micPresetIdx ? "#0b0e10" : "#ffffff",
+                          color: idx === micPresetIdx ? "#ffffff" : "#0b0e10",
+                        }}
+                      >
+                        {mp.name}
+                      </span>
+                    ))}
                   </div>
-                );
-              })}
+                </div>
+
+                {/* Right Mic Readout Cards */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <div
+                    style={{
+                      padding: "7px 8px",
+                      borderRadius: 7,
+                      background: "#ffffff",
+                      border: "1px solid rgba(11,14,16,0.08)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 8.5,
+                        fontWeight: 700,
+                        color: "#ff6b24",
+                      }}
+                    >
+                      MIC A · SM57
+                    </div>
+                    <div
+                      style={{
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 9.5,
+                        color: "#51595b",
+                        marginTop: 3,
+                      }}
+                    >
+                      POS {mic.posA} · 0.0dB
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      padding: "7px 8px",
+                      borderRadius: 7,
+                      background: "#ffffff",
+                      border: "1px solid rgba(11,14,16,0.08)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 8.5,
+                        fontWeight: 700,
+                        color: "#15803d",
+                      }}
+                    >
+                      MIC B · R-121
+                    </div>
+                    <div
+                      style={{
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 9.5,
+                        color: "#51595b",
+                        marginTop: 3,
+                      }}
+                    >
+                      POS {mic.posB} · -1.5dB
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
           <div className="nr-stage-caption">
             <h3 className="nr-stage-title">{t.trio[1].title}</h3>
             <p className="nr-stage-line">{t.trio[1].line}</p>
-            <button type="button" className="nr-dot-btn" onClick={() => onJumpToChapter(1)}>
+            <button
+              type="button"
+              className="nr-dot-btn"
+              onClick={() => setMicPresetIdx((prev) => (prev + 1) % MIC_PRESETS.length)}
+            >
               <span className="nr-dot" />
               <span>{t.trio[1].action}</span>
             </button>
@@ -285,7 +472,7 @@ export function FeatureTrioStages({
         </article>
 
         {/* ================================================================
-            STAGE 3: AI SCHEMATIC-TO-PEDAL CONVERTER (NPX NEURALRIG-MCP)
+            STAGE 3: ACTUAL TP-7 TAPE LOOPER / RE-AMP DECK + MCP (step_10)
            ================================================================ */}
         <article className="nr-stage-card">
           <div
@@ -293,126 +480,203 @@ export function FeatureTrioStages({
             onClick={handleCopyMcp}
             style={{
               cursor: "pointer",
+              padding: "20px",
               background:
-                "radial-gradient(circle at 50% 42%, rgba(255, 132, 54, 0.5) 0%, rgba(13, 17, 19, 0) 64%), #0d1113",
+                "radial-gradient(circle at 50% 24%, rgba(255, 118, 42, 0.36) 0%, rgba(13, 17, 19, 0) 60%), #0d1113",
             }}
           >
+            {/* Authentic Dark Floating TAPE · LOOP + REC · RE-AMP Deck */}
             <div
               style={{
                 width: "100%",
-                maxWidth: 292,
-                borderRadius: 10,
-                padding: "18px",
-                background: "rgba(18, 23, 26, 0.78)",
-                backdropFilter: "blur(14px)",
-                border: "1px solid rgba(255, 255, 255, 0.14)",
+                borderRadius: 14,
+                padding: "13px 14px",
+                background: "#13181b",
+                border: "1px solid rgba(255,255,255,0.12)",
                 color: "#f5f7f6",
-                boxShadow: "0 20px 44px rgba(0, 0, 0, 0.36)",
+                boxShadow: "0 22px 48px rgba(0,0,0,0.45)",
               }}
             >
-              {/* Input Schematic Row */}
+              <style>{`
+                @keyframes nrReelSpin { to { transform: rotate(360deg); } }
+              `}</style>
+
+              {/* Top Tabs: TAPE · LOOP | MR DECK */}
               <div
                 style={{
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
+                  marginBottom: 11,
                 }}
               >
-                <div>
-                  <div style={{ fontSize: 18, fontWeight: 400, letterSpacing: "-0.02em" }}>
-                    {mcpStep === 0 ? "Datasheet" : mcpStep === 1 ? ".AC / .TRAN" : "Hot-Swap"}
-                  </div>
-                  <div
+                <div
+                  style={{
+                    display: "inline-flex",
+                    padding: 2,
+                    borderRadius: 6,
+                    background: "rgba(255,255,255,0.06)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 9,
+                  }}
+                >
+                  <span
                     style={{
-                      fontFamily: "var(--font-mono)",
-                      fontSize: 10,
-                      color: "rgba(255,255,255,0.56)",
-                      marginTop: 2,
+                      padding: "3px 8px",
+                      borderRadius: 4,
+                      background: "#f5f7f6",
+                      color: "#0b0e10",
+                      fontWeight: 700,
                     }}
                   >
-                    {mcpStep === 0
-                      ? "1S1588 · M5218AL"
-                      : mcpStep === 1
-                        ? "0 B RT Verified"
-                        : "Mounted Slot 02"}
-                  </div>
+                    TAPE · LOOP
+                  </span>
+                  <span style={{ padding: "3px 8px", color: "rgba(255,255,255,0.5)" }}>
+                    MR DECK
+                  </span>
                 </div>
                 <span
                   style={{
                     fontFamily: "var(--font-mono)",
-                    fontSize: 10.5,
-                    padding: "4px 9px",
-                    borderRadius: 999,
-                    background: "rgba(255,255,255,0.1)",
-                    border: "1px solid rgba(255,255,255,0.14)",
+                    fontSize: 9.5,
+                    color: "rgba(255,255,255,0.55)",
                   }}
                 >
-                  MCP
+                  120 BPM
                 </span>
               </div>
 
-              {/* Center Glowing Node Divider (00:02 Reference Homage) */}
+              {/* Rotating TP-7 3-Spoke Tape Reel + Loop Transport */}
               <div
                 style={{
-                  position: "relative",
-                  margin: "18px 0",
-                  height: 1,
-                  background: "rgba(255,255,255,0.14)",
+                  padding: "10px 11px",
+                  borderRadius: 10,
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px solid rgba(255,255,255,0.08)",
                   display: "flex",
                   alignItems: "center",
-                  justifyContent: "center",
+                  gap: 12,
                 }}
               >
-                <span
+                <svg
+                  width={42}
+                  height={42}
+                  viewBox="0 0 44 44"
                   style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: "50%",
-                    background: "#ffffff",
-                    color: "#0b0e10",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    boxShadow: "0 0 22px rgba(255, 132, 54, 0.85)",
-                    transform: `rotate(${mcpStep * 90}deg)`,
-                    transition: "transform 480ms cubic-bezier(0.22, 1, 0.36, 1)",
+                    flexShrink: 0,
+                    animation: "nrReelSpin 4.2s linear infinite",
                   }}
                 >
-                  +
-                </span>
+                  <circle
+                    cx={22}
+                    cy={22}
+                    r={19}
+                    fill="none"
+                    stroke="rgba(255,255,255,0.22)"
+                    strokeWidth={1.3}
+                  />
+                  <circle cx={22} cy={22} r={5.5} fill="none" stroke="#f5f7f6" strokeWidth={1.5} />
+                  <circle cx={22} cy={22} r={2} fill="#ff6b24" />
+                  {[0, 120, 240].map((deg) => (
+                    <line
+                      key={deg}
+                      x1={22}
+                      y1={7}
+                      x2={22}
+                      y2={15}
+                      stroke="rgba(255,255,255,0.65)"
+                      strokeWidth={1.5}
+                      transform={`rotate(${deg} 22 22)`}
+                    />
+                  ))}
+                </svg>
+
+                <div style={{ flex: 1 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 15,
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      {loopSec.toFixed(1)}s
+                    </span>
+                    <div
+                      style={{
+                        width: 58,
+                        height: 4,
+                        borderRadius: 99,
+                        background: "rgba(255,255,255,0.16)",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div style={{ width: "68%", height: "100%", background: "#ff6b24" }} />
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 5, marginTop: 7 }}>
+                    {["● REC", "½X", "REV", "SYNC"].map((b, i) => (
+                      <span
+                        key={b}
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          fontSize: 8.5,
+                          padding: "3px 6px",
+                          borderRadius: 4,
+                          background: i === 0 ? "rgba(255,107,36,0.2)" : "rgba(255,255,255,0.06)",
+                          color: i === 0 ? "#ff8c42" : "rgba(255,255,255,0.7)",
+                          border: "1px solid rgba(255,255,255,0.1)",
+                        }}
+                      >
+                        {b}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               </div>
 
-              {/* Output Compiled Pedal Row */}
+              {/* Bottom DI+WET Re-Amp & MCP Bar */}
               <div
                 style={{
+                  marginTop: 9,
+                  paddingTop: 9,
+                  borderTop: "1px solid rgba(255,255,255,0.08)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 9.5,
                 }}
               >
-                <code
-                  style={{
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 11.5,
-                    color: copied ? "#4ade80" : "#ff9b5e",
-                  }}
-                >
-                  {copied ? "✓ Copied to clipboard" : "npx neuralrig-mcp"}
-                </code>
-                <span
-                  style={{
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 10,
-                    padding: "4px 8px",
-                    borderRadius: 999,
-                    background: "rgba(34, 197, 94, 0.16)",
-                    color: "#4ade80",
-                  }}
-                >
-                  0 B
+                <div style={{ display: "flex", gap: 6 }}>
+                  <span
+                    style={{
+                      padding: "3px 7px",
+                      borderRadius: 4,
+                      background: "rgba(255,255,255,0.06)",
+                    }}
+                  >
+                    ● REC DI+WET
+                  </span>
+                  <span
+                    style={{
+                      padding: "3px 7px",
+                      borderRadius: 4,
+                      background: "rgba(255,255,255,0.06)",
+                    }}
+                  >
+                    ((•)) RE-AMP
+                  </span>
+                </div>
+                <span style={{ color: copied ? "#4ade80" : "#ff8c42" }}>
+                  {copied ? "✓ MCP" : "npx MCP"}
                 </span>
               </div>
             </div>
