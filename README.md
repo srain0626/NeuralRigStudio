@@ -25,7 +25,7 @@
 
 All DSP kernels run inside the native managed audio thread with zero background Python runtime, enforcing **`0 B` heap allocation per audio callback block** across 4x HIIR polyphase oversampling, Newton-Raphson transistor/diode solvers, Koren 12AX7 triode preamps, symbolic KCL tone stacks, 16,384-tap Zero-Latency Partitioned FFT cabinet convolution, and `Vector256<float>` neural inference (`WaveNet`, `LSTM`, `ConvNet`).
 
-> Maintainer: **Ray Kim** (`raykim@users.noreply.github.com`) · AI Agent Documentation Index: [AGENTS.md](AGENTS.md) · [llms.txt](llms.txt) · [docs/INDEX.md](docs/INDEX.md)
+> Maintainer: **Ray Kim** (`38514329+srain0626@users.noreply.github.com`) · AI Agent Documentation Index: [AGENTS.md](AGENTS.md) · [llms.txt](llms.txt) · [docs/INDEX.md](docs/INDEX.md)
 
 ---
 

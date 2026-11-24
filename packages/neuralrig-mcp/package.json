@@ -4,7 +4,7 @@
   "description": "Universal MCP server and multi-AI provider installer for NeuralRig Studio (75+ pedals/amps/cabs, MNA SPICE schematic solver, live audio bridge)",
   "type": "module",
   "license": "MIT",
-  "author": "Ray Kim <raykim@users.noreply.github.com>",
+  "author": "Ray Kim <38514329+srain0626@users.noreply.github.com>",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/srain0626/NeuralRigStudio.git",

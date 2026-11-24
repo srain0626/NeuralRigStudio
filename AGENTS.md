@@ -4,7 +4,7 @@
 
 ## Project Identity
 - **Stack**: Native C# `.NET 10` (`WinForms + WebView2`) + `AVX2/FMA` DSP + React 19 / Vite (`web-ui/`) + Vercel Next.js 15 / Supabase (`cloud/`) + npm MCP (`packages/neuralrig-mcp/`).
-- **Author / Maintainer**: `Ray Kim` (`raykim@users.noreply.github.com`). Do not reintroduce personal paths, usernames, or single-vendor hardware locks (`GP-100`).
+- **Author / Maintainer**: `Ray Kim` (`38514329+srain0626@users.noreply.github.com`). Do not reintroduce personal paths, usernames, or single-vendor hardware locks (`GP-100`).
 
 ## Build & Verification Commands
 ```powershell

@@ -11,7 +11,7 @@
 
 Do **not** open a public GitHub issue for security vulnerabilities, OAuth token handling bugs, or arbitrary circuit/code execution vectors.
 
-Instead, please contact **Ray Kim** privately via **GitHub Security Advisories** on `srain0626/NeuralRigStudio` or email **`raykim@users.noreply.github.com`** with:
+Instead, please contact **Ray Kim** privately via **GitHub Security Advisories** on `srain0626/NeuralRigStudio` or email **`38514329+srain0626@users.noreply.github.com`** with:
 - Affected component (`NeuralRig.Core`, `RigWebBridge`, `neuralrig-mcp`, `cloud/`, or installer)
 - Minimal reproduction steps or proof-of-concept payload
 - Impact assessment

@@ -25,7 +25,7 @@
 
 모든 DSP 연산(4x HIIR 폴리페이즈 오버샘플링, Newton-Raphson 반도체/다이오드 솔버, Norman Koren 12AX7 진공관 모델, KCL 패시브 톤스택, 16,384탭 Zero-Latency Partitioned FFT 컨볼버, `WaveNet`/`LSTM`/`ConvNet` SIMD 추론)이 오디오 콜백 스레드 **`0 B` 힙 할당** 제약 아래 네이티브로 실행됩니다.
 
-> 메인테이너: **Ray Kim** (`raykim@users.noreply.github.com`) · AI 에이전트 문서 인덱스: [AGENTS.md](AGENTS.md) · [llms.txt](llms.txt) · [docs/INDEX.md](docs/INDEX.md)
+> 메인테이너: **Ray Kim** (`38514329+srain0626@users.noreply.github.com`) · AI 에이전트 문서 인덱스: [AGENTS.md](AGENTS.md) · [llms.txt](llms.txt) · [docs/INDEX.md](docs/INDEX.md)
 
 ---
 
