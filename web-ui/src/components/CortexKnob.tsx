@@ -1,5 +1,5 @@
 import React, { useRef, useState } from "react"
-import { RotateCcw, Radio } from "lucide-react"
+import { Radio, RotateCcw } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import {
   ContextMenu,
@@ -37,7 +37,6 @@ export const CortexKnob: React.FC<CortexKnobProps> = ({
   step,
   defaultVal,
   unit,
-  accentHex,
   syncedText,
   midiCc,
   isMidiLearning,
@@ -102,11 +101,11 @@ export const CortexKnob: React.FC<CortexKnobProps> = ({
     }
   }
 
-  const activeStroke = syncedText ? "var(--signal-warn)" : accentHex
+  const activeStroke = syncedText ? "var(--signal-warn)" : "var(--primary)"
 
   const knobCell = (
     <div
-      className={`relative flex items-center justify-between px-3 py-2.5 bg-card hover:bg-secondary/55 transition-colors border-r border-b border-border cursor-ns-resize select-none ${
+      className={`relative flex items-center justify-between px-3.5 py-2.5 bg-card hover:bg-secondary/50 transition-colors border-r border-b border-border cursor-ns-resize select-none ${
         isMidiLearning ? "ring-1 ring-inset ring-signal-warn bg-signal-warn/10" : ""
       }`}
       onPointerDown={handlePointerDown}
@@ -117,9 +116,9 @@ export const CortexKnob: React.FC<CortexKnobProps> = ({
         if (!editing) onChange(defaultVal)
       }}
     >
-      <div className="flex flex-col justify-between h-12 min-w-0 pr-2">
+      <div className="flex flex-col justify-between h-11 min-w-0 pr-2">
         <div className="flex items-center gap-1 min-w-0">
-          <span className="font-mono text-[10px] font-bold tracking-wider text-muted-foreground uppercase truncate">
+          <span className="font-mono text-[10px] font-medium tracking-[0.08em] text-muted-foreground uppercase truncate">
             {label}
           </span>
           {isMidiLearning ? (
@@ -146,10 +145,10 @@ export const CortexKnob: React.FC<CortexKnobProps> = ({
               if (e.key === "Enter") commitDraft()
               if (e.key === "Escape") setEditing(false)
             }}
-            className="w-16 h-5 px-1 rounded-sm bg-background border border-primary font-mono text-xs text-foreground outline-none tabular-nums"
+            className="w-16 h-5 px-1 rounded-[2px] bg-background border border-primary font-mono text-xs text-foreground outline-none tabular-nums"
           />
         ) : syncedText ? (
-          <div className="flex items-baseline gap-1 font-mono text-xs font-bold text-signal-warn tabular-nums">
+          <div className="flex items-baseline gap-1 font-mono text-xs font-semibold text-signal-warn tabular-nums">
             <span>{syncedText}</span>
           </div>
         ) : (
@@ -161,16 +160,16 @@ export const CortexKnob: React.FC<CortexKnobProps> = ({
               setDraftVal(formattedVal)
               setEditing(true)
             }}
-            className="flex items-baseline gap-1 font-mono text-xs text-foreground hover:text-primary transition-colors text-left cursor-text"
+            className="flex items-baseline gap-1 font-display text-[17px] font-light tracking-[-0.02em] text-foreground hover:text-primary transition-colors text-left cursor-text"
           >
-            <span className="font-bold tabular-nums text-[13px]">{formattedVal}</span>
-            {unit && <span className="text-[10px] text-muted-foreground">{unit}</span>}
+            <span className="tabular-nums">{formattedVal}</span>
+            {unit && <span className="font-mono text-[10px] text-muted-foreground">{unit}</span>}
           </button>
         )}
       </div>
 
-      {/* 11-Tick Precision Hardware Rotary Encoder */}
-      <svg width={52} height={52} viewBox="0 0 52 52" className="shrink-0 overflow-visible">
+      {/* Architectural 11-Tick Precision Dial */}
+      <svg width={48} height={48} viewBox="0 0 52 52" className="shrink-0 overflow-visible">
         {Array.from({ length: TICK_COUNT }, (_, idx) => {
           const tickFrac = idx / (TICK_COUNT - 1)
           const rad = ((startAngle + tickFrac * sweep) * Math.PI) / 180
@@ -189,39 +188,30 @@ export const CortexKnob: React.FC<CortexKnobProps> = ({
               x2={x2}
               y2={y2}
               stroke={lit ? activeStroke : "currentColor"}
-              strokeOpacity={lit ? 1 : 0.25}
-              strokeWidth={lit ? 1.9 : 1.2}
+              strokeOpacity={lit ? 1 : 0.22}
+              strokeWidth={lit ? 1.9 : 1.15}
               strokeLinecap="round"
               className={lit ? "" : "text-foreground"}
             />
           )
         })}
 
-        {/* Machined Dial Cap */}
         <circle
           cx={26}
           cy={26}
           r={15.5}
-          className="fill-background stroke-foreground/80"
-          strokeWidth={1.4}
-        />
-        <circle
-          cx={26}
-          cy={26}
-          r={12}
-          className="fill-none stroke-border"
-          strokeWidth={0.8}
+          className="fill-background/80 stroke-foreground/70"
+          strokeWidth={1.3}
         />
 
-        {/* Pointer Needle */}
         <g transform={`rotate(${angleDeg} 26 26)`}>
           <line
             x1={26}
-            y1={12}
+            y1={12.5}
             x2={26}
             y2={21}
             stroke={activeStroke}
-            strokeWidth={2.3}
+            strokeWidth={2.2}
             strokeLinecap="round"
           />
         </g>
@@ -282,30 +272,28 @@ export const CortexToggleCell: React.FC<CortexToggleCellProps> = ({
   checked,
   onLabel = "ON",
   offLabel = "OFF",
-  accentHex,
   onChange,
 }) => {
   return (
     <button
       type="button"
       onClick={() => onChange(!checked)}
-      className="flex flex-col justify-between px-3 py-2.5 bg-card hover:bg-secondary/55 transition-colors border-r border-b border-border text-left h-full min-h-[72px] cursor-pointer"
+      className="flex flex-col justify-between px-3.5 py-2.5 bg-card hover:bg-secondary/50 transition-colors border-r border-b border-border text-left h-full min-h-[70px] cursor-pointer"
     >
-      <span className="font-mono text-[10px] font-bold tracking-wider text-muted-foreground uppercase">
+      <span className="font-mono text-[10px] font-medium tracking-[0.08em] text-muted-foreground uppercase">
         {label}
       </span>
       <div className="flex items-center gap-3 mt-1">
-        <div className="w-5 h-9 rounded-sm bg-background border border-border p-0.5 flex flex-col justify-between items-center relative">
+        <div className="w-5 h-9 rounded-[2px] bg-secondary border border-border p-0.5 flex flex-col justify-between items-center relative">
           <div
-            className="w-3.5 h-3.5 rounded-[2px] transition-transform duration-150"
+            className="w-3.5 h-3.5 rounded-[1px] transition-transform duration-150"
             style={{
               transform: checked ? "translateY(0px)" : "translateY(16px)",
-              border: `1.5px solid ${checked ? accentHex : "var(--border)"}`,
-              backgroundColor: checked ? accentHex : "var(--secondary)",
+              backgroundColor: checked ? "var(--primary)" : "var(--muted-foreground)",
             }}
           />
         </div>
-        <div className="flex flex-col font-mono text-[11px] leading-tight font-bold">
+        <div className="flex flex-col font-mono text-[11px] leading-tight font-semibold">
           <span className={checked ? "text-foreground" : "text-muted-foreground/45"}>{onLabel}</span>
           <span className={!checked ? "text-foreground" : "text-muted-foreground/45"}>{offLabel}</span>
         </div>

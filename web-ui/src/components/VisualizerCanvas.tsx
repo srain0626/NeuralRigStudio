@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from "react"
 import { Activity, BarChart3, Waves } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { studioBridge } from "@/lib/bridge"
 import { useI18n } from "@/lib/i18n"
@@ -60,20 +59,6 @@ export const VisualizerCanvas: React.FC<{
   useEffect(() => {
     let lastUiSync = 0
 
-    const readPalette = () => {
-      const cs = getComputedStyle(document.documentElement)
-      return {
-        bg: cs.getPropertyValue("--surface-oled").trim() || "#0D0E0D",
-        elevated: cs.getPropertyValue("--surface-oled-elevated").trim() || "#171917",
-        fg: cs.getPropertyValue("--ink-oled").trim() || "#F2EFE9",
-        muted: cs.getPropertyValue("--ink-oled-muted").trim() || "#8E8C84",
-        border: cs.getPropertyValue("--border-oled").trim() || "#2E312D",
-        hot: cs.getPropertyValue("--signal-hot").trim() || "#FF4400",
-        ok: cs.getPropertyValue("--signal-ok").trim() || "#2CE674",
-        warn: cs.getPropertyValue("--signal-warn").trim() || "#FF9F0A",
-      }
-    }
-
     const draw = (f: TelemetryFrame) => {
       const canvas = canvasRef.current
       if (!canvas) return
@@ -90,7 +75,6 @@ export const VisualizerCanvas: React.FC<{
 
       const ctx = canvas.getContext("2d")
       if (!ctx) return
-      const pal = readPalette()
 
       ctx.save()
       ctx.scale(dpr, dpr)
@@ -99,67 +83,61 @@ export const VisualizerCanvas: React.FC<{
       const height = rect.height
       ctx.clearRect(0, 0, width, height)
 
-      // Recessed Matte OLED Surface + Subtle Dot Grid
-      ctx.fillStyle = pal.bg
+      // Dark Obsidian Canvas + Top-Left Tangerine Radial Glow
+      ctx.fillStyle = "#0d1113"
       ctx.fillRect(0, 0, width, height)
-      ctx.fillStyle = "rgba(242, 239, 233, 0.08)"
-      for (let gx = 12; gx < width; gx += 16) {
-        for (let gy = 48; gy < height - 20; gy += 16) {
-          ctx.fillRect(gx, gy, 1, 1)
-        }
-      }
+      const glow = ctx.createRadialGradient(width * 0.16, height * 0.1, 10, width * 0.16, height * 0.1, width * 0.65)
+      glow.addColorStop(0, "rgba(255, 118, 42, 0.22)")
+      glow.addColorStop(1, "rgba(13, 17, 19, 0)")
+      ctx.fillStyle = glow
+      ctx.fillRect(0, 0, width, height)
 
       // Stereo dB Meter Strip
-      const meterTop = 10
-      const meterLeft = 30
-      const meterRight = width - 52
+      const meterTop = 12
+      const meterLeft = 32
+      const meterRight = width - 54
       const meterW = Math.max(80, meterRight - meterLeft)
-      const barH = 8
+      const barH = 7
 
       const drawMeterBar = (y: number, tag: string, val: number) => {
-        ctx.fillStyle = pal.muted
-        ctx.font = '600 10px "IBM Plex Mono", ui-monospace, monospace'
-        ctx.fillText(tag, 10, y + 7)
+        ctx.fillStyle = "rgba(245, 247, 246, 0.55)"
+        ctx.font = '500 10px "IBM Plex Mono", ui-monospace, monospace'
+        ctx.fillText(tag, 12, y + 6.5)
 
-        ctx.fillStyle = pal.elevated
+        ctx.fillStyle = "rgba(255, 255, 255, 0.08)"
         ctx.fillRect(meterLeft, y, meterW, barH)
 
         const norm = linToNormDb(val)
         const fillW = Math.round(norm * meterW)
         if (fillW > 0) {
           const grad = ctx.createLinearGradient(meterLeft, 0, meterRight, 0)
-          grad.addColorStop(0.0, pal.ok)
-          grad.addColorStop(0.76, pal.ok)
-          grad.addColorStop(0.86, pal.warn)
-          grad.addColorStop(0.95, pal.hot)
-          grad.addColorStop(1.0, pal.hot)
+          grad.addColorStop(0.0, "#f5f7f6")
+          grad.addColorStop(0.7, "#f5f7f6")
+          grad.addColorStop(0.84, "#ff8c42")
+          grad.addColorStop(1.0, "#ff6b24")
           ctx.fillStyle = grad
           ctx.fillRect(meterLeft, y, fillW, barH)
         }
 
-        ctx.fillStyle = pal.border
-        ctx.fillRect(meterLeft + meterW * 0.8, y, 1, barH)
-        ctx.fillRect(meterLeft + meterW * 0.9, y, 1, barH)
-
-        ctx.fillStyle = pal.fg
+        ctx.fillStyle = "#f5f7f6"
         ctx.font = '500 10px "IBM Plex Mono", ui-monospace, monospace'
         ctx.textAlign = "right"
-        ctx.fillText(dbStr(val), width - 10, y + 7)
+        ctx.fillText(dbStr(val), width - 12, y + 6.5)
         ctx.textAlign = "left"
       }
 
       drawMeterBar(meterTop, "L", f.meterL)
-      drawMeterBar(meterTop + 13, "R", f.meterR)
+      drawMeterBar(meterTop + 12, "R", f.meterR)
 
       // Plot Area
-      const padL = 12
-      const padR = 12
+      const padL = 14
+      const padR = 14
       const plotTop = meterTop + 34
-      const plotBot = height - 22
+      const plotBot = height - 24
       const plotW = Math.max(40, width - padL - padR)
       const plotH = Math.max(40, plotBot - plotTop)
 
-      ctx.strokeStyle = pal.border
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.08)"
       ctx.lineWidth = 1
       for (let g = 0; g <= 4; g++) {
         const gy = Math.round(plotTop + (plotH * g) / 4) + 0.5
@@ -172,7 +150,7 @@ export const VisualizerCanvas: React.FC<{
       const curMode = modeRef.current
       const { bands, peakCaps, wave, irCurve, hasIrCurve, running } = f.vis
 
-      // 1) Spectrum Bars + Peak Caps
+      // 1) Alternating White & Tangerine Harmonic Bars (FeatureTrioStages Stage 1 Homage)
       if (curMode !== "waveform" && bands.length > 0) {
         const n = bands.length
         const slotW = plotW / n
@@ -183,16 +161,14 @@ export const VisualizerCanvas: React.FC<{
           const bx = Math.round(padL + b * slotW + 1.5)
           const by = plotBot - bh
           if (bh > 1) {
-            ctx.fillStyle = val > 0.85 ? pal.hot : val > 0.65 ? pal.warn : pal.ok
-            ctx.globalAlpha = 0.82
+            ctx.fillStyle = val > 0.85 || b % 2 === 1 ? "#ff7730" : "rgba(245, 247, 246, 0.85)"
             ctx.fillRect(bx, by, barW, bh)
-            ctx.globalAlpha = 1
           }
 
           const cap = peakCaps[b] || 0
           if (cap > 0.02) {
             const capY = Math.round(plotBot - cap * (plotH - 6))
-            ctx.fillStyle = pal.fg
+            ctx.fillStyle = "#ffffff"
             ctx.fillRect(bx, capY - 2, barW, 2)
           }
         }
@@ -201,7 +177,7 @@ export const VisualizerCanvas: React.FC<{
       // 2) Cab IR Curve Overlay
       if (curMode !== "waveform" && hasIrCurve && irCurve.length > 1) {
         ctx.save()
-        ctx.strokeStyle = pal.warn
+        ctx.strokeStyle = "#ff8c42"
         ctx.lineWidth = 1.6
         ctx.setLineDash([4, 3])
         ctx.beginPath()
@@ -215,7 +191,7 @@ export const VisualizerCanvas: React.FC<{
         ctx.restore()
       }
 
-      // 3) Zero-Crossing Oscilloscope Waveform
+      // 3) Glowing Tangerine Zero-Crossing Waveform (HeroFloatingCards Homage)
       if (curMode !== "spectrum" && wave.length > 1) {
         const midY = plotTop + plotH * 0.5
         const ampScale = plotH * (curMode === "waveform" ? 0.44 : 0.34)
@@ -227,14 +203,14 @@ export const VisualizerCanvas: React.FC<{
           if (i === 0) ctx.moveTo(x, y)
           else ctx.lineTo(x, y)
         }
-        ctx.strokeStyle = !running ? pal.muted : curMode === "combined" ? pal.fg : pal.hot
-        ctx.lineWidth = curMode === "waveform" ? 1.9 : 1.35
+        ctx.strokeStyle = !running ? "rgba(255,255,255,0.22)" : "#ff7730"
+        ctx.lineWidth = curMode === "waveform" ? 2.1 : 1.5
         ctx.stroke()
         ctx.restore()
       }
 
       // Footer Axis Labels
-      ctx.fillStyle = pal.muted
+      ctx.fillStyle = "rgba(245, 247, 246, 0.45)"
       ctx.font = '500 10px "IBM Plex Mono", ui-monospace, monospace'
       const labels =
         curMode === "waveform"
@@ -242,7 +218,7 @@ export const VisualizerCanvas: React.FC<{
           : ["80Hz", "250Hz", "800Hz", "2.5kHz", "8kHz"]
       labels.forEach((txt, idx) => {
         const x = padL + (idx / Math.max(1, labels.length - 1)) * (plotW - 44)
-        ctx.fillText(txt, x, height - 6)
+        ctx.fillText(txt, x, height - 7)
       })
 
       ctx.restore()
@@ -275,57 +251,72 @@ export const VisualizerCanvas: React.FC<{
   }, [mode])
 
   return (
-    <Card className={cn("flex flex-col py-3 gap-2.5", className)}>
-      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-0">
+    <div
+      className={cn(
+        "flex flex-col rounded-[12px] border border-oled-border nr-obsidian-stage text-oled-foreground p-4 gap-3",
+        className
+      )}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Activity className="size-4 text-primary" strokeWidth={1.5} />
-          <CardTitle className="text-xs font-mono uppercase tracking-wider">
-            SPECTRUM · OSCILLOSCOPE
-          </CardTitle>
+          <Activity className="size-4 text-primary" strokeWidth={1.6} />
+          <span className="font-mono text-xs font-medium tracking-[0.1em] uppercase">
+            HARMONIC SPECTRUM · SCOPE
+          </span>
           {activeToneLabel && (
             <Badge variant="warn" size="xs">
               IR: {activeToneLabel}
             </Badge>
           )}
         </div>
+
         <div className="flex items-center gap-2">
           <Badge
-            variant={clipActive ? "hot" : signalState === "active" ? "ok" : "outline"}
+            variant={clipActive ? "hot" : signalState === "active" ? "ok" : "oled"}
             size="xs"
             className="tabular-nums"
           >
             {clipActive ? "CLIP" : peakLabel}
           </Badge>
           <Tabs value={mode} onValueChange={(v) => setMode(v as VisMode)}>
-            <TabsList className="h-7">
-              <TabsTrigger value="combined" className="h-5 px-2 text-[10px]">
+            <TabsList className="h-7 bg-white/[0.07] border-oled-border text-oled-muted">
+              <TabsTrigger
+                value="combined"
+                className="h-5 px-2 text-[10px] data-[state=active]:bg-oled-foreground data-[state=active]:text-oled"
+              >
                 {tx("복합", "BOTH")}
               </TabsTrigger>
-              <TabsTrigger value="spectrum" className="h-5 px-2 text-[10px]">
+              <TabsTrigger
+                value="spectrum"
+                className="h-5 px-2 text-[10px] data-[state=active]:bg-oled-foreground data-[state=active]:text-oled"
+              >
                 <BarChart3 className="size-3" />
                 FFT
               </TabsTrigger>
-              <TabsTrigger value="waveform" className="h-5 px-2 text-[10px]">
+              <TabsTrigger
+                value="waveform"
+                className="h-5 px-2 text-[10px] data-[state=active]:bg-oled-foreground data-[state=active]:text-oled"
+              >
                 <Waves className="size-3" />
                 {tx("파형", "WAVE")}
               </TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
-      </CardHeader>
-      <CardContent className="flex-1 min-h-0 flex flex-col gap-2">
-        <div className="flex-1 min-h-0 rounded-sm border border-oled-border overflow-hidden bg-oled">
-          <canvas ref={canvasRef} className={cn("block w-full h-[260px]", canvasClassName)} />
-        </div>
-        <div className="flex items-center justify-between font-mono text-[10px] text-muted-foreground">
-          <span>
-            {signalState === "idle" && tx("오디오 대기 중", "ENGINE STANDBY")}
-            {signalState === "wait" && tx("기타 신호 대기 중", "AWAITING SIGNAL")}
-            {signalState === "active" && tx("실시간 모니터링 활성", "LIVE MONITORING")}
-          </span>
-          <span className="tabular-nums">1024-PT FFT · 36-BAND · ZERO-CROSSING</span>
-        </div>
-      </CardContent>
-    </Card>
+      </div>
+
+      <div className="flex-1 min-h-0 rounded-[8px] border border-oled-border overflow-hidden bg-oled">
+        <canvas ref={canvasRef} className={cn("block w-full h-[260px]", canvasClassName)} />
+      </div>
+
+      <div className="flex items-center justify-between font-mono text-[10px] text-oled-muted">
+        <span>
+          {signalState === "idle" && tx("오디오 대기 중", "ENGINE STANDBY")}
+          {signalState === "wait" && tx("기타 신호 대기 중", "AWAITING SIGNAL")}
+          {signalState === "active" && tx("실시간 모니터링 활성", "LIVE MONITORING")}
+        </span>
+        <span className="tabular-nums">1024-PT FFT · 36-BAND · ZERO-CROSSING</span>
+      </div>
+    </div>
   )
 }

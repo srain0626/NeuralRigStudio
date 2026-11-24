@@ -12,7 +12,7 @@ public sealed class MainForm : Form
     private readonly WebView2 _web = new()
     {
         Dock = DockStyle.Fill,
-        DefaultBackgroundColor = Color.FromArgb(232, 229, 222),
+        DefaultBackgroundColor = Color.FromArgb(213, 220, 217),
     };
 
     private readonly AudioRouter _router = new();
@@ -25,12 +25,12 @@ public sealed class MainForm : Form
 
     public MainForm()
     {
-        Text = "NeuralRig Studio // NR-01";
+        Text = "NeuralRig Studio";
         Width = 1440;
         Height = 900;
         MinimumSize = new Size(1160, 760);
         StartPosition = FormStartPosition.CenterScreen;
-        BackColor = Color.FromArgb(232, 229, 222);
+        BackColor = Color.FromArgb(213, 220, 217);
 
         _settings = AppSettings.Load();
         _bridge = new RigWebBridge(
@@ -49,7 +49,7 @@ public sealed class MainForm : Form
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
-        ApplyWindowTheme("#F3F1EC", "#C5C0B6", "#151514", isDark: false);
+        ApplyWindowTheme("#d5dcd9", "#bbc4c0", "#0b0e10", isDark: false);
     }
 
     public void ApplyWindowTheme(string bgHex, string borderHex, string textHex, bool isDark)

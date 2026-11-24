@@ -4,16 +4,16 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const toggleVariants = cva(
-  "inline-flex items-center justify-center gap-1 rounded-sm text-xs font-mono font-semibold whitespace-nowrap transition-[color,background-color,border-color] disabled:pointer-events-none disabled:opacity-40 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-3.5 shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 cursor-pointer",
+  "inline-flex items-center justify-center gap-1 rounded-[7px] text-xs font-mono font-medium whitespace-nowrap transition-[color,background-color,border-color] disabled:pointer-events-none disabled:opacity-40 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-3.5 shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 cursor-pointer",
   {
     variants: {
       variant: {
         default:
-          "border border-border bg-secondary/70 text-muted-foreground hover:bg-accent hover:text-foreground data-[state=on]:bg-primary data-[state=on]:border-primary data-[state=on]:text-primary-foreground",
+          "border border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground data-[state=on]:bg-primary data-[state=on]:border-primary data-[state=on]:text-primary-foreground",
         outline:
-          "border border-border bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground data-[state=on]:bg-foreground data-[state=on]:border-foreground data-[state=on]:text-background",
+          "border border-border bg-transparent text-muted-foreground hover:bg-card hover:text-foreground data-[state=on]:bg-foreground data-[state=on]:border-foreground data-[state=on]:text-background",
         keycap:
-          "border border-border bg-secondary text-muted-foreground shadow-[0_1px_0_var(--border)] hover:text-foreground data-[state=on]:bg-primary data-[state=on]:border-primary data-[state=on]:text-primary-foreground data-[state=on]:shadow-none",
+          "border border-border bg-card text-muted-foreground hover:text-foreground data-[state=on]:bg-foreground data-[state=on]:border-foreground data-[state=on]:text-background",
         oled:
           "border border-oled-border bg-oled-elevated text-oled-muted hover:text-oled-foreground data-[state=on]:bg-primary data-[state=on]:border-primary data-[state=on]:text-primary-foreground",
       },

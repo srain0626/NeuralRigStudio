@@ -1,39 +1,47 @@
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import {
-  Activity,
   ArrowLeft,
   ArrowRight,
-  BookOpen,
   CheckCircle2,
-  Cpu,
   Gauge,
+  Menu,
   SlidersHorizontal,
   Sparkles,
   Volume2,
   Wrench,
+  X,
 } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Hint } from "@/components/ui/tooltip"
 import { useI18n } from "@/lib/i18n"
 
 interface OnboardingTutorialModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  activeView?: "grid" | "directory" | "scope"
+  onEnsureStudioView?: () => void
   onComplete: () => void
   onOpenAudioSheet: () => void
   onOpenGearGuide: () => void
   onOpenBenchmark: () => void
 }
 
+type PreferredSide = "top" | "bottom" | "left" | "right"
+
+interface TourAction {
+  key: "audio" | "mcp" | "bench"
+  labelKo: string
+  labelEn: string
+  action: () => void
+}
+
 interface TourStep {
   badge: string
+  target: string
+  preferredSide: PreferredSide
+  pad: number
+  rx: number
   titleKo: string
   titleEn: string
   descKo: string
@@ -41,172 +49,272 @@ interface TourStep {
   tipsKo: string[]
   tipsEn: string[]
   icon: React.ReactNode
-  cta?: { labelKo: string; labelEn: string; action: () => void }
+  actions?: TourAction[]
+}
+
+interface SpotRect {
+  x: number
+  y: number
+  w: number
+  h: number
+  rx: number
+}
+
+interface CardPos {
+  left: number
+  top: number
+}
+
+function rectsOverlapArea(
+  ax: number,
+  ay: number,
+  aw: number,
+  ah: number,
+  bx: number,
+  by: number,
+  bw: number,
+  bh: number
+): number {
+  const ox = Math.max(0, Math.min(ax + aw, bx + bw) - Math.max(ax, bx))
+  const oy = Math.max(0, Math.min(ay + ah, by + bh) - Math.max(ay, by))
+  return ox * oy
+}
+
+function computeCoachmarkPos(
+  spot: SpotRect | null,
+  cardW: number,
+  cardH: number,
+  preferred: PreferredSide,
+  vw: number,
+  vh: number
+): CardPos {
+  const margin = 16
+  const gap = 14
+  const maxL = Math.max(margin, vw - cardW - margin)
+  const maxT = Math.max(margin, vh - cardH - margin)
+
+  if (!spot) {
+    return {
+      left: Math.round((vw - cardW) / 2),
+      top: Math.round((vh - cardH) / 2),
+    }
+  }
+
+  const clampL = (v: number) => Math.max(margin, Math.min(maxL, v))
+  const clampT = (v: number) => Math.max(margin, Math.min(maxT, v))
+
+  const spotCenterX = spot.x + spot.w / 2
+  const alignRight = spotCenterX > vw * 0.52
+  const horizLeft = clampL(alignRight ? spot.x + spot.w - cardW : spot.x)
+  const vertTop = clampT(spot.y)
+
+  const candidates: Array<{ left: number; top: number; fits: boolean }> = []
+  const order: PreferredSide[] = [
+    preferred,
+    preferred === "bottom" ? "top" : preferred === "top" ? "bottom" : preferred === "left" ? "right" : "left",
+    "bottom",
+    "top",
+    "right",
+    "left",
+  ]
+
+  for (const side of order) {
+    let rawL = horizLeft
+    let rawT = vertTop
+    if (side === "bottom") {
+      rawT = spot.y + spot.h + gap
+      rawL = horizLeft
+    } else if (side === "top") {
+      rawT = spot.y - cardH - gap
+      rawL = horizLeft
+    } else if (side === "right") {
+      rawL = spot.x + spot.w + gap
+      rawT = vertTop
+    } else {
+      rawL = spot.x - cardW - gap
+      rawT = vertTop
+    }
+
+    const fitsViewport =
+      rawL >= margin &&
+      rawL + cardW <= vw - margin &&
+      rawT >= margin &&
+      rawT + cardH <= vh - margin
+
+    candidates.push({ left: Math.round(clampL(rawL)), top: Math.round(clampT(rawT)), fits: fitsViewport })
+  }
+
+  for (const c of candidates) {
+    if (!c.fits) continue
+    if (rectsOverlapArea(c.left, c.top, cardW, cardH, spot.x, spot.y, spot.w, spot.h) === 0) {
+      return { left: c.left, top: c.top }
+    }
+  }
+
+  let best = candidates[0]
+  let bestOverlap = Infinity
+  for (const c of candidates) {
+    const ov = rectsOverlapArea(c.left, c.top, cardW, cardH, spot.x, spot.y, spot.w, spot.h)
+    if (ov < bestOverlap) {
+      bestOverlap = ov
+      best = c
+    }
+  }
+  return { left: best.left, top: best.top }
 }
 
 export const OnboardingTutorialModal: React.FC<OnboardingTutorialModalProps> = ({
   open,
   onOpenChange,
+  activeView,
+  onEnsureStudioView,
   onComplete,
   onOpenAudioSheet,
   onOpenGearGuide,
   onOpenBenchmark,
 }) => {
   const { tx, locale } = useI18n()
+  const maskId = useId()
+  const headingId = useId()
+  const cardRef = useRef<HTMLDivElement | null>(null)
   const [stepIdx, setStepIdx] = useState(0)
+  const [spot, setSpot] = useState<SpotRect | null>(null)
+  const [cardPos, setCardPos] = useState<CardPos>({ left: 32, top: 80 })
+  const [cardDims, setCardDims] = useState<{ w: number; h: number }>({ w: 430, h: 246 })
 
   useEffect(() => {
-    if (open) setStepIdx(0)
+    if (!open) return
+    setStepIdx(0)
+    ;(document.activeElement as HTMLElement | null)?.blur?.()
+    if (activeView && activeView !== "grid") {
+      onEnsureStudioView?.()
+    }
   }, [open])
 
   const steps: TourStep[] = [
     {
-      badge: "STEP 1 / 6",
-      titleKo: "범용 ASIO · 오디오 인터페이스 & 라인 인풋 연결",
-      titleEn: "Connect Universal ASIO, Audio Interface, or Line-In",
+      badge: "STEP 01 / 04",
+      target: "preset-scene-bar",
+      preferredSide: "bottom",
+      pad: 8,
+      rx: 14,
+      titleKo: "프리셋 & A–H 씬 전환",
+      titleEn: "Presets & Scenes (A–H)",
       descKo:
-        "NeuralRig Studio는 특정 장비에 종속되지 않습니다. Focusrite, Steinberg, Audient, Behringer, Roland, Line 6, Valeton 등 모든 ASIO 인터페이스와 멀티채널 WASAPI 라인 입력을 자동 인식합니다.",
+        "프리셋 이름을 눌러 톤을 고르고, A–H 버튼으로 곡 파트별 사운드를 끊김 없이 바꿔보세요. 템포와 병렬 설정도 우측 버튼에 모여 있어요.",
       descEn:
-        "NeuralRig Studio works universally across Focusrite, Steinberg, Audient, Behringer, Roland, Line 6, and multi-channel WASAPI inputs with zero vendor lock-in.",
+        "Click the preset name to switch or save rigs, and use A–H for dropout-free scene changes. Tempo and Serial/Parallel settings live cleanly in the right pill.",
       tipsKo: [
-        "우측 상단 Audio I/O 또는 '자동 연결' 버튼을 누르면 외장 인터페이스를 우선 선택합니다.",
-        "ASIO 드라이버가 없는 노트북/PC에서는 WASAPI Exclusive / Line-In 모드로 즉시 연주할 수 있습니다.",
-        "스테레오/모노 채널 오프셋(Ch 1, Ch 2, Ch 1/2, Ch 3/4...)을 자유롭게 지정하세요.",
+        "프리셋 제목 클릭 시 이름 수정·저장과 전체 프리셋 선택이 열립니다.",
+        "숫자키 1–8로 A–H 씬을 전환하고, 우측 설정에서 BPM과 병렬 믹스를 조절하세요.",
       ],
       tipsEn: [
-        "Click Audio I/O or Auto-Connect in the top bar to automatically prioritize your hardware interface.",
-        "No dedicated ASIO driver? Switch to WASAPI / Line-In for instant low-latency playback.",
-        "Choose Mono Ch 1..N or Stereo input pairs directly from the Input Patchbay.",
+        "Click the preset title to rename, save, or browse all presets.",
+        "Press keys 1–8 to jump between Scenes A–H anytime.",
+      ],
+      icon: <Sparkles className="size-4 text-primary" />,
+    },
+    {
+      badge: "STEP 02 / 04",
+      target: "signal-stage",
+      preferredSide: "bottom",
+      pad: 6,
+      rx: 22,
+      titleKo: "시그널 체인 편집",
+      titleEn: "Signal Chain Editing",
+      descKo:
+        "페달·앰프 카드를 누르면 아래에 세부 노브 창이 열리고, 빈 '+' 칸을 누르면 75종 이상의 장비를 바로 추가할 수 있어요.",
+      descEn:
+        "Tap any gear card to dial in parameters below, or click an empty '+' socket to mount amps, pedals, and cabs from 75+ models.",
+      tipsKo: [
+        "드래그로 순서를 바꾸고, 더블클릭으로 바이패스(B), 우클릭으로 MIDI 학습을 실행합니다.",
+        "외부 .nam, .wav 캐비넷 IR, .nrig 번들은 창에 끌어다 놓으면 바로 장착됩니다.",
+      ],
+      tipsEn: [
+        "Drag to swap blocks, double-click to bypass (B), or right-click for MIDI Learn.",
+        "Drag-and-drop .nam captures, .wav IRs, or .nrig bundles anywhere to mount.",
+      ],
+      icon: <SlidersHorizontal className="size-4 text-primary" />,
+    },
+    {
+      badge: "STEP 03 / 04",
+      target: "audio-io",
+      preferredSide: "bottom",
+      pad: 6,
+      rx: 20,
+      titleKo: "원클릭 오디오 시작",
+      titleEn: "One-Click Audio Start",
+      descKo:
+        "별도 설정 없이 연결된 오디오 인터페이스나 라인 입력을 자동 감지해 바로 연주를 시작합니다.",
+      descEn:
+        "Auto-detects connected ASIO interfaces and multi-channel WASAPI inputs so you can start playing in a single click.",
+      tipsKo: [
+        "ASIO와 WASAPI 라인 인풋을 모두 지원해 어떤 PC 환경에서도 즉시 연주할 수 있어요.",
+        "세밀한 채널·버퍼 레이턴시 조정이 필요하면 메뉴 안 오디오 설정을 열어보세요.",
+      ],
+      tipsEn: [
+        "Supports universal ASIO drivers and low-latency WASAPI inputs.",
+        "Open Audio I/O inside Menu anytime for channel routing and buffer tuning.",
       ],
       icon: <Volume2 className="size-4 text-primary" />,
-      cta: {
-        labelKo: "Audio I/O 설정 열기",
-        labelEn: "Open Audio I/O",
-        action: () => {
-          onOpenChange(false)
-          onOpenAudioSheet()
+    },
+    {
+      badge: "STEP 04 / 04",
+      target: "studio-menu",
+      preferredSide: "bottom",
+      pad: 6,
+      rx: 20,
+      titleKo: "튜너 · 루퍼 · 보관함 · 더보기",
+      titleEn: "Tuner, Looper, Vault & More",
+      descKo:
+        "평소엔 연주에만 집중할 수 있도록 튜너, 루퍼·리앰핑, 오디오 세부 설정, Tone Hub, AI 기어 제작(MCP)을 모두 메뉴 안에 깔끔하게 담아 두었습니다.",
+      descEn:
+        "To keep the workspace calm, Tuner, Looper & Re-Amp, Audio I/O, Vault, Tone Hub, and AI Gear Crafting (MCP) stay neatly inside Menu.",
+      tipsKo: [
+        "빠른 도구 그리드로 오디오 설정·정밀 튜너·루퍼(L)·검색(/)에 1클릭으로 이동하세요.",
+        "AI 기어 제작(npx neuralrig-mcp)과 DSP 벤치마크도 메뉴에서 실행할 수 있습니다.",
+      ],
+      tipsEn: [
+        "Jump straight to Audio I/O, Tuner, Looper (L), and Search (/) from the Menu grid.",
+        "Craft new SPICE gear via `npx neuralrig-mcp` or verify DSP accuracy in Benchmark.",
+      ],
+      icon: <Menu className="size-4 text-primary" />,
+      actions: [
+        {
+          key: "audio",
+          labelKo: "오디오 설정 열기",
+          labelEn: "Audio I/O",
+          action: () => {
+            onOpenChange(false)
+            onOpenAudioSheet()
+          },
         },
-      },
-    },
-    {
-      badge: "STEP 2 / 6",
-      titleKo: "첫인상 쇼케이스 프리셋 8종 & 8 씬(A–H) 무끊김 전환",
-      titleEn: "8 Showcase Factory Presets & Glitch-Free Scenes (A–H)",
-      descKo:
-        "첫 실행과 동시에 바로 감탄할 수 있도록 클린 네오소울부터 JCM800, 애니송 팝락, 모던 젠트, 시머 앰비언트, 빈티지 퍼즈까지 8개의 팩토리 프리셋(1A–2D)이 준비되어 있습니다.",
-      descEn:
-        "Start playing immediately with 8 curated tones (1A–2D) covering Neo-Soul Clean, Edge-of-Breakup, Arena Crunch, Pop-Rock, Modern Djent, Cathedral Shimmer, Brown Lead, and Vintage Fuzz.",
-      tipsKo: [
-        "상단 프리셋 셀렉터(1A~2D) 또는 Alt+1~8 단축키로 즉시 톤을 변경하세요.",
-        "각 프리셋마다 8개 Scene(A~H) 스냅샷이 저장되어 곡의 Intro/Verse/Chorus/Solo를 지연 없이 전환합니다.",
-        "Ctrl+S 또는 Save 버튼으로 나만의 프리셋을 로컬과 클라우드에 보관할 수 있습니다.",
-      ],
-      tipsEn: [
-        "Switch between presets 1A–2D at the top bar or press '/' (Ctrl+K) for Command Palette.",
-        "Each preset holds 8 glitch-free Scenes (A–H) for Verse, Crunch, Chorus, and Lead solo lifts.",
-        "Save custom presets locally and sync them across devices with Google login.",
-      ],
-      icon: <Sparkles className="size-4 text-signal-warn" />,
-    },
-    {
-      badge: "STEP 3 / 6",
-      titleKo: "2×8 모듈러 체인 · 직렬/병렬 라우팅 & 모델명/가칭 검색",
-      titleEn: "2×8 Modular Chain, Parallel Split & Dual-Name Search",
-      descKo:
-        "75종 이상의 페달·앰프·캐비넷(.nam & 16K Partitioned IR)·공간계를 2행 × 8슬롯 보드에 배치하세요. UI에는 저작권 안전 가칭이 표시되지만, 검색창에서는 원래 하드웨어 모델명(TS808, SD-1, JCM800 등)으로도 즉시 검색됩니다.",
-      descEn:
-        "Arrange 75+ pedals, tube amps, cabinets, and stereo FX across a 2×8 grid. Safe aliases appear on the stompboxes, while search matches both UI names and original hardware model names.",
-      tipsKo: [
-        "슬롯을 클릭해 하단 아날로그 노브(Drive/Tone/Level/EQ)와 딥 메뉴 파라미터를 조절합니다.",
-        "Parallel Split 버튼을 켜면 Row 1 / Row 2 듀얼 앰프·듀얼 캐비넷 병렬 믹스가 활성화됩니다.",
-        "모든 노브와 바이패스·씬은 MIDI Learn(우클릭 또는 MIDI 시트)으로 풋컨트롤러에 바인딩할 수 있습니다.",
-      ],
-      tipsEn: [
-        "Click any slot to inspect and tweak tactile knobs and cab dual-miking below the board.",
-        "Enable Parallel Split to blend Dual Amps and Dual Cabs cleanly across Row 1 and Row 2.",
-        "Bind any parameter, bypass toggle, scene, or Tap Tempo via MIDI Learn.",
-      ],
-      icon: <SlidersHorizontal className="size-4 text-signal-ok" />,
-    },
-    {
-      badge: "STEP 4 / 6",
-      titleKo: "AI 톤 아키텍트 · 기타 DI 프로파일러 · 루퍼 & 실시간 리앰핑",
-      titleEn: "AI Tone Architect, Guitar DI Profiler, Looper & Re-Amping",
-      descKo:
-        "하단 AI 바에 '요루시카풍 영롱한 JC-120 + 블루스카이' 또는 '메이든 스타일 트윈리드'를 입력하면 즉시 16슬롯 체인이 완성됩니다. 기타 프로파일러가 픽업 성향을 측정해 게이트·입력 트림까지 자동 보정합니다.",
-      descEn:
-        "Type natural language in the AI Tone bar to auto-build complete 16-slot chains. Use the Guitar DI Profiler to measure pickup brightness/noise floor and calibrate input trim automatically.",
-      tipsKo: [
-        "상단 GUITAR 프로필 아이콘으로 1분 캘리브레이션을 실행해 픽업(싱글/험버커)을 분석해 보세요.",
-        "듀얼 스트림 레코더는 Dry DI와 Stereo Wet WAV를 동시에 저장해 1클릭 실시간 리앰핑을 지원합니다.",
-        "BPM Sync 스테레오 루퍼(Undo/Redo, 0.5x Half-Speed, Reverse)도 내장되어 있습니다.",
-      ],
-      tipsEn: [
-        "Open GUITAR Profiler to fingerprint single-coils vs high-output humbuckers.",
-        "Dual-Stream Recorder captures raw Dry DI + Stereo Wet simultaneously for 1-click live re-amping.",
-        "Use the BPM-Synced Stereo Looper with Undo/Redo, Half-Speed, and Reverse.",
-      ],
-      icon: <Activity className="size-4 text-primary" />,
-    },
-    {
-      badge: "STEP 5 / 6",
-      titleKo: "새 페달 · 앰프 · 캐비넷 직접 생성 및 커뮤니티 기어 허브",
-      titleEn: "Create New Pedals, Amps & Cabinets via MNA SPICE",
-      descKo:
-        "원하는 빈티지 페달이나 부티크 앰프가 없다면, Claude · Cursor · Codex · Gemini 등 AI 에이전트(MCP)에게 모델명을 말해 보세요. 웹 회로도·데이터시트를 리서치하고 0 B 실시간 MNA SPICE 회로로 추가해 줍니다.",
-      descEn:
-        "Need a pedal, tube amp, or cabinet not in the factory catalog? Connect any AI agent via `npx neuralrig-mcp` to research real schematics, verify `.OP/.AC/.TRAN` in MNA SPICE, and hot-load it live.",
-      tipsKo: [
-        "'새 페달/앰프 생성 가이드'에서 Claude/Cursor/Codex/Gemini용 npx MCP 원클릭 설치 명령과 프롬프트 템플릿을 제공합니다.",
-        "제작한 커스텀 SPICE 페달·앰프·캐비넷은 HUB에서 다른 사용자에게 공유하거나 다운로드할 수 있습니다.",
-        "외부 .nam 파일, .wav 캐비넷 IR, .nrig 번들은 창 위로 드래그 앤 드롭하면 즉시 로드됩니다.",
-      ],
-      tipsEn: [
-        "Open the Custom Gear Guide for one-command `npx neuralrig-mcp install` setup across 7 AI tools.",
-        "Upload your verified SPICE creations to the Community Gear Hub or install others' rigs in 1 click.",
-        "Drag-and-drop `.nam`, `.wav` IR, or `.nrig` bundle files directly onto the studio window.",
-      ],
-      icon: <Wrench className="size-4 text-signal-warn" />,
-      cta: {
-        labelKo: "페달/앰프 제작 & npx MCP 가이드 열기",
-        labelEn: "Open Custom Gear & MCP Guide",
-        action: () => {
-          onOpenChange(false)
-          onOpenGearGuide()
+        {
+          key: "mcp",
+          labelKo: "AI 기어 제작 가이드",
+          labelEn: "AI Gear Guide",
+          action: () => {
+            onOpenChange(false)
+            onOpenGearGuide()
+          },
         },
-      },
-    },
-    {
-      badge: "STEP 6 / 6",
-      titleKo: "하드웨어 유사도 · 레이턴시 · 16슬롯 멀티체인 벤치마크",
-      titleEn: "Hardware Fidelity, Latency & 16-Slot Stress Benchmark",
-      descKo:
-        "내 PC에서 TS808/SD-1/AC128/12AX7 회로 유사도가 얼마나 나오는지, 64-frame 초저지연 RT 데드라인과 16슬롯 직렬/병렬 풀체인이 0 B 할당으로 안정 통과하는지 언제든 원클릭으로 검증하세요.",
-      descEn:
-        "Verify real-time DSP reliability on your own hardware at any time: check MNA SPICE circuit accuracy, 64/128/256-frame CPU budgets, round-trip latency, and zero-allocation 16-slot chain stability.",
-      tipsKo: [
-        "상단 BENCH 버튼을 누르면 실제 DSP + MNA SPICE + WaveNet 벤치마크가 실행됩니다.",
-        "문제 발생 시 상단 BUG 버튼으로 익명화(LogSanitizer)된 로그와 함께 버그를 즉시 제보할 수 있습니다.",
-      ],
-      tipsEn: [
-        "Click BENCH in the top bar anytime to run the quantitative benchmark suite.",
-        "Need help or found an issue? Click BUG to submit a bug report with automatically scrubbed logs.",
-      ],
-      icon: <Gauge className="size-4 text-signal-ok" />,
-      cta: {
-        labelKo: "지금 벤치마크 실행하기",
-        labelEn: "Open Benchmark Suite",
-        action: () => {
-          onOpenChange(false)
-          onOpenBenchmark()
+        {
+          key: "bench",
+          labelKo: "DSP 벤치마크",
+          labelEn: "DSP Benchmark",
+          action: () => {
+            onOpenChange(false)
+            onOpenBenchmark()
+          },
         },
-      },
+      ],
     },
   ]
 
-  const cur = steps[stepIdx]
-  const isLast = stepIdx === steps.length - 1
-  const pct = Math.round(((stepIdx + 1) / steps.length) * 100)
+  const safeStepIdx = Math.min(stepIdx, steps.length - 1)
+  const cur = steps[safeStepIdx]
+  const isLast = safeStepIdx === steps.length - 1
+  const pct = Math.round(((safeStepIdx + 1) / steps.length) * 100)
   const tips = locale === "ko" ? cur.tipsKo : cur.tipsEn
 
   const handleFinish = () => {
@@ -214,88 +322,234 @@ export const OnboardingTutorialModal: React.FC<OnboardingTutorialModalProps> = (
     onOpenChange(false)
   }
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl p-0 overflow-hidden bg-card text-card-foreground border-border gap-0">
-        <DialogHeader className="px-5 py-3.5 border-b border-border bg-secondary/45 shrink-0 space-y-3">
-          <div className="flex items-center justify-between gap-3 pr-8">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="size-9 rounded-sm bg-oled border border-oled-border flex items-center justify-center shrink-0">
+  useLayoutEffect(() => {
+    if (!open) return
+
+    const measure = () => {
+      const vw = window.innerWidth
+      const vh = window.innerHeight
+      const el = document.querySelector(`[data-tour="${cur.target}"]`) as HTMLElement | null
+      let nextSpot: SpotRect | null = null
+      if (el) {
+        const r = el.getBoundingClientRect()
+        if (r.width > 0 && r.height > 0) {
+          const x = Math.max(4, Math.floor(r.left - cur.pad))
+          const y = Math.max(4, Math.floor(r.top - cur.pad))
+          const right = Math.min(vw - 4, Math.ceil(r.right + cur.pad))
+          const bottom = Math.min(vh - 4, Math.ceil(r.bottom + cur.pad))
+          nextSpot = {
+            x,
+            y,
+            w: Math.max(0, right - x),
+            h: Math.max(0, bottom - y),
+            rx: cur.rx,
+          }
+        }
+      }
+      setSpot(nextSpot)
+
+      const cw = Math.min(430, vw - 32)
+      const ch = cardRef.current?.offsetHeight || cardDims.h
+      setCardPos(computeCoachmarkPos(nextSpot, cw, ch, cur.preferredSide, vw, vh))
+    }
+
+    measure()
+    const raf = requestAnimationFrame(measure)
+    const timer = window.setTimeout(measure, 75)
+    window.addEventListener("resize", measure)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.clearTimeout(timer)
+      window.removeEventListener("resize", measure)
+    }
+  }, [open, safeStepIdx, cur.target, cur.pad, cur.rx, cur.preferredSide, activeView, cardDims.w, cardDims.h])
+
+  useLayoutEffect(() => {
+    if (!open || !cardRef.current) return
+    const node = cardRef.current
+    const updateDims = () => {
+      const r = node.getBoundingClientRect()
+      if (r.width > 0 && r.height > 0) {
+        setCardDims((prev) =>
+          Math.abs(prev.w - r.width) < 1 && Math.abs(prev.h - r.height) < 1
+            ? prev
+            : { w: Math.round(r.width), h: Math.round(r.height) }
+        )
+      }
+    }
+    updateDims()
+    const ro = new ResizeObserver(updateDims)
+    ro.observe(node)
+    return () => ro.disconnect()
+  }, [open, safeStepIdx, locale])
+
+  useEffect(() => {
+    if (!open) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault()
+        onOpenChange(false)
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault()
+        setStepIdx((i) => Math.min(steps.length - 1, i + 1))
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault()
+        setStepIdx((i) => Math.max(0, i - 1))
+      }
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [open, steps.length, onOpenChange])
+
+  if (!open || typeof document === "undefined") return null
+
+  const isDark = document.documentElement.classList.contains("dark")
+  const backdropFill = isDark ? "rgba(4, 7, 9, 0.72)" : "rgba(11, 14, 16, 0.54)"
+
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={headingId}
+      className="fixed inset-0 z-[60]"
+      data-tour-overlay="true"
+    >
+      {/* Semi-Transparent SVG Backdrop with Sharp Cutout */}
+      <svg
+        className="fixed inset-0 w-full h-full cursor-pointer"
+        onClick={() => onOpenChange(false)}
+        aria-hidden="true"
+      >
+        <defs>
+          <mask id={maskId}>
+            <rect width="100%" height="100%" fill="white" />
+            {spot && (
+              <rect
+                x={spot.x}
+                y={spot.y}
+                width={spot.w}
+                height={spot.h}
+                rx={spot.rx}
+                fill="black"
+                className="transition-all duration-200 ease-out"
+              />
+            )}
+          </mask>
+        </defs>
+        <rect width="100%" height="100%" fill={backdropFill} mask={`url(#${maskId})`} />
+      </svg>
+
+      {/* Highlight Frame Around Target */}
+      {spot && (
+        <div
+          aria-hidden="true"
+          data-tour-highlight={cur.target}
+          style={{
+            left: spot.x,
+            top: spot.y,
+            width: spot.w,
+            height: spot.h,
+            borderRadius: spot.rx,
+          }}
+          className="fixed pointer-events-none border-2 border-primary shadow-[0_0_0_4px_rgba(255,107,36,0.20),0_12px_36px_rgba(255,107,36,0.30)] transition-all duration-200 ease-out"
+        />
+      )}
+
+      {/* Floating Toss-Style Coachmark Callout Card */}
+      <div
+        ref={cardRef}
+        data-tour-card={cur.target}
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          left: cardPos.left,
+          top: cardPos.top,
+          width: "min(430px, calc(100vw - 32px))",
+        }}
+        className="fixed z-10 rounded-[16px] border border-border bg-popover/96 backdrop-blur-md text-popover-foreground shadow-[0_28px_72px_rgba(11,14,16,0.34)] overflow-hidden transition-[left,top] duration-200 ease-out"
+      >
+        <div className="px-4 pt-3 pb-2.5 border-b border-border bg-secondary/40 space-y-2">
+          <div className="flex items-start justify-between gap-2.5">
+            <div className="flex items-start gap-2.5 min-w-0">
+              <div className="size-8 rounded-[10px] bg-oled border border-oled-border flex items-center justify-center shrink-0 mt-0.5">
                 {cur.icon}
               </div>
               <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Badge variant="oled" size="xs">
-                    {cur.badge}
-                  </Badge>
-                  <span className="text-[11px] font-mono text-muted-foreground flex items-center gap-1">
-                    <BookOpen className="size-3" />
-                    {tx("NEURALRIG STUDIO v3.0 시작 튜토리얼", "NEURALRIG STUDIO v3.0 QUICK TOUR")}
-                  </span>
+                <div className="font-mono text-[10.5px] font-semibold tracking-wider text-primary">
+                  {cur.badge}
                 </div>
-                <DialogTitle className="mt-1 leading-snug">
+                <h2
+                  id={headingId}
+                  className="font-display font-light text-[17px] leading-snug tracking-[-0.015em] text-foreground"
+                >
                   {tx(cur.titleKo, cur.titleEn)}
-                </DialogTitle>
+                </h2>
               </div>
             </div>
-          </div>
-          <DialogDescription className="sr-only">
-            {tx(
-              "NeuralRig Studio UI 및 핵심 기능 인터랙티브 가이드",
-              "Interactive walkthrough of NeuralRig Studio UI and features"
-            )}
-          </DialogDescription>
 
-          <div className="h-1 w-full rounded-[1px] bg-border overflow-hidden">
+            <Hint content={tx("투어 닫기", "Close Tour")} kbd="Esc">
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                onClick={() => onOpenChange(false)}
+                className="shrink-0"
+              >
+                <X className="size-3.5" />
+              </Button>
+            </Hint>
+          </div>
+
+          <div className="h-[2px] w-full rounded-full bg-border overflow-hidden">
             <div
-              className="h-full bg-primary transition-all duration-300"
+              className="h-full bg-primary transition-all duration-200"
               style={{ width: `${pct}%` }}
             />
           </div>
-        </DialogHeader>
+        </div>
 
-        <div className="px-5 py-4 space-y-3.5 bg-background">
-          <p className="text-xs leading-relaxed text-foreground">
+        <div className="px-4 py-3 space-y-2.5">
+          <p className="text-[12px] leading-relaxed text-foreground">
             {tx(cur.descKo, cur.descEn)}
           </p>
 
-          <div className="rounded-sm border border-border bg-card p-3.5 space-y-2">
-            <div className="flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-primary">
-              <Cpu className="size-3" />
-              <span>{tx("핵심 팁", "KEY TAKEAWAYS")}</span>
-            </div>
-            <ul className="space-y-1.5">
-              {tips.map((tip, i) => (
-                <li key={i} className="flex items-start gap-2 text-xs text-foreground leading-relaxed">
-                  <CheckCircle2 className="size-3.5 text-signal-ok shrink-0 mt-0.5" />
-                  <span>{tip}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+          <ul className="space-y-1.5 rounded-[12px] border border-border bg-card/85 px-3 py-2">
+            {tips.map((tip, i) => (
+              <li
+                key={i}
+                className="flex items-start gap-2 text-[11px] leading-snug text-muted-foreground"
+              >
+                <CheckCircle2 className="size-3.5 text-signal-ok shrink-0 mt-0.5" />
+                <span className="text-foreground/90">{tip}</span>
+              </li>
+            ))}
+          </ul>
 
-          {cur.cta && (
-            <div className="flex justify-start">
-              <Button size="sm" variant="keycap" onClick={cur.cta.action}>
-                {tx(cur.cta.labelKo, cur.cta.labelEn)}
-              </Button>
+          {cur.actions && cur.actions.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+              {cur.actions.map((act) => (
+                <Button key={act.key} size="xs" variant="keycap" onClick={act.action}>
+                  {act.key === "audio" && <SlidersHorizontal className="size-3 text-primary" />}
+                  {act.key === "mcp" && <Wrench className="size-3 text-primary" />}
+                  {act.key === "bench" && <Gauge className="size-3 text-signal-ok" />}
+                  {tx(act.labelKo, act.labelEn)}
+                </Button>
+              ))}
             </div>
           )}
         </div>
 
-        <div className="px-5 py-3 border-t border-border bg-secondary/45 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5">
+        <div className="px-4 py-2.5 border-t border-border bg-secondary/45 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-1">
               {steps.map((_, idx) => (
                 <button
                   key={idx}
                   type="button"
                   aria-label={`Step ${idx + 1}`}
                   onClick={() => setStepIdx(idx)}
-                  className={`h-1.5 rounded-[1px] transition-all cursor-pointer ${
-                    idx === stepIdx
-                      ? "w-6 bg-primary"
-                      : "w-2 bg-border hover:bg-muted-foreground"
+                  className={`h-1.5 rounded-full transition-all cursor-pointer ${
+                    idx === safeStepIdx
+                      ? "w-5 bg-primary"
+                      : "w-1.5 bg-border hover:bg-muted-foreground"
                   }`}
                 />
               ))}
@@ -304,41 +558,42 @@ export const OnboardingTutorialModal: React.FC<OnboardingTutorialModalProps> = (
               size="xs"
               variant="ghost"
               onClick={handleFinish}
-              className="text-[11px]"
+              className="text-[11px] px-1.5"
             >
               {tx("건너뛰기", "SKIP")}
             </Button>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <Button
-              size="sm"
+              size="xs"
               variant="keycap"
-              disabled={stepIdx === 0}
+              disabled={safeStepIdx === 0}
               onClick={() => setStepIdx((i) => Math.max(0, i - 1))}
             >
-              <ArrowLeft className="size-3.5" />
+              <ArrowLeft className="size-3" />
               <span>{tx("이전", "BACK")}</span>
             </Button>
             {isLast ? (
-              <Button size="sm" variant="signal" onClick={handleFinish} className="px-4">
-                <CheckCircle2 className="size-3.5" />
-                <span>{tx("튜토리얼 완료 · 시작하기", "FINISH & PLAY")}</span>
+              <Button size="xs" variant="signal" onClick={handleFinish} className="px-3">
+                <CheckCircle2 className="size-3" />
+                <span>{tx("완료", "FINISH")}</span>
               </Button>
             ) : (
               <Button
-                size="sm"
+                size="xs"
                 variant="signal"
                 onClick={() => setStepIdx((i) => Math.min(steps.length - 1, i + 1))}
-                className="px-4"
+                className="px-3"
               >
-                <span>{tx("다음 단계", "NEXT")}</span>
-                <ArrowRight className="size-3.5" />
+                <span>{tx("다음", "NEXT")}</span>
+                <ArrowRight className="size-3" />
               </Button>
             )}
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </div>,
+    document.body
   )
 }

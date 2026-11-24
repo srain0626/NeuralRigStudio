@@ -1,24 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import {
+  Activity,
+  ArrowLeft,
   BookOpen,
-  Bug,
   Cloud,
   Gauge,
   Globe,
-  Guitar,
+  Layers,
+  Menu,
   Music2,
   Package,
-  Palette,
   Play,
+  Radio,
   Search,
   Shield,
   SlidersHorizontal,
   Square,
-  Terminal,
-  VolumeX,
   Wrench,
 } from "lucide-react"
-import { motion } from "motion/react"
 import { toast } from "sonner"
 import { AdminConsoleDialog } from "@/components/AdminConsoleDialog"
 import { AudioMidiSheet } from "@/components/AudioMidiSheet"
@@ -35,11 +34,9 @@ import { OtaUpdateModal } from "@/components/OtaUpdateModal"
 import { ToneHubModal } from "@/components/ToneHubModal"
 import { TunerDialog } from "@/components/TunerDialog"
 import { Button } from "@/components/ui/button"
-import { Kbd } from "@/components/ui/kbd"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
 import { Toaster } from "@/components/ui/sonner"
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Hint } from "@/components/ui/tooltip"
 import {
   FACTORY_PRESETS,
@@ -51,8 +48,8 @@ import {
   syncScenesOnAssignSlot,
 } from "@/data/cortexCatalog"
 import { studioBridge } from "@/lib/bridge"
-import { useI18n, type StudioLocale } from "@/lib/i18n"
-import { STUDIO_THEMES, useStudioTheme } from "@/lib/theme"
+import { useI18n } from "@/lib/i18n"
+import { useStudioTheme } from "@/lib/theme"
 import type {
   AsioCapabilitiesDto,
   BackingTrackStateDto,
@@ -76,10 +73,18 @@ import type {
 export type StudioViewId = "grid" | "directory" | "scope"
 
 export default function App() {
-  const { locale, setLocale, tx } = useI18n()
-  const { themeId, theme, setThemeId } = useStudioTheme()
+  const { locale, toggleLocale, tx } = useI18n()
+  const { themeId, toggleTheme } = useStudioTheme()
+  const [introDone, setIntroDone] = useState(false)
+  const [studioMenuOpen, setStudioMenuOpen] = useState(false)
+
+  useEffect(() => {
+    const id = window.setTimeout(() => setIntroDone(true), 760)
+    return () => window.clearTimeout(id)
+  }, [])
 
   const [activeView, setActiveView] = useState<StudioViewId>("grid")
+  const [looperOpen, setLooperOpen] = useState(false)
   const [logsOpen, setLogsOpen] = useState(false)
   const [audioDialogOpen, setAudioDialogOpen] = useState(false)
   const [guitarDialogOpen, setGuitarDialogOpen] = useState(false)
@@ -815,7 +820,6 @@ export default function App() {
   }
 
   const activeGuitar = guitarProfiles.find((g) => g.id === activeGuitarProfileId)
-  const inTuneHeader = tuner.active && Math.abs(tuner.cents) <= 3.5
 
   return (
     <div
@@ -840,380 +844,356 @@ export default function App() {
     >
       <Toaster position="bottom-right" />
 
+      {/* Organic Tangerine-Coral Radial Aura (Matching Landing Page Hero) */}
+      <div className="nr-ambient-aura" aria-hidden="true" />
+
+      {/* 0.75s Signature Pulse Opening Veil (Matching Landing Page Act 0) */}
+      <div
+        aria-hidden="true"
+        className={`pointer-events-none fixed inset-0 z-50 bg-background flex items-center justify-center transition-all duration-500 ${
+          introDone ? "opacity-0 invisible" : "opacity-100 visible"
+        }`}
+      >
+        <div className="nr-intro-mark inline-flex items-center gap-3 font-sans text-xl font-medium tracking-[-0.03em] text-foreground">
+          <svg width={26} height={26} viewBox="0 0 24 24" fill="none">
+            <path
+              d="M2 12h4l2.8-8 3.6 16 2.8-8H22"
+              stroke="currentColor"
+              strokeWidth={2.1}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          <span>NeuralRig</span>
+        </div>
+      </div>
+
       {/* Architectural Full-Bleed Drop Overlay */}
       {fileDropActive && (
         <div className="pointer-events-none fixed inset-0 z-50 bg-oled/90 backdrop-blur-xs flex items-center justify-center p-8">
-          <div className="w-full max-w-lg rounded-md border-2 border-dashed border-primary bg-oled-elevated p-8 text-center space-y-2">
+          <div className="w-full max-w-lg rounded-[12px] border border-dashed border-primary bg-oled-elevated p-8 text-center space-y-2 shadow-2xl">
             <Package className="size-10 text-primary mx-auto" strokeWidth={1.5} />
-            <div className="font-display text-sm font-bold tracking-wider uppercase text-oled-foreground">
-              {tx("DROP TO MOUNT // 즉시 파일 로드", "DROP TO MOUNT // INSTANT LOAD")}
+            <div className="font-display text-base font-light tracking-[-0.02em] text-oled-foreground">
+              {tx("여기에 놓아 즉시 장착", "Drop to Mount Immediately")}
             </div>
-            <div className="font-mono text-xs text-oled-muted">
+            <div className="font-mono text-[11px] text-oled-muted">
               .NRIG BUNDLE · .NAM NEURAL CAPTURE · .WAV CABINET IR
             </div>
           </div>
         </div>
       )}
 
-      {/* ── ZONE 1: TOP INSTRUMENT CROWN (Single 48px Hardware Bezel) ── */}
-      <header className="h-12 shrink-0 border-b border-border bg-card px-3.5 flex items-center justify-between gap-3">
-        {/* Left: NR//01 Brand Mark + 3-Workspace Navigation + Command Palette Trigger */}
+      {/* ── TOP MINIMALIST HEADER (Brand + Audio Start + Unified Menu) ── */}
+      <header className="relative z-10 h-14 shrink-0 px-6 flex items-center justify-between gap-4 border-b border-border/50 bg-background/70 backdrop-blur-md">
+        {/* Left: Waveform Pulse Brand + Conditional Back-to-Studio Pill */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="size-2.5 rounded-[1px] bg-primary shrink-0" />
-            <span className="font-display text-sm font-bold tracking-tight text-foreground">
-              NR//01
-            </span>
-          </div>
-
-          <Separator orientation="vertical" />
-
-          <nav className="flex items-center gap-0.5 rounded-sm border border-border bg-secondary p-0.5">
-            {(
-              [
-                { id: "grid", label: "RIG" },
-                { id: "directory", label: "VAULT" },
-                { id: "scope", label: "SCOPE" },
-              ] as const
-            ).map((tab) => {
-              const active = activeView === tab.id
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setActiveView(tab.id)}
-                  className={`relative px-3 py-1 rounded-[2px] font-mono text-[11px] font-bold tracking-wider transition-colors cursor-pointer ${
-                    active
-                      ? "text-background"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {active && (
-                    <motion.span
-                      layoutId="crown-nav-pill"
-                      transition={{ type: "spring", stiffness: 520, damping: 40 }}
-                      className="absolute inset-0 rounded-[2px] bg-foreground"
-                    />
-                  )}
-                  <span className="relative z-10">{tab.label}</span>
-                </button>
-              )
-            })}
-          </nav>
-
-          <Hint
-            content={tx("장비·프리셋·명령어 즉시 검색", "Quick Command Palette")}
-            kbd="/"
+          <button
+            type="button"
+            onClick={() => setActiveView("grid")}
+            className="inline-flex items-center gap-2.5 text-[16px] font-medium tracking-[-0.03em] text-foreground cursor-pointer"
           >
+            <svg width={20} height={20} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M2 12h4l2.8-7.5 3.6 15 2.8-7.5H22"
+                stroke="currentColor"
+                strokeWidth={2.05}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            <span>NeuralRig</span>
+          </button>
+
+          {activeView !== "grid" && (
             <Button
               size="xs"
-              variant="outline"
-              onClick={() => setCommandOpen(true)}
+              variant="secondary"
+              onClick={() => setActiveView("grid")}
+              className="rounded-full px-3"
             >
-              <Search className="size-3" strokeWidth={1.5} />
-              <span className="hidden md:inline font-mono">{tx("검색", "SEARCH")}</span>
-              <Kbd>/</Kbd>
+              <ArrowLeft className="size-3" />
+              <span>{tx("스튜디오로 돌아가기", "Back to Studio")}</span>
             </Button>
-          </Hint>
+          )}
         </div>
 
-        {/* Right: MIDI Learn Banner · Tuner OLED · Guitar · Hub · Theme/Lang · Engine · Patchbay · Logs */}
-        <div className="flex items-center gap-1.5">
+        {/* Right: Single Primary Audio CTA + Consolidated Menu Popover */}
+        <div className="flex items-center gap-2">
           {midiState.learning && (
             <Hint content={tx("클릭해 MIDI Learn 대기 취소", "Cancel MIDI Learn")}>
-              <Button
-                size="xs"
-                variant="signal"
-                onClick={handleCancelMidiLearn}
-              >
+              <Button size="xs" variant="signal" onClick={handleCancelMidiLearn} className="rounded-full">
                 MIDI LEARN…
               </Button>
             </Hint>
           )}
 
-          {/* Recessed OLED Inline Chromatic Tuner */}
-          <Hint
-            content={
-              tuner.active
-                ? `${tuner.freqHz.toFixed(1)} Hz (${tuner.cents > 0 ? "+" : ""}${tuner.cents.toFixed(1)} ct) — ${tx("정밀 튜너 열기", "Open Precision Tuner")}`
-                : tx("정밀 크로매틱 튜너 열기", "Open Chromatic Tuner")
-            }
-          >
-            <Button
-              size="xs"
-              variant="oled"
-              onClick={() => setTunerDialogOpen(true)}
-            >
-              {tunerMute ? (
-                <VolumeX className="size-3 text-signal-hot" strokeWidth={1.5} />
-              ) : (
-                <Music2
-                  className={
-                    inTuneHeader
-                      ? "size-3 text-signal-ok"
-                      : tuner.active
-                        ? "size-3 text-signal-warn"
-                        : "size-3 text-oled-muted"
-                  }
-                  strokeWidth={1.5}
-                />
-              )}
-              <span
-                className={`font-bold tabular-nums min-w-[22px] text-center ${
-                  inTuneHeader
-                    ? "text-signal-ok"
-                    : tuner.active
-                      ? "text-oled-foreground"
-                      : "text-oled-muted"
-                }`}
-              >
-                {tuner.noteName !== "--" ? `${tuner.noteName}${tuner.octave}` : "--"}
-              </span>
-              {tuner.noteName !== "--" && (
-                <span className="text-[10px] tabular-nums text-oled-muted">
-                  {tuner.cents > 0 ? `+${tuner.cents.toFixed(0)}` : tuner.cents.toFixed(0)}ct
-                </span>
-              )}
-            </Button>
-          </Hint>
-
-          <Hint
-            content={
-              activeGuitar
-                ? `${tx("활성 기타", "Active Guitar")}: ${activeGuitar.name} (${activeGuitar.estimatedPickupType})`
-                : tx("기타 DI 음향 분석 및 프로필 관리", "Guitar DI Profiler & Calibration")
-            }
-          >
-            <Button
-              size="xs"
-              variant={activeGuitar ? "secondary" : "ghost"}
-              onClick={() => setGuitarDialogOpen(true)}
-            >
-              <Guitar className="size-3.5" strokeWidth={1.5} />
-              <span className="max-w-[110px] truncate hidden lg:inline">
-                {activeGuitar ? activeGuitar.name : tx("기타 프로필", "GUITAR")}
-              </span>
-            </Button>
-          </Hint>
-
-          <Hint
-            content={tx(
-              "Tone Hub · .nrig 번들 · VST3/CLAP DAW 플러그인",
-              "Tone Hub · .nrig Bundles · VST3/CLAP Export"
-            )}
-          >
-            <Button
-              size="xs"
-              variant="keycap"
-              onClick={() => setToneHubOpen(true)}
-            >
-              <Globe className="size-3" strokeWidth={1.5} />
-              <span>HUB · VST3</span>
-            </Button>
-          </Hint>
-
-          <Hint content={tx("하드웨어 유사도 · 지연시간 · 16슬롯 멀티체인 벤치마크", "Hardware Similarity · Latency · 16-Slot Benchmark")}>
-            <Button
-              size="xs"
-              variant="keycap"
-              onClick={() => setBenchOpen(true)}
-            >
-              <Gauge className="size-3" strokeWidth={1.5} />
-              <span>BENCH</span>
-            </Button>
-          </Hint>
-
-          <Hint content={tx("페달·앰프·캐비넷 생성 & npx MCP 가이드", "Custom Pedal/Amp/Cab Creation & npx MCP Guide")}>
-            <Button
-              size="xs"
-              variant="keycap"
-              onClick={() => setGearGuideOpen(true)}
-            >
-              <Wrench className="size-3" strokeWidth={1.5} />
-              <span className="hidden xl:inline">CRAFT</span>
-            </Button>
-          </Hint>
-
-          <Hint content={tx("스튜디오 튜토리얼 (UI & 기능 가이드)", "Studio UI & Feature Tutorial")}>
-            <Button
-              size="xs"
-              variant="keycap"
-              onClick={() => setTutorialOpen(true)}
-            >
-              <BookOpen className="size-3" strokeWidth={1.5} />
-              <span className="hidden xl:inline">GUIDE</span>
-            </Button>
-          </Hint>
-
-          <Hint content={tx("버그 제보 (자동 익명화 로그 전송)", "Report Bug (Auto-Attached Scrubbed Logs)")}>
-            <Button
-              size="xs"
-              variant="keycap"
-              onClick={() => setBugOpen(true)}
-            >
-              <Bug className="size-3" strokeWidth={1.5} />
-              <span className="hidden xl:inline">BUG</span>
-            </Button>
-          </Hint>
-
-          <Hint
-            content={
-              cloudState.isAuthenticated && cloudState.user
-                ? `${cloudState.user.displayName} (${cloudState.user.email})`
-                : tx("Google 클라우드 로그인 · 동기화 · 게스트 설정", "Google Cloud Sign-In & Sync")
-            }
-          >
-            <Button
-              size="xs"
-              variant={cloudState.isAuthenticated ? "secondary" : "keycap"}
-              onClick={() => setAuthOpen(true)}
-            >
-              <Cloud className="size-3" strokeWidth={1.5} />
-              <span className="max-w-[84px] truncate hidden md:inline">
-                {cloudState.isAuthenticated && cloudState.user
-                  ? cloudState.user.displayName
-                  : tx("로그인", "SIGN IN")}
-              </span>
-            </Button>
-          </Hint>
-
-          {cloudState.user?.isAdmin && (
-            <Hint content={tx("어드민 운영 애널리틱스 · OTA 정책 콘솔", "Admin Analytics & OTA Console")}>
+          <div data-tour="audio-io">
+            <Hint content={audioStatus}>
               <Button
-                size="xs"
-                variant="keycap"
-                onClick={() => setAdminOpen(true)}
+                size="sm"
+                variant={isAudioRunning ? "signal" : "default"}
+                disabled={isAudioBusy}
+                onClick={handleToggleAudio}
+                className="rounded-full px-4"
               >
-                <Shield className="size-3 text-signal-warn" strokeWidth={1.5} />
-                <span>ADMIN</span>
+                {isAudioRunning ? (
+                  <Square className="size-2.5 fill-current" />
+                ) : (
+                  <Play className="size-2.5 fill-current text-primary" />
+                )}
+                <span className="text-[12px] font-medium tabular-nums">
+                  {isAudioRunning
+                    ? headerLatencyMs !== null
+                      ? `${tx("연주 중", "LIVE")} · ${headerLatencyMs.toFixed(1)}ms`
+                      : tx("연주 중", "LIVE")
+                    : tx("오디오 시작", "Start Audio")}
+                </span>
               </Button>
             </Hint>
-          )}
+          </div>
 
-          {/* Theme Finish & Language Switcher Popover */}
-          <Popover>
-            <Hint content={tx("섀시 테마 (5종) 및 언어 설정 (KO/EN)", "Chassis Theme & Language (KO/EN)")}>
+          <div data-tour="studio-menu">
+            <Popover open={studioMenuOpen} onOpenChange={setStudioMenuOpen}>
               <PopoverTrigger asChild>
-                <Button size="xs" variant="outline">
-                  <span
-                    className="size-2.5 rounded-[1px] border border-border"
-                    style={{ backgroundColor: theme.swatchBg }}
-                  />
-                  <span className="font-mono font-bold">{theme.shortName}</span>
-                  <Separator orientation="vertical" className="h-3" />
-                  <span className="font-mono font-bold">{locale.toUpperCase()}</span>
+                <Button size="sm" variant="outline" className="rounded-full px-3.5">
+                  <Menu className="size-3.5" strokeWidth={1.7} />
+                  <span>{tx("메뉴", "Menu")}</span>
                 </Button>
               </PopoverTrigger>
-            </Hint>
-            <PopoverContent align="end" className="w-72 space-y-3">
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                    <Palette className="size-3" />
-                    {tx("섀시 마감 테마", "CHASSIS FINISH")}
-                  </span>
-                  <span className="font-mono text-[10px] text-muted-foreground">5 FINISHES</span>
+              <PopoverContent align="end" className="w-80 rounded-[16px] p-3 space-y-2.5">
+                {/* Account Sync Card */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStudioMenuOpen(false)
+                    setAuthOpen(true)
+                  }}
+                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-[12px] bg-secondary/70 hover:bg-secondary border border-border text-left transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Cloud className="size-4 text-primary shrink-0" />
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold truncate">
+                        {cloudState.isAuthenticated && cloudState.user
+                          ? cloudState.user.displayName
+                          : tx("Google 클라우드 동기화", "Cloud Account & Sync")}
+                      </div>
+                      <div className="text-[10.5px] text-muted-foreground truncate">
+                        {cloudState.isAuthenticated && cloudState.user
+                          ? cloudState.user.email
+                          : tx("프리셋 백업 · 커뮤니티 업로드", "Sync presets & publish gear")}
+                      </div>
+                    </div>
+                  </div>
+                  <span className="font-mono text-xs text-primary">→</span>
+                </button>
+
+                {/* Compact Segmented Mode Chips: Theme & Language */}
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={toggleTheme}
+                    className="h-8 px-2.5 rounded-[10px] border border-border bg-card hover:bg-secondary text-xs font-medium flex items-center justify-between transition-colors cursor-pointer"
+                  >
+                    <span className="text-muted-foreground">{tx("화면 테마", "Theme")}</span>
+                    <span className="font-mono text-[11px] font-semibold text-foreground">
+                      {themeId === "mist" ? tx("라이트", "Mist") : tx("다크", "Dark")}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={toggleLocale}
+                    className="h-8 px-2.5 rounded-[10px] border border-border bg-card hover:bg-secondary text-xs font-medium flex items-center justify-between transition-colors cursor-pointer"
+                  >
+                    <span className="text-muted-foreground">{tx("언어", "Lang")}</span>
+                    <span className="font-mono text-[11px] font-semibold text-foreground">
+                      {locale === "ko" ? "한국어" : "English"}
+                    </span>
+                  </button>
                 </div>
-                <div className="space-y-1">
-                  {STUDIO_THEMES.map((t) => {
-                    const active = t.id === themeId
+
+                {/* 2x2 Quick Studio Tools Grid */}
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStudioMenuOpen(false)
+                      setAudioDialogOpen(true)
+                    }}
+                    className="flex items-center gap-2 px-2.5 py-2 rounded-[10px] border border-border bg-card hover:bg-secondary text-left transition-colors cursor-pointer"
+                  >
+                    <SlidersHorizontal className="size-3.5 text-primary shrink-0" />
+                    <span className="text-xs font-medium truncate">
+                      {tx("오디오 설정", "Audio I/O")}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStudioMenuOpen(false)
+                      setTunerDialogOpen(true)
+                    }}
+                    className="flex items-center justify-between gap-1.5 px-2.5 py-2 rounded-[10px] border border-border bg-card hover:bg-secondary text-left transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Music2 className="size-3.5 text-primary shrink-0" />
+                      <span className="text-xs font-medium truncate">
+                        {tx("정밀 튜너", "Tuner")}
+                      </span>
+                    </div>
+                    {tuner.noteName !== "--" && (
+                      <span className="font-mono text-[10px] font-bold text-signal-ok tabular-nums shrink-0">
+                        {tuner.noteName}
+                        {tuner.octave}
+                      </span>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStudioMenuOpen(false)
+                      setActiveView("grid")
+                      setLooperOpen(!looperOpen)
+                    }}
+                    className="flex items-center justify-between gap-1.5 px-2.5 py-2 rounded-[10px] border border-border bg-card hover:bg-secondary text-left transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Radio className="size-3.5 text-primary shrink-0" />
+                      <span className="text-xs font-medium truncate">
+                        {tx("루퍼 · 녹음", "Looper & Rec")}
+                      </span>
+                    </div>
+                    {looperOpen && <span className="size-1.5 rounded-full bg-primary shrink-0" />}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStudioMenuOpen(false)
+                      setCommandOpen(true)
+                    }}
+                    className="flex items-center justify-between gap-1.5 px-2.5 py-2 rounded-[10px] border border-border bg-card hover:bg-secondary text-left transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Search className="size-3.5 text-primary shrink-0" />
+                      <span className="text-xs font-medium truncate">
+                        {tx("빠른 검색", "Search")}
+                      </span>
+                    </div>
+                    <span className="font-mono text-[10px] text-muted-foreground">/</span>
+                  </button>
+                </div>
+
+                <Separator />
+
+                {/* Workspace & Advanced Feature List */}
+                <div className="space-y-0.5 text-xs">
+                  {[
+                    {
+                      icon: Layers,
+                      label: tx("톤 보관함 · .NAM · VST3", "Rig Vault & VST3"),
+                      action: () => setActiveView("directory"),
+                    },
+                    {
+                      icon: Activity,
+                      label: activeGuitar
+                        ? `${tx("스펙트럼 · 내 기타", "Lab")}: ${activeGuitar.name}`
+                        : tx("스펙트럼 · 기타 분석", "Harmonic & DI Lab"),
+                      action: () => setActiveView("scope"),
+                    },
+                    {
+                      icon: Globe,
+                      label: tx("Tone Hub · 커뮤니티", "Tone Hub & Community"),
+                      action: () => setToneHubOpen(true),
+                    },
+                    {
+                      icon: Wrench,
+                      label: tx("AI 페달·앰프 제작 (MCP)", "Craft Gear with AI (MCP)"),
+                      action: () => setGearGuideOpen(true),
+                    },
+                    {
+                      icon: Gauge,
+                      label: tx("DSP 성능 벤치마크", "DSP Benchmark"),
+                      action: () => setBenchOpen(true),
+                    },
+                    {
+                      icon: BookOpen,
+                      label: tx("가이드 투어 보기", "Guided Spotlight Tour"),
+                      action: () => setTutorialOpen(true),
+                    },
+                  ].map((item) => {
+                    const Icon = item.icon
                     return (
                       <button
-                        key={t.id}
+                        key={item.label}
                         type="button"
-                        onClick={() => setThemeId(t.id)}
-                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-sm border text-left transition-colors cursor-pointer ${
-                          active
-                            ? "border-primary bg-secondary"
-                            : "border-border bg-background hover:bg-accent"
-                        }`}
+                        onClick={() => {
+                          setStudioMenuOpen(false)
+                          item.action()
+                        }}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-[8px] hover:bg-secondary text-left text-foreground transition-colors cursor-pointer"
                       >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="flex items-center rounded-[2px] overflow-hidden border border-border shrink-0">
-                            <span className="w-3 h-4" style={{ backgroundColor: t.swatchBg }} />
-                            <span className="w-2 h-4" style={{ backgroundColor: t.swatchPrimary }} />
-                          </div>
-                          <div className="min-w-0">
-                            <div className="font-display text-xs font-bold truncate">{t.name}</div>
-                            <div className="text-[10px] text-muted-foreground truncate">
-                              {locale === "ko" ? t.taglineKo : t.taglineEn}
-                            </div>
-                          </div>
-                        </div>
-                        {active && (
-                          <span className="font-mono text-[10px] font-bold text-primary shrink-0">
-                            ON
-                          </span>
-                        )}
+                        <Icon className="size-3.5 text-muted-foreground shrink-0" strokeWidth={1.6} />
+                        <span className="truncate">{item.label}</span>
                       </button>
                     )
                   })}
+
+                  {cloudState.user?.isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStudioMenuOpen(false)
+                        setAdminOpen(true)
+                      }}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-[8px] hover:bg-secondary text-left text-signal-warn transition-colors cursor-pointer"
+                    >
+                      <Shield className="size-3.5 shrink-0" strokeWidth={1.6} />
+                      <span className="font-medium">
+                        {tx("어드민 애널리틱스 · OTA 콘솔", "Admin Analytics & OTA Console")}
+                      </span>
+                    </button>
+                  )}
                 </div>
-              </div>
 
-              <Separator />
-
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                  {tx("인터페이스 언어", "INTERFACE LANG")}
-                </span>
-                <ToggleGroup
-                  type="single"
-                  size="xs"
-                  variant="keycap"
-                  value={locale}
-                  onValueChange={(v) => {
-                    if (v === "ko" || v === "en") setLocale(v as StudioLocale)
-                  }}
-                >
-                  <ToggleGroupItem value="ko">KO</ToggleGroupItem>
-                  <ToggleGroupItem value="en">EN</ToggleGroupItem>
-                </ToggleGroup>
-              </div>
-            </PopoverContent>
-          </Popover>
-
-          <Hint content={audioStatus}>
-            <Button
-              size="xs"
-              variant={isAudioRunning ? "signal" : "keycap"}
-              disabled={isAudioBusy}
-              onClick={handleToggleAudio}
-            >
-              {isAudioRunning ? (
-                <Square className="size-2.5 fill-current" />
-              ) : (
-                <Play className="size-2.5 fill-current" />
-              )}
-              <span className="tabular-nums">
-                {isAudioRunning
-                  ? headerLatencyMs !== null
-                    ? `LIVE ${headerLatencyMs.toFixed(1)}ms`
-                    : "LIVE"
-                  : "AUDIO"}
-              </span>
-            </Button>
-          </Hint>
-
-          <Hint content={tx("오디오 I/O & MIDI 패치베이 설정", "Audio I/O & MIDI Patchbay")}>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              onClick={() => setAudioDialogOpen(true)}
-            >
-              <SlidersHorizontal className="size-3.5" strokeWidth={1.5} />
-            </Button>
-          </Hint>
-
-          <Hint content={`${tx("시스템 콘솔 로그", "Console Logs")} (${logs.length})`}>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              onClick={() => setLogsOpen(true)}
-            >
-              <Terminal className="size-3.5" strokeWidth={1.5} />
-            </Button>
-          </Hint>
+                {/* Compact Diagnostics Footer */}
+                <div className="pt-2 border-t border-border flex items-center justify-between text-[11px] text-muted-foreground">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStudioMenuOpen(false)
+                      setLogsOpen(true)
+                    }}
+                    className="hover:text-foreground transition-colors cursor-pointer"
+                  >
+                    {tx(`콘솔 로그 (${logs.length})`, `Logs (${logs.length})`)}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStudioMenuOpen(false)
+                      setBugOpen(true)
+                    }}
+                    className="hover:text-foreground transition-colors cursor-pointer"
+                  >
+                    {tx("버그 제보", "Bug Report")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStudioMenuOpen(false)
+                      void handleManualCheckUpdates()
+                    }}
+                    className="hover:text-foreground font-mono tabular-nums transition-colors cursor-pointer"
+                  >
+                    v{appVersion}
+                  </button>
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
         </div>
       </header>
 
@@ -1221,6 +1201,9 @@ export default function App() {
       <CortexStudio
         activeView={activeView}
         catalogVersion={catalogVersion}
+        isTourActive={tutorialOpen}
+        looperOpen={looperOpen}
+        onLooperOpenChange={setLooperOpen}
         onChangeView={setActiveView}
         chain={chain}
         savedPresets={savedPresets}
@@ -1404,10 +1387,12 @@ export default function App() {
         onLog={addLog}
       />
 
-      {/* ── Interactive Onboarding Tutorial (Replayable) ── */}
+      {/* ── Interactive Onboarding Tutorial (Spotlight Coachmark Tour) ── */}
       <OnboardingTutorialModal
         open={tutorialOpen}
         onOpenChange={setTutorialOpen}
+        activeView={activeView}
+        onEnsureStudioView={() => setActiveView("grid")}
         onComplete={() => {
           setHasCompletedTutorial(true)
           if (studioBridge.isWebView2) {

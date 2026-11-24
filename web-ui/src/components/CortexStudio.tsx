@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react"
 import {
   ArrowLeft,
   ArrowRight,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock,
@@ -11,14 +12,15 @@ import {
   GitBranch,
   Globe,
   Mic,
+  Minus,
   Package,
-  PanelLeftClose,
-  PanelLeftOpen,
+  Plus,
   Power,
   Radio,
   RotateCcw,
   Save,
   Search,
+  SlidersHorizontal,
   Trash2,
   Upload,
   X,
@@ -50,6 +52,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
+import { Slider } from "@/components/ui/slider"
 import { Toggle } from "@/components/ui/toggle"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Hint } from "@/components/ui/tooltip"
@@ -87,13 +90,16 @@ import type {
 interface CortexStudioProps {
   activeView: "grid" | "directory" | "scope"
   catalogVersion?: number
+  isTourActive?: boolean
+  looperOpen?: boolean
+  onLooperOpenChange?: (open: boolean) => void
   onChangeView: (view: "grid" | "directory" | "scope") => void
   chain: SignalChainConfigDto
   savedPresets: SignalChainConfigDto[]
   allPresets: SignalChainConfigDto[]
   selectedSlot: number
   onSelectSlot: (idx: number) => void
-  onPushChain: (next: SignalChainConfigDto, immediate?: boolean, preserveScenes?: boolean) => void
+  onPushChain: (next: SignalChainConfigDto, immediate?: boolean, recordHistory?: boolean) => void
   onLoadPreset: (preset: SignalChainConfigDto) => void
   onAssignModel: (modelId: string, slotIdx: number) => void
   onSavedPresetsChange: (presets: SignalChainConfigDto[]) => void
@@ -103,8 +109,8 @@ interface CortexStudioProps {
   initialBacking?: BackingTrackStateDto
   initialLooper?: LooperSnapshotDto
   initialRecorder?: RecorderReampSnapshotDto
-  isAudioRunning?: boolean
-  isAudioBusy?: boolean
+  isAudioRunning: boolean
+  isAudioBusy: boolean
   guitarProfiles: GuitarProfileDto[]
   activeGuitarProfileId: string
   liveGuitarAnalysis: GuitarAnalysisLiveStateDto | null
@@ -126,7 +132,7 @@ interface CortexStudioProps {
     paramIndex?: number
     sceneIndex?: number
   }) => void
-  onTonesUpdated: (tones: ModelProfileSummary[], selectedId: string) => void
+  onTonesUpdated: (tones: ModelProfileSummary[], selectedToneId: string) => void
   onSelectToneId: (id: string) => void
   onCustomCabIrChange: (name: string) => void
   onLog: (msg: string, level?: "info" | "success" | "error") => void
@@ -134,7 +140,10 @@ interface CortexStudioProps {
 
 export const CortexStudio: React.FC<CortexStudioProps> = ({
   activeView,
-  catalogVersion = 0,
+  catalogVersion,
+  isTourActive,
+  looperOpen = false,
+  onLooperOpenChange,
   onChangeView,
   chain,
   savedPresets,
@@ -151,8 +160,8 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
   initialBacking,
   initialLooper,
   initialRecorder,
-  isAudioRunning = false,
-  isAudioBusy = false,
+  isAudioRunning,
+  isAudioBusy,
   guitarProfiles,
   activeGuitarProfileId,
   liveGuitarAnalysis,
@@ -172,13 +181,23 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
   const { tx } = useI18n()
 
   const [activeCategory, setActiveCategory] = useState<DeviceCategoryId>("amp")
-  const [catalogCollapsed, setCatalogCollapsed] = useState(false)
+  const [inspectorOpen, setInspectorOpen] = useState(false)
+  const [catalogOpen, setCatalogOpen] = useState(false)
+  const [presetPickerOpen, setPresetPickerOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
-  const [editingName, setEditingName] = useState(false)
   const [draftName, setDraftName] = useState(chain.presetName)
   const [editingBpm, setEditingBpm] = useState(false)
   const [draftBpm, setDraftBpm] = useState("120")
   const [cabRoomOpen, setCabRoomOpen] = useState(false)
+
+  useEffect(() => {
+    if (isTourActive) {
+      setInspectorOpen(false)
+      setCatalogOpen(false)
+      setPresetPickerOpen(false)
+      onLooperOpenChange?.(false)
+    }
+  }, [isTourActive, onLooperOpenChange])
 
   const tapTimesRef = useRef<number[]>([])
 
@@ -262,7 +281,6 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
     const unsubRecorder = studioBridge.on<RecorderReampSnapshotDto>("recorderStateChanged", (ev) => {
       if (ev) setRecorder(ev)
     })
-
     let lastMeter = 0
     const unsub = studioBridge.on<TelemetryFrame>("telemetry", (f) => {
       const now = performance.now()
@@ -323,20 +341,26 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
     onLoadPreset(allPresets[nextIdx])
   }
 
-  const handleSavePreset = async () => {
+  const handleSavePreset = async (nextChain: SignalChainConfigDto = chain) => {
     if (!studioBridge.isWebView2) {
-      const filtered = savedPresets.filter((p) => p.presetId !== chain.presetId)
-      onSavedPresetsChange([...filtered, chain])
-      onLog(tx(`${chain.presetId} ${chain.presetName} 저장됨`, `Saved ${chain.presetId} ${chain.presetName}`), "success")
+      const filtered = savedPresets.filter((p) => p.presetId !== nextChain.presetId)
+      onSavedPresetsChange([...filtered, nextChain])
+      onLog(
+        tx(`${nextChain.presetId} ${nextChain.presetName} 저장됨`, `Saved ${nextChain.presetId} ${nextChain.presetName}`),
+        "success"
+      )
       return
     }
     try {
       const res = await studioBridge.invoke<{ savedPresets: SignalChainConfigDto[] }>(
         "saveUserPreset",
-        chain
+        nextChain
       )
       if (res?.savedPresets) onSavedPresetsChange(res.savedPresets)
-      onLog(tx(`${chain.presetId} ${chain.presetName} 저장됨`, `Saved ${chain.presetId} ${chain.presetName}`), "success")
+      onLog(
+        tx(`${nextChain.presetId} ${nextChain.presetName} 저장됨`, `Saved ${nextChain.presetId} ${nextChain.presetName}`),
+        "success"
+      )
     } catch (e) {
       onLog(tx(`프리셋 저장 실패: ${String(e)}`, `Save preset failed: ${String(e)}`), "error")
     }
@@ -362,12 +386,30 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
   const currentModel = currentSlot?.modelId ? DEVICE_MAP[currentSlot.modelId] : undefined
   const currentCategory = currentModel ? CATEGORY_MAP[currentModel.category] : undefined
 
-  const handleSelectSlot = (idx: number) => {
-    onSelectSlot(idx)
+  const handleSelectSlot = (idx: number, openCatalogIfEmpty?: boolean) => {
     const modelId = chain.slots[idx]?.modelId
     if (modelId && DEVICE_MAP[modelId]) {
       setActiveCategory(DEVICE_MAP[modelId].category)
     }
+    if (openCatalogIfEmpty || !modelId) {
+      onSelectSlot(idx)
+      setInspectorOpen(false)
+      setCatalogOpen(true)
+      return
+    }
+    if (inspectorOpen && selectedSlot === idx) {
+      setInspectorOpen(false)
+      return
+    }
+    onSelectSlot(idx)
+    setCatalogOpen(false)
+    setInspectorOpen(true)
+  }
+
+  const handlePickModel = (modelId: string) => {
+    onAssignModel(modelId, selectedSlot)
+    setCatalogOpen(false)
+    setInspectorOpen(true)
   }
 
   const toggleSlotBypass = (slotIdx: number) => {
@@ -393,6 +435,9 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
       true,
       true
     )
+    if (slotIdx === selectedSlot) {
+      setInspectorOpen(false)
+    }
   }
 
   const moveOrSwapSlot = (fromIdx: number, toIdx: number) => {
@@ -591,7 +636,7 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
     return DEVICE_CATALOG.filter((d) => matchesDeviceSearch(d, q))
   }, [activeCategory, searchQuery, catalogVersion])
 
-  // Global Rig Keyboard Shortcuts (1–8 Scenes, B Bypass, Del Remove, T Tap, Space MR)
+  // Global Rig Keyboard Shortcuts (1–8 Scenes, G Catalog, L Looper, B Bypass, Del Remove, T Tap, Esc Close, Space MR)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase()
@@ -601,13 +646,30 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
         (e.target as HTMLElement | null)?.isContentEditable
       if (isInput || activeView !== "grid") return
 
-      if (e.key >= "1" && e.key <= "8" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      if (e.key === "Escape") {
+        if (catalogOpen) {
+          e.preventDefault()
+          setCatalogOpen(false)
+        } else if (inspectorOpen) {
+          e.preventDefault()
+          setInspectorOpen(false)
+        } else if (looperOpen) {
+          e.preventDefault()
+          onLooperOpenChange?.(false)
+        }
+      } else if (e.key.toLowerCase() === "g" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault()
+        setCatalogOpen((v) => !v)
+      } else if (e.key.toLowerCase() === "l" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault()
+        onLooperOpenChange?.(!looperOpen)
+      } else if (e.key >= "1" && e.key <= "8" && !e.ctrlKey && !e.altKey && !e.metaKey) {
         e.preventDefault()
         onPushChain(switchSceneOnChain(chain, Number(e.key) - 1), true, true)
       } else if (e.key.toLowerCase() === "b" && !e.ctrlKey && !e.metaKey) {
         e.preventDefault()
         toggleSlotBypass(selectedSlot)
-      } else if ((e.key === "Delete" || e.key === "Backspace") && !e.ctrlKey) {
+      } else if ((e.key === "Delete" || e.key === "Backspace") && !e.ctrlKey && inspectorOpen) {
         e.preventDefault()
         removeSlotBlock(selectedSlot)
       } else if (e.key.toLowerCase() === "t" && !e.ctrlKey && !e.metaKey) {
@@ -620,264 +682,301 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [activeView, chain, selectedSlot, backing.loaded, backing.playing])
+  }, [
+    activeView,
+    catalogOpen,
+    inspectorOpen,
+    looperOpen,
+    onLooperOpenChange,
+    chain,
+    selectedSlot,
+    backing.loaded,
+    backing.playing,
+  ])
 
   // ───────────────────────────────────────────────────────────────────────────
-  // VIEW 2: VAULT (Presets, .nam Neural Captures, Cab IR, Tone Hub & VST3/CLAP)
+  // VIEW 2: VAULT & HUB (Accessed from Menu)
   // ───────────────────────────────────────────────────────────────────────────
   if (activeView === "directory") {
     return (
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 bg-background overflow-hidden">
-        {/* Col 1: Presets Bank */}
-        <div className="lg:col-span-4 border-r border-border flex flex-col min-h-0 bg-card">
-          <div className="h-11 px-4 border-b border-border flex items-center justify-between gap-2 bg-secondary/40">
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-xs font-bold tracking-wider uppercase">PRESET BANK</span>
-              <Badge variant="outline" size="xs">
-                {allPresets.length}
-              </Badge>
-            </div>
-            <div className="flex items-center gap-1">
-              <Button
-                size="xs"
-                variant="keycap"
-                onClick={async () => {
-                  if (!studioBridge.isWebView2) return
-                  try {
-                    const r = await studioBridge.invoke<{ cancelled?: boolean; summary?: string }>(
-                      "importNrigBundle"
-                    )
-                    if (!r?.cancelled && r?.summary) onLog(r.summary, "success")
-                  } catch (e) {
-                    onLog(`.nrig import failed: ${String(e)}`, "error")
-                  }
-                }}
-              >
-                <Upload className="size-3" />
-                .NRIG
-              </Button>
-              <Hint
-                content={tx(
-                  "현재 리그 + .nam + 커스텀 IR을 .nrig 번들로 내보내기",
-                  "Export active rig + .nam + custom IR as .nrig"
-                )}
-              >
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  onClick={async () => {
-                    if (!studioBridge.isWebView2) return
-                    try {
-                      const r = await studioBridge.invoke<{ cancelled?: boolean; name?: string }>(
-                        "exportNrigBundle"
-                      )
-                      if (!r?.cancelled && r?.name) onLog(`[.nrig] ${r.name} exported`, "success")
-                    } catch (e) {
-                      onLog(`.nrig export failed: ${String(e)}`, "error")
-                    }
-                  }}
-                >
-                  <Download className="size-3" />
-                  {tx("내보내기", "EXPORT")}
-                </Button>
-              </Hint>
-            </div>
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-transparent">
+        <div className="max-w-[1180px] mx-auto w-full px-6 pt-5 pb-3 shrink-0 flex items-center justify-between gap-3">
+          <div>
+            <h1 className="font-display font-light text-[26px] leading-tight tracking-[-0.025em] text-foreground">
+              {tx("톤 보관함 · .NAM · VST3", "Rig Vault & Neural Hub")}
+            </h1>
+            <p className="text-xs text-muted-foreground mt-0.5 tabular-nums">
+              {tx(
+                `프리셋 ${allPresets.length}개 · .NAM 모델 ${tones.length}개`,
+                `${allPresets.length} presets · ${tones.length} .NAM models`
+              )}
+            </p>
           </div>
-
-          <ScrollArea className="flex-1 p-2">
-            <div className="space-y-1">
-              {allPresets.map((p) => {
-                const isActive = p.presetId === chain.presetId
-                const isUser = savedPresets.some((u) => u.presetId === p.presetId)
-                return (
-                  <div
-                    key={p.presetId}
-                    className={`flex items-center justify-between px-3 py-2 rounded-sm border transition-colors cursor-pointer ${
-                      isActive
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-background border-border hover:bg-secondary/60 text-foreground"
-                    }`}
-                    onClick={() => {
-                      onLoadPreset(p)
-                      onChangeView("grid")
-                    }}
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <span className="font-mono text-[11px] font-bold w-8 shrink-0 opacity-80">
-                        {p.presetId}
-                      </span>
-                      <span className="font-display text-xs font-bold truncate">{p.presetName}</span>
-                    </div>
-                    {isUser && (
-                      <Button
-                        size="icon-xs"
-                        variant="ghost"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          void handleDeleteUserPreset(p.presetId)
-                        }}
-                      >
-                        <Trash2 className="size-3" />
-                      </Button>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </ScrollArea>
+          <div className="flex items-center gap-1.5">
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-full px-3.5"
+              onClick={async () => {
+                if (!studioBridge.isWebView2) return
+                try {
+                  const r = await studioBridge.invoke<{ cancelled?: boolean; summary?: string }>(
+                    "importNrigBundle"
+                  )
+                  if (!r?.cancelled && r?.summary) onLog(r.summary, "success")
+                } catch (e) {
+                  onLog(`.nrig import failed: ${String(e)}`, "error")
+                }
+              }}
+            >
+              <Upload className="size-3.5" />
+              {tx(".NRIG 가져오기", "Import .NRIG")}
+            </Button>
+            <Button
+              size="sm"
+              variant="keycap"
+              className="rounded-full px-3.5"
+              onClick={async () => {
+                if (!studioBridge.isWebView2) return
+                try {
+                  const r = await studioBridge.invoke<{ cancelled?: boolean; name?: string }>(
+                    "exportNrigBundle"
+                  )
+                  if (!r?.cancelled && r?.name) onLog(`[.nrig] ${r.name} exported`, "success")
+                } catch (e) {
+                  onLog(`.nrig export failed: ${String(e)}`, "error")
+                }
+              }}
+            >
+              <Download className="size-3.5" />
+              {tx(".NRIG 내보내기", "Export .NRIG")}
+            </Button>
+          </div>
         </div>
 
-        {/* Col 2: Neural Captures (.nam) & Cab IR */}
-        <div className="lg:col-span-4 border-r border-border flex flex-col min-h-0 bg-background">
-          <div className="h-11 px-4 border-b border-border flex items-center justify-between bg-secondary/35">
-            <span className="font-mono text-xs font-bold tracking-wider uppercase">
-              NEURAL CAPTURES (.NAM)
-            </span>
-            <div className="flex items-center gap-1">
-              <Button size="xs" variant="keycap" onClick={handleImportNam}>
-                <Upload className="size-3" />
-                {tx("가져오기", "IMPORT")}
-              </Button>
-              <Button
-                size="icon-xs"
-                variant="ghost"
-                disabled={!selectedToneId}
-                onClick={handleExportNam}
-              >
-                <Download className="size-3" />
-              </Button>
-            </div>
-          </div>
-
-          <ScrollArea className="flex-1 p-2">
-            {tones.length === 0 ? (
-              <div className="p-6 text-center text-xs text-muted-foreground">
-                {tx(
-                  "로드된 .nam 파일이 없습니다. 가져오기 버튼으로 Neural Amp Modeler 캡처를 추가하세요.",
-                  "No .nam models loaded. Import official Neural Amp Modeler files above."
-                )}
+        <div className="max-w-[1180px] mx-auto w-full px-6 pb-6 pt-1 flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-4">
+          {/* Col 1: Presets Bank */}
+          <div className="lg:col-span-4 rounded-[16px] border border-border bg-card shadow-[0_18px_42px_rgba(11,14,16,0.08)] flex flex-col min-h-0 overflow-hidden">
+            <div className="h-11 px-4 border-b border-border flex items-center justify-between gap-2 bg-secondary/40">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-[11px] font-bold tracking-[0.08em] uppercase">
+                  {tx("프리셋 뱅크", "PRESET BANK")}
+                </span>
+                <Badge variant="outline" size="xs">
+                  {allPresets.length}
+                </Badge>
               </div>
-            ) : (
-              <div className="space-y-1">
-                {tones.map((t) => {
-                  const sel = t.id === selectedToneId
+              <span className="text-[10.5px] text-muted-foreground">
+                {tx("클릭해서 열기", "Click to load")}
+              </span>
+            </div>
+
+            <ScrollArea className="flex-1 p-2.5">
+              <div className="space-y-1.5">
+                {allPresets.map((p) => {
+                  const isActive = p.presetId === chain.presetId
+                  const isUser = savedPresets.some((u) => u.presetId === p.presetId)
                   return (
                     <div
-                      key={t.id}
-                      onClick={() => void handleSelectNamModel(t.id)}
-                      className={`flex items-center justify-between px-3 py-2 rounded-sm border cursor-pointer transition-colors ${
-                        sel
-                          ? "bg-secondary border-primary text-foreground"
-                          : "border-border bg-card hover:bg-secondary/50 text-foreground"
+                      key={p.presetId}
+                      className={`flex items-center justify-between px-3 py-2.5 rounded-[10px] border transition-all cursor-pointer ${
+                        isActive
+                          ? "bg-foreground text-background border-foreground shadow-[0_10px_24px_rgba(11,14,16,0.16)]"
+                          : "bg-background/45 border-border hover:bg-card text-foreground"
                       }`}
+                      onClick={() => {
+                        onLoadPreset(p)
+                        onChangeView("grid")
+                      }}
                     >
-                      <div className="min-w-0">
-                        <div className="text-xs font-bold truncate">{t.name}</div>
-                        <div className="text-[10px] font-mono text-muted-foreground tabular-nums">
-                          {t.archPreset} · {t.sampleRate} Hz
-                        </div>
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span
+                          className={`font-mono text-[11px] font-bold w-8 shrink-0 ${
+                            isActive ? "text-primary" : "opacity-65"
+                          }`}
+                        >
+                          {p.presetId}
+                        </span>
+                        <span className="font-display font-normal text-[13px] truncate">
+                          {p.presetName}
+                        </span>
                       </div>
-                      <Button
-                        size="icon-xs"
-                        variant="ghost"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          void handleDeleteNam(t.id)
-                        }}
-                      >
-                        <Trash2 className="size-3" />
-                      </Button>
+                      {isUser && (
+                        <Button
+                          size="icon-xs"
+                          variant="ghost"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void handleDeleteUserPreset(p.presetId)
+                          }}
+                        >
+                          <Trash2 className="size-3" />
+                        </Button>
+                      )}
                     </div>
                   )
                 })}
               </div>
-            )}
-          </ScrollArea>
+            </ScrollArea>
+          </div>
 
-          <div className="border-t border-border p-3.5 bg-card space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                CUSTOM CAB IR (.WAV)
+          {/* Col 2: Neural Captures (.nam) & Cab IR */}
+          <div className="lg:col-span-4 rounded-[16px] border border-border bg-card shadow-[0_18px_42px_rgba(11,14,16,0.08)] flex flex-col min-h-0 overflow-hidden">
+            <div className="h-11 px-4 border-b border-border flex items-center justify-between bg-secondary/40">
+              <span className="font-mono text-[11px] font-bold tracking-[0.08em] uppercase">
+                NEURAL CAPTURES (.NAM)
               </span>
               <div className="flex items-center gap-1">
-                <Button size="xs" variant="keycap" onClick={handleLoadCabIr}>
-                  <FolderOpen className="size-3" />
-                  {tx("IR 열기", "LOAD IR")}
+                <Button size="xs" variant="keycap" onClick={handleImportNam}>
+                  <Upload className="size-3" />
+                  {tx("가져오기", "Import")}
                 </Button>
-                {customCabIrName && (
-                  <Button size="icon-xs" variant="ghost" onClick={handleClearCabIr}>
-                    <RotateCcw className="size-3" />
+                <Hint content={tx(".nam 파일 내보내기", "Export selected .nam file")}>
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    disabled={!selectedToneId}
+                    onClick={handleExportNam}
+                  >
+                    <Download className="size-3" />
                   </Button>
-                )}
+                </Hint>
               </div>
             </div>
-            <div className="text-xs font-mono truncate text-foreground bg-background px-2.5 py-2 rounded-sm border border-border">
-              {customCabIrName || tx("내장 512-tap 4x12 V30 Modern IR", "Built-in 512-tap 4x12 V30 Modern IR")}
+
+            <ScrollArea className="flex-1 p-2.5">
+              {tones.length === 0 ? (
+                <div className="p-8 text-center text-xs text-muted-foreground leading-relaxed">
+                  {tx(
+                    "로드된 .nam 파일이 없습니다. 가져오기 버튼으로 Neural Amp Modeler 캡처를 추가하세요.",
+                    "No .nam models loaded. Import official Neural Amp Modeler files above."
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {tones.map((t) => {
+                    const sel = t.id === selectedToneId
+                    return (
+                      <div
+                        key={t.id}
+                        onClick={() => void handleSelectNamModel(t.id)}
+                        className={`flex items-center justify-between px-3 py-2 rounded-[10px] border cursor-pointer transition-all ${
+                          sel
+                            ? "bg-card border-primary shadow-[0_0_0_1px_var(--signal-hot)] text-foreground"
+                            : "border-border bg-background/45 hover:bg-card text-foreground"
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <div className="font-display font-normal text-xs truncate">{t.name}</div>
+                          <div className="text-[10px] font-mono text-muted-foreground tabular-nums">
+                            {t.archPreset} · {t.sampleRate} Hz
+                          </div>
+                        </div>
+                        <Button
+                          size="icon-xs"
+                          variant="ghost"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void handleDeleteNam(t.id)
+                          }}
+                        >
+                          <Trash2 className="size-3" />
+                        </Button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </ScrollArea>
+
+            <div className="border-t border-border p-3.5 bg-secondary/35 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  CUSTOM CAB IR (.WAV)
+                </span>
+                <div className="flex items-center gap-1">
+                  <Button size="xs" variant="keycap" onClick={handleLoadCabIr}>
+                    <FolderOpen className="size-3" />
+                    {tx("IR 열기", "Load IR")}
+                  </Button>
+                  {customCabIrName && (
+                    <Button size="icon-xs" variant="ghost" onClick={handleClearCabIr}>
+                      <RotateCcw className="size-3" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+              <div className="text-xs font-mono truncate text-foreground bg-background/70 px-2.5 py-2 rounded-[8px] border border-border">
+                {customCabIrName || tx("내장 512-tap 4x12 V30 Modern IR", "Built-in 512-tap 4x12 V30 Modern IR")}
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Col 3: Tone Hub & VST3/CLAP Packaging Card */}
-        <div className="lg:col-span-4 flex flex-col min-h-0 p-4 gap-4 bg-background">
-          <Card className="py-4 gap-3">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider">
-                  <Globe className="size-4 text-primary" />
-                  TONE HUB &amp; .NRIG EXCHANGE
-                </CardTitle>
-                <Badge variant="hot" size="xs">
-                  CURATED
-                </Badge>
+          {/* Col 3: Tone Hub & VST3/CLAP Packaging Cards + Dark Obsidian Snapshot */}
+          <div className="lg:col-span-4 flex flex-col min-h-0 gap-4">
+            <Card className="py-4 gap-3 bg-card shadow-[0_18px_42px_rgba(11,14,16,0.08)]">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider">
+                    <Globe className="size-4 text-primary" />
+                    TONE HUB &amp; COMMUNITY
+                  </CardTitle>
+                  <Badge variant="hot" size="xs">
+                    CURATED
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3 text-xs">
+                <p className="text-muted-foreground leading-relaxed">
+                  {tx(
+                    "검증된 WaveNet/LSTM/ConvNet 앰프 캡처, 초저지연 캐비넷 IR, 커뮤니티 .nrig 번들을 원클릭으로 설치하고 공유할 수 있습니다.",
+                    "Browse and install curated WaveNet/LSTM/ConvNet neural models, IRs, and community .nrig bundles."
+                  )}
+                </p>
+                <Button size="sm" variant="signal" className="w-full rounded-full" onClick={onOpenToneHub}>
+                  <Package className="size-3.5" />
+                  {tx("Tone Hub 카탈로그 열기", "Open Tone Hub Catalog")}
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card className="py-4 gap-3 bg-card shadow-[0_18px_42px_rgba(11,14,16,0.08)]">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider">
+                    <Cpu className="size-4 text-primary" />
+                    NATIVEAOT DAW PLUGIN
+                  </CardTitle>
+                  <Badge variant="ok" size="xs">
+                    VST3 + CLAP
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3 text-xs">
+                <p className="text-muted-foreground leading-relaxed">
+                  {tx(
+                    "현재 구축된 시그널 체인과 .nam 모델을 32개 샘플 정확도 오토메이션을 지원하는 네이티브 VST3/CLAP 플러그인으로 패키징합니다.",
+                    "Package the current rig into a zero-allocation NativeAOT VST3 & CLAP DAW plugin with 32 parameters."
+                  )}
+                </p>
+                <Button size="sm" variant="keycap" className="w-full rounded-full" onClick={onOpenToneHub}>
+                  {tx("VST3 / CLAP 내보내기 센터", "Open VST3 / CLAP Exporter")}
+                </Button>
+              </CardContent>
+            </Card>
+
+            <div className="mt-auto rounded-[16px] border border-oled-border nr-obsidian-pod p-4 font-mono text-[11px] text-oled-foreground space-y-1.5">
+              <div className="flex items-center justify-between text-oled-muted text-[10px] tracking-[0.12em]">
+                <span>ACTIVE RIG</span>
+                <span className="size-1.5 rounded-full bg-primary" />
               </div>
-            </CardHeader>
-            <CardContent className="space-y-3 text-xs">
-              <p className="text-muted-foreground leading-relaxed">
-                {tx(
-                  "검증된 WaveNet/LSTM/ConvNet 앰프 캡처, 8K 초저지연 캐비넷 IR, 아티스트 .nrig 번들을 원클릭으로 설치하고 적용할 수 있습니다.",
-                  "Browse and install curated WaveNet/LSTM/ConvNet neural models, 8K IRs, and artist .nrig bundles."
-                )}
-              </p>
-              <Button size="sm" variant="signal" className="w-full" onClick={onOpenToneHub}>
-                <Package className="size-3.5" />
-                {tx("Tone Hub 카탈로그 열기", "OPEN TONE HUB CATALOG")}
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card className="py-4 gap-3">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider">
-                  <Cpu className="size-4 text-primary" />
-                  NATIVEAOT DAW PLUGIN
-                </CardTitle>
-                <Badge variant="ok" size="xs">
-                  VST3 + CLAP
-                </Badge>
+              <div className="font-display font-light text-lg tracking-tight text-oled-foreground truncate">
+                {chain.presetId} · {chain.presetName}
               </div>
-            </CardHeader>
-            <CardContent className="space-y-3 text-xs">
-              <p className="text-muted-foreground leading-relaxed">
-                {tx(
-                  "현재 구축된 시그널 체인과 .nam 모델을 32개 샘플 정확도 오토메이션을 지원하는 네이티브 VST3/CLAP 플러그인으로 패키징합니다.",
-                  "Package the current rig into a zero-allocation NativeAOT VST3 & CLAP DAW plugin with 32 parameters."
-                )}
-              </p>
-              <Button size="sm" variant="keycap" className="w-full" onClick={onOpenToneHub}>
-                {tx("VST3 / CLAP 내보내기 센터", "OPEN VST3 / CLAP EXPORTER")}
-              </Button>
-            </CardContent>
-          </Card>
-
-          <div className="mt-auto rounded-sm border border-border bg-oled p-3.5 font-mono text-[11px] text-oled-foreground space-y-1.5">
-            <div className="text-oled-muted text-[10px]">ACTIVE RIG SNAPSHOT</div>
-            <div className="font-bold text-sm">
-              {chain.presetId} · {chain.presetName}
-            </div>
-            <div className="text-oled-muted tabular-nums">
-              SCENE {SCENE_LABELS[chain.activeScene]} · {Math.round(chain.tempoBpm ?? 120)} BPM ·{" "}
-              {chain.routingMode === 1 ? "PARALLEL" : "SERIAL"}
+              <div className="text-oled-muted tabular-nums text-[10px]">
+                SCENE {SCENE_LABELS[chain.activeScene]} · {Math.round(chain.tempoBpm ?? 120)} BPM ·{" "}
+                {chain.routingMode === 1 ? "PARALLEL" : "SERIAL"}
+              </div>
             </div>
           </div>
         </div>
@@ -886,377 +985,207 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
   }
 
   // ───────────────────────────────────────────────────────────────────────────
-  // VIEW 3: SCOPE (Full-Size Acoustic Spectrum Lab + Guitar DI Profiler)
+  // VIEW 3: HARMONIC LAB (Accessed from Menu)
   // ───────────────────────────────────────────────────────────────────────────
   if (activeView === "scope") {
     return (
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-3 p-3.5 bg-background overflow-hidden">
-        <div className="lg:col-span-7 flex flex-col min-h-0">
-          <VisualizerCanvas
-            activeToneLabel={customCabIrName || undefined}
-            className="flex-1 min-h-0"
-            canvasClassName="h-full min-h-[340px]"
-          />
-        </div>
-        <div className="lg:col-span-5 flex flex-col min-h-0 rounded-md border border-border bg-card p-3.5 overflow-hidden">
-          <div className="pb-2 mb-2 border-b border-border flex items-center justify-between">
-            <span className="font-mono text-xs font-bold tracking-wider uppercase">
-              GUITAR DI PROFILER
-            </span>
-            <Badge variant="outline" size="xs">
-              {guitarProfiles.length} SAVED
-            </Badge>
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-transparent">
+        <div className="max-w-[1180px] mx-auto w-full px-6 pt-5 pb-3 shrink-0 flex items-center justify-between gap-3">
+          <div>
+            <h1 className="font-display font-light text-[26px] leading-tight tracking-[-0.025em] text-foreground">
+              {tx("스펙트럼 · 기타 DI 분석", "Harmonic Spectrum & Guitar DI Lab")}
+            </h1>
+            <p className="text-xs text-muted-foreground mt-0.5 tabular-nums">
+              {isAudioRunning ? tx("실시간 측정 중", "Stream active") : tx("오디오 대기 중", "Standby")} ·{" "}
+              {guitarProfiles.length} {tx("저장된 프로파일", "saved profiles")}
+            </p>
           </div>
-          <GuitarAnalyzerContent
-            isAudioRunning={isAudioRunning}
-            isAudioBusy={isAudioBusy}
-            onStartAudio={onStartAudio}
-            onOpenAudioSettings={onOpenAudioSettings}
-            profiles={guitarProfiles}
-            activeProfileId={activeGuitarProfileId}
-            liveAnalysis={liveGuitarAnalysis}
-            onLiveAnalysisChange={onLiveGuitarAnalysisChange}
-            onProfilesUpdated={onGuitarProfilesUpdated}
-            onLog={onLog}
-          />
+          <Badge variant={isAudioRunning ? "ok" : "outline"} size="xs">
+            {isAudioRunning ? tx("LIVE ENGINE", "LIVE ENGINE") : tx("STANDBY", "STANDBY")}
+          </Badge>
+        </div>
+
+        <div className="max-w-[1180px] mx-auto w-full px-6 pb-6 pt-1 flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-4">
+          <div className="lg:col-span-7 flex flex-col min-h-0">
+            <VisualizerCanvas
+              activeToneLabel={customCabIrName || undefined}
+              className="flex-1 min-h-0 rounded-[16px]"
+              canvasClassName="h-full min-h-[340px]"
+            />
+          </div>
+          <div className="lg:col-span-5 flex flex-col min-h-0 rounded-[16px] border border-border bg-card shadow-[0_18px_42px_rgba(11,14,16,0.08)] p-4 overflow-hidden">
+            <div className="pb-2.5 mb-2.5 border-b border-border flex items-center justify-between">
+              <span className="font-mono text-[11px] font-bold tracking-[0.08em] uppercase">
+                GUITAR DI PROFILER
+              </span>
+              <Badge variant="outline" size="xs">
+                {guitarProfiles.length} SAVED
+              </Badge>
+            </div>
+            <GuitarAnalyzerContent
+              isAudioRunning={isAudioRunning}
+              isAudioBusy={isAudioBusy}
+              onStartAudio={onStartAudio}
+              onOpenAudioSettings={onOpenAudioSettings}
+              profiles={guitarProfiles}
+              activeProfileId={activeGuitarProfileId}
+              liveAnalysis={liveGuitarAnalysis}
+              onLiveAnalysisChange={onLiveGuitarAnalysisChange}
+              onProfilesUpdated={onGuitarProfilesUpdated}
+              onLog={onLog}
+            />
+          </div>
         </div>
       </div>
     )
   }
 
   // ───────────────────────────────────────────────────────────────────────────
-  // VIEW 1: RIG (Collapsible Catalog · Boutique Patchboard · Split Bottom Console)
+  // VIEW 1: TOSS-INSPIRED STUDIO (ONLY Preset + Pure Signal Chain at Rest)
   // ───────────────────────────────────────────────────────────────────────────
   const tapBinding = midiState?.bindings?.find((b) => b.targetKind === "tapTempo")
+  const splitCol = Math.max(0, Math.min(7, chain.splitCol))
+  const mergeCol = Math.max(splitCol, Math.min(7, chain.mergeCol))
+  const hasLooperActivity =
+    looper.state !== "empty" || recorder.recording || recorder.reampPlaying || backing.playing
 
   return (
-    <div className="flex-1 min-h-0 flex bg-background overflow-hidden">
-      {/* Left Collapsible Editorial Gear Catalog */}
-      {catalogCollapsed ? (
-        <aside className="w-11 shrink-0 border-r border-border bg-card flex flex-col items-center py-2 gap-1.5">
-          <Hint content={tx("장비 카탈로그 펼치기", "Expand Gear Catalog")} side="right">
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              onClick={() => setCatalogCollapsed(false)}
-            >
-              <PanelLeftOpen className="size-3.5" />
-            </Button>
-          </Hint>
-          <Separator className="w-6" />
-          <ScrollArea className="flex-1 w-full">
-            <div className="flex flex-col items-center gap-1 py-1">
-              {CATEGORIES.map((cat) => {
-                const active = activeCategory === cat.id
-                return (
-                  <Hint key={cat.id} content={cat.label} side="right">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveCategory(cat.id)
-                        setCatalogCollapsed(false)
-                      }}
-                      className={`relative w-8 h-8 rounded-sm flex items-center justify-center transition-colors cursor-pointer ${
-                        active
-                          ? "bg-secondary text-foreground border border-border"
-                          : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
-                      }`}
-                    >
-                      {active && (
-                        <span
-                          className="absolute left-0 top-1 bottom-1 w-[2.5px]"
-                          style={{ backgroundColor: cat.hex }}
-                        />
-                      )}
-                      <CategoryVectorIcon category={cat.id} className="size-4" />
-                    </button>
-                  </Hint>
-                )
-              })}
-            </div>
-          </ScrollArea>
-        </aside>
-      ) : (
-        <aside className="w-64 shrink-0 border-r border-border bg-card flex flex-col min-h-0">
-          {/* Catalog Top Bar */}
-          <div className="px-3 py-2 border-b border-border space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5 min-w-0">
-                <span
-                  className="size-2 rounded-[1px] shrink-0"
-                  style={{ backgroundColor: CATEGORY_MAP[activeCategory].hex }}
-                />
-                <span className="font-mono text-[11px] font-bold tracking-wider uppercase truncate">
-                  {searchQuery.trim()
-                    ? tx(`검색 (${categoryModels.length})`, `MATCH (${categoryModels.length})`)
-                    : CATEGORY_MAP[activeCategory].label}
-                </span>
-              </div>
-              <Hint content={tx("카탈로그 접기", "Collapse Catalog")} side="right">
-                <Button
-                  size="icon-xs"
-                  variant="ghost"
-                  onClick={() => setCatalogCollapsed(true)}
-                >
-                  <PanelLeftClose className="size-3.5" />
-                </Button>
-              </Hint>
-            </div>
-
-            {/* Category Micro Chip Grid (5x2) */}
-            <div className="grid grid-cols-5 gap-1">
-              {CATEGORIES.map((cat) => {
-                const active = activeCategory === cat.id && !searchQuery.trim()
-                return (
-                  <Hint key={cat.id} content={cat.label}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSearchQuery("")
-                        setActiveCategory(cat.id)
-                      }}
-                      className={`relative h-7 rounded-sm border flex items-center justify-center transition-colors cursor-pointer ${
-                        active
-                          ? "bg-foreground text-background border-foreground"
-                          : "bg-background text-muted-foreground border-border hover:text-foreground hover:bg-secondary/60"
-                      }`}
-                    >
-                      <span
-                        className="absolute top-0 inset-x-0 h-[2px]"
-                        style={{ backgroundColor: cat.hex }}
-                      />
-                      <CategoryVectorIcon category={cat.id} className="size-3.5 mt-0.5" />
-                    </button>
-                  </Hint>
-                )
-              })}
-            </div>
-
-            <div className="relative flex items-center">
-              <Search className="size-3.5 text-muted-foreground absolute left-2.5 pointer-events-none" />
-              <Input
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    setSearchQuery("")
-                    e.currentTarget.blur()
-                  }
-                }}
-                placeholder={tx("모델 필터 (예: TS808, Plexi)", "Filter gear (TS808, Plexi)")}
-                className="pl-7 pr-6"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery("")}
-                  className="absolute right-2 text-muted-foreground hover:text-foreground cursor-pointer"
-                >
-                  <X className="size-3" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Device List */}
-          <ScrollArea className="flex-1 min-h-0">
-            <div className="p-2 space-y-0.5">
-              {categoryModels.length === 0 ? (
-                <div className="py-8 text-center text-xs text-muted-foreground">
-                  {tx("일치하는 장비가 없습니다", "No matching gear")}
-                </div>
-              ) : (
-                categoryModels.map((model) => {
-                  const isInSelectedSlot = currentSlot?.modelId === model.id
-                  const catColor = CATEGORY_MAP[model.category].hex
-                  return (
-                    <button
-                      key={model.id}
-                      type="button"
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData("application/x-cortex-model", model.id)
-                        e.dataTransfer.effectAllowed = "copy"
-                      }}
-                      onClick={() => onAssignModel(model.id, selectedSlot)}
-                      className={`w-full text-left px-2.5 py-1.5 rounded-sm text-xs transition-colors flex items-center justify-between gap-2 border cursor-pointer ${
-                        isInSelectedSlot
-                          ? "bg-primary/15 text-foreground font-bold border-primary"
-                          : "text-foreground/90 hover:bg-secondary border-transparent"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span
-                          className="w-1.5 h-3 rounded-[1px] shrink-0"
-                          style={{ backgroundColor: catColor }}
-                        />
-                        <span className="truncate">{model.name}</span>
-                      </div>
-                      {searchQuery.trim() && (
-                        <span className="text-[9px] font-mono text-muted-foreground uppercase shrink-0">
-                          {model.category}
-                        </span>
-                      )}
-                    </button>
-                  )
-                })
-              )}
-            </div>
-          </ScrollArea>
-
-          <div className="px-3 py-1.5 border-t border-border flex items-center justify-between text-[10px] font-mono tabular-nums text-muted-foreground bg-secondary/35">
-            <span>SLOT #{String(selectedSlot + 1).padStart(2, "0")}</span>
-            <span>1-8 · B · T · /</span>
-          </div>
-        </aside>
-      )}
-
-      {/* Center Stage + Split Hardware Console */}
-      <div className="flex-1 min-w-0 flex flex-col min-h-0">
-        {/* Preset Cartridge + BPM + Scene A–H + Routing Bar */}
-        <div className="h-11 shrink-0 px-3.5 border-b border-border bg-card flex items-center justify-between gap-3">
-          {/* Left: Preset Cartridge */}
-          <div className="flex items-center gap-1.5 min-w-0">
+    <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden bg-transparent">
+      {/* Centered Hero Canvas: Preset Bar + Pure 2x8 Signal Chain */}
+      <div
+        className={`flex-1 min-h-0 flex flex-col justify-center max-w-[1300px] w-full mx-auto px-6 gap-6 transition-[padding] duration-200 ${
+          inspectorOpen && currentModel ? "pb-64" : "pb-6"
+        }`}
+      >
+        {/* Clean Toss-Style Preset + Scene Bar */}
+        <header
+          data-tour="preset-scene-bar"
+          className="w-full flex items-center justify-between gap-3 flex-wrap px-1"
+        >
+          {/* Left: Preset Stepper + Clickable Title Popover */}
+          <div className="flex items-center gap-2 min-w-0">
             <Hint content={tx("이전 프리셋", "Previous Preset")}>
-              <Button size="icon-xs" variant="keycap" onClick={() => stepPreset(-1)}>
-                <ChevronLeft className="size-3.5" />
+              <Button
+                size="icon-sm"
+                variant="outline"
+                onClick={() => stepPreset(-1)}
+                className="rounded-full"
+              >
+                <ChevronLeft className="size-4" />
               </Button>
             </Hint>
             <Hint content={tx("다음 프리셋", "Next Preset")}>
-              <Button size="icon-xs" variant="keycap" onClick={() => stepPreset(1)}>
-                <ChevronRight className="size-3.5" />
+              <Button
+                size="icon-sm"
+                variant="outline"
+                onClick={() => stepPreset(1)}
+                className="rounded-full"
+              >
+                <ChevronRight className="size-4" />
               </Button>
             </Hint>
 
-            <div className="h-7 px-2.5 rounded-sm bg-background border border-border flex items-center gap-2 min-w-[200px] max-w-[280px]">
-              <span className="font-mono text-[11px] font-bold text-primary shrink-0">
-                {chain.presetId}
-              </span>
-              {editingName ? (
-                <Input
-                  autoFocus
-                  value={draftName}
-                  onChange={(e) => setDraftName(e.target.value)}
-                  onBlur={() => {
-                    setEditingName(false)
-                    onPushChain({ ...chain, presetName: draftName }, true)
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      setEditingName(false)
-                      onPushChain({ ...chain, presetName: draftName }, true)
-                    }
-                    if (e.key === "Escape") {
-                      setDraftName(chain.presetName)
-                      setEditingName(false)
-                    }
-                  }}
-                  className="h-5 px-1 border-0 bg-transparent focus-visible:ring-0"
-                />
-              ) : (
-                <Hint content={tx("클릭하여 프리셋 이름 변경", "Click to rename preset")}>
-                  <button
-                    type="button"
-                    onClick={() => setEditingName(true)}
-                    className="font-display text-xs font-bold text-foreground truncate text-left flex-1 cursor-text"
-                  >
+            <Popover open={presetPickerOpen} onOpenChange={setPresetPickerOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex items-baseline gap-2.5 px-3 py-1.5 rounded-[12px] hover:bg-card/70 transition-colors cursor-pointer min-w-0"
+                >
+                  <span className="font-mono text-xs font-bold text-primary shrink-0 tabular-nums">
+                    {chain.presetId}
+                  </span>
+                  <span className="font-display font-light text-[25px] md:text-[28px] leading-tight tracking-[-0.025em] text-foreground truncate max-w-[360px]">
                     {chain.presetName}
-                  </button>
-                </Hint>
-              )}
-            </div>
+                  </span>
+                  <ChevronDown className="size-4 text-muted-foreground shrink-0 self-center" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-80 rounded-[16px] p-3 space-y-2.5">
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    value={draftName}
+                    onChange={(e) => setDraftName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        const updated = { ...chain, presetName: draftName }
+                        onPushChain(updated, true)
+                        void handleSavePreset(updated)
+                      }
+                    }}
+                    placeholder={tx("프리셋 이름", "Preset name")}
+                    className="h-8 text-xs"
+                  />
+                  <Button
+                    size="xs"
+                    variant="signal"
+                    onClick={() => {
+                      const updated = { ...chain, presetName: draftName }
+                      onPushChain(updated, true)
+                      void handleSavePreset(updated)
+                    }}
+                    className="shrink-0"
+                  >
+                    <Save className="size-3" />
+                    {tx("저장", "Save")}
+                  </Button>
+                </div>
 
-            <Hint content={tx("현재 프리셋 저장", "Save User Preset")}>
-              <Button size="icon-xs" variant="keycap" onClick={handleSavePreset}>
-                <Save className="size-3" />
-              </Button>
-            </Hint>
+                <Separator />
+
+                <ScrollArea className="h-64">
+                  <div className="space-y-1 pr-1">
+                    {allPresets.map((p) => {
+                      const isActive = p.presetId === chain.presetId
+                      const isUser = savedPresets.some((u) => u.presetId === p.presetId)
+                      return (
+                        <div
+                          key={p.presetId}
+                          onClick={() => {
+                            onLoadPreset(p)
+                            setPresetPickerOpen(false)
+                          }}
+                          className={`flex items-center justify-between px-2.5 py-2 rounded-[10px] text-xs cursor-pointer transition-colors ${
+                            isActive
+                              ? "bg-foreground text-background font-medium"
+                              : "hover:bg-secondary text-foreground"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span
+                              className={`font-mono text-[11px] font-bold w-7 shrink-0 ${
+                                isActive ? "text-primary" : "text-muted-foreground"
+                              }`}
+                            >
+                              {p.presetId}
+                            </span>
+                            <span className="truncate">{p.presetName}</span>
+                          </div>
+                          {isUser && (
+                            <Button
+                              size="icon-xs"
+                              variant="ghost"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                void handleDeleteUserPreset(p.presetId)
+                              }}
+                            >
+                              <Trash2 className="size-3" />
+                            </Button>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </ScrollArea>
+              </PopoverContent>
+            </Popover>
           </div>
 
-          {/* Right: BPM Popover + Scene A–H + Routing Toggle */}
-          <div className="flex items-center gap-2">
-            {/* Global Tempo Popover + TAP */}
-            <div className="flex items-center gap-1">
-              <Popover>
-                <Hint content={tx("글로벌 BPM 설정", "Global Tempo BPM")}>
-                  <PopoverTrigger asChild>
-                    <Button size="xs" variant="outline" className="tabular-nums">
-                      <Clock className="size-3 text-muted-foreground" />
-                      <span>{Math.round(chain.tempoBpm ?? 120)} BPM</span>
-                    </Button>
-                  </PopoverTrigger>
-                </Hint>
-                <PopoverContent className="w-56 space-y-2.5">
-                  <div className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                    GLOBAL TEMPO (40–280 BPM)
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      value={editingBpm ? draftBpm : String(Math.round(chain.tempoBpm ?? 120))}
-                      onFocus={() => {
-                        setDraftBpm(String(Math.round(chain.tempoBpm ?? 120)))
-                        setEditingBpm(true)
-                      }}
-                      onChange={(e) => setDraftBpm(e.target.value)}
-                      onBlur={() => {
-                        setEditingBpm(false)
-                        const v = Number.parseFloat(draftBpm)
-                        if (!Number.isNaN(v) && Number.isFinite(v)) {
-                          onPushChain({ ...chain, tempoBpm: Math.max(40, Math.min(280, v)) }, true, true)
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") e.currentTarget.blur()
-                      }}
-                      className="font-mono tabular-nums"
-                    />
-                    <Button size="sm" variant="signal" onClick={handleTapTempo}>
-                      TAP
-                    </Button>
-                  </div>
-                </PopoverContent>
-              </Popover>
-
-              <ContextMenu>
-                <ContextMenuTrigger asChild>
-                  <span>
-                    <Hint content={tx("연속 클릭 또는 T 키로 탭 템포", "Tap tempo")} kbd="T">
-                      <Button size="xs" variant="keycap" onClick={handleTapTempo}>
-                        TAP
-                      </Button>
-                    </Hint>
-                  </span>
-                </ContextMenuTrigger>
-                <ContextMenuContent>
-                  <ContextMenuItem
-                    onSelect={() => {
-                      if (tapBinding && onClearMidiBinding)
-                        onClearMidiBinding({ targetKind: "tapTempo" })
-                      else if (onStartMidiLearn) onStartMidiLearn({ targetKind: "tapTempo" })
-                    }}
-                  >
-                    <Radio className="size-3.5 text-primary" />
-                    {tapBinding
-                      ? tx(`MIDI CC#${tapBinding.cc} 해제`, `Clear MIDI CC#${tapBinding.cc}`)
-                      : tx("TAP MIDI CC 학습", "Learn TAP MIDI CC")}
-                  </ContextMenuItem>
-                </ContextMenuContent>
-              </ContextMenu>
-            </div>
-
-            <Separator orientation="vertical" />
-
-            {/* Scenes A..H */}
-            <ToggleGroup
-              type="single"
-              size="xs"
-              variant="keycap"
-              value={String(chain.activeScene)}
-              onValueChange={(v) => {
-                if (v !== "") onPushChain(switchSceneOnChain(chain, Number(v)), true, true)
-              }}
-            >
+          {/* Right: Scene A..H Segmented Pill + Chain Settings Popover */}
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="rounded-full bg-card/85 backdrop-blur-sm border border-border p-1 flex items-center gap-0.5 shadow-[0_6px_18px_rgba(11,14,16,0.06)]">
               {SCENE_LABELS.map((label, idx) => {
+                const active = chain.activeScene === idx
                 const sceneBinding = midiState?.bindings?.find(
                   (b) => b.targetKind === "scene" && b.sceneIndex === idx
                 )
@@ -1268,12 +1197,20 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                           content={tx(`Scene ${label} 전환`, `Switch Scene ${label}`)}
                           kbd={String(idx + 1)}
                         >
-                          <ToggleGroupItem value={String(idx)} className="relative">
+                          <button
+                            type="button"
+                            onClick={() => onPushChain(switchSceneOnChain(chain, idx), true, true)}
+                            className={`relative h-6 min-w-6 px-2 rounded-full font-mono text-[11px] font-medium transition-colors cursor-pointer ${
+                              active
+                                ? "bg-foreground text-background shadow-xs"
+                                : "text-muted-foreground hover:text-foreground hover:bg-secondary/70"
+                            }`}
+                          >
                             {label}
                             {sceneBinding && (
-                              <span className="absolute -bottom-0.5 right-0.5 size-1 rounded-full bg-signal-ok" />
+                              <span className="absolute top-0.5 right-0.5 size-1 rounded-full bg-signal-ok" />
                             )}
-                          </ToggleGroupItem>
+                          </button>
                         </Hint>
                       </span>
                     </ContextMenuTrigger>
@@ -1296,35 +1233,234 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                   </ContextMenu>
                 )
               })}
-            </ToggleGroup>
+            </div>
 
-            <Separator orientation="vertical" />
+            {/* Chain Routing / BPM / Master Trim Popover */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="rounded-full px-3.5 gap-1.5 font-mono text-[11px] bg-card/85 shadow-[0_6px_18px_rgba(11,14,16,0.06)]"
+                >
+                  <SlidersHorizontal className="size-3 text-muted-foreground" />
+                  <span className="tabular-nums">
+                    {Math.round(chain.tempoBpm ?? 120)} BPM ·{" "}
+                    {chain.routingMode === 1 ? tx("병렬", "Parallel") : tx("직렬", "Serial")}
+                  </span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-80 rounded-[16px] p-4 space-y-4">
+                {/* Tempo Row */}
+                <div className="space-y-1.5">
+                  <div className="text-[11px] font-medium text-muted-foreground flex items-center gap-1.5">
+                    <Clock className="size-3.5" />
+                    <span>{tx("템포 (40–280 BPM)", "Tempo (40–280 BPM)")}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={editingBpm ? draftBpm : String(Math.round(chain.tempoBpm ?? 120))}
+                      onFocus={() => {
+                        setDraftBpm(String(Math.round(chain.tempoBpm ?? 120)))
+                        setEditingBpm(true)
+                      }}
+                      onChange={(e) => setDraftBpm(e.target.value)}
+                      onBlur={() => {
+                        setEditingBpm(false)
+                        const v = Number.parseFloat(draftBpm)
+                        if (!Number.isNaN(v) && Number.isFinite(v)) {
+                          onPushChain({ ...chain, tempoBpm: Math.max(40, Math.min(280, v)) }, true, true)
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") e.currentTarget.blur()
+                      }}
+                      className="h-8 font-mono tabular-nums"
+                    />
+                    <ContextMenu>
+                      <ContextMenuTrigger asChild>
+                        <span>
+                          <Hint content={tx("연속 클릭 또는 T 키로 탭 템포", "Tap tempo")} kbd="T">
+                            <Button size="sm" variant="signal" onClick={handleTapTempo}>
+                              TAP
+                            </Button>
+                          </Hint>
+                        </span>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent>
+                        <ContextMenuItem
+                          onSelect={() => {
+                            if (tapBinding && onClearMidiBinding)
+                              onClearMidiBinding({ targetKind: "tapTempo" })
+                            else if (onStartMidiLearn) onStartMidiLearn({ targetKind: "tapTempo" })
+                          }}
+                        >
+                          <Radio className="size-3.5 text-primary" />
+                          {tapBinding
+                            ? tx(`MIDI CC#${tapBinding.cc} 해제`, `Clear MIDI CC#${tapBinding.cc}`)
+                            : tx("TAP MIDI CC 학습", "Learn TAP MIDI CC")}
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
+                  </div>
+                </div>
 
-            {/* Serial vs Parallel Routing Toggle */}
-            <Hint
-              content={tx(
-                "직렬(Serial) / 병렬 분기(Parallel) 라우팅 전환",
-                "Toggle Serial / Parallel Split Routing"
-              )}
-            >
-              <Toggle
-                size="sm"
-                variant="keycap"
-                pressed={chain.routingMode === 1}
-                onPressedChange={(on) => onPushChain({ ...chain, routingMode: on ? 1 : 0 }, true)}
-              >
-                <GitBranch className="size-3" />
-                {chain.routingMode === 1 ? "PARALLEL" : "SERIAL"}
-              </Toggle>
-            </Hint>
+                {/* Serial / Parallel Routing Toggle */}
+                <div className="space-y-2">
+                  <div className="text-[11px] font-medium text-muted-foreground flex items-center gap-1.5">
+                    <GitBranch className="size-3.5" />
+                    <span>{tx("신호 경로", "Signal Routing")}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <Button
+                      size="sm"
+                      variant={chain.routingMode !== 1 ? "default" : "outline"}
+                      onClick={() => onPushChain({ ...chain, routingMode: 0 }, true)}
+                    >
+                      {tx("직렬 (Serial)", "Serial")}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={chain.routingMode === 1 ? "signal" : "outline"}
+                      onClick={() => onPushChain({ ...chain, routingMode: 1 }, true)}
+                    >
+                      {tx("병렬 분기 (Parallel)", "Parallel")}
+                    </Button>
+                  </div>
+
+                  {chain.routingMode === 1 && (
+                    <div className="rounded-[12px] border border-border bg-secondary/45 p-3 space-y-2.5 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">{tx("분기 지점 (Split)", "Split Col")}</span>
+                        <div className="flex items-center gap-1.5">
+                          <Button
+                            size="icon-xs"
+                            variant="outline"
+                            disabled={splitCol <= 0}
+                            onClick={() => onPushChain({ ...chain, splitCol: Math.max(0, splitCol - 1) }, false)}
+                          >
+                            <Minus className="size-3" />
+                          </Button>
+                          <span className="w-5 text-center font-mono font-bold tabular-nums">
+                            {splitCol + 1}
+                          </span>
+                          <Button
+                            size="icon-xs"
+                            variant="outline"
+                            disabled={splitCol >= mergeCol}
+                            onClick={() =>
+                              onPushChain({ ...chain, splitCol: Math.min(mergeCol, splitCol + 1) }, false)
+                            }
+                          >
+                            <Plus className="size-3" />
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">{tx("합류 지점 (Merge)", "Merge Col")}</span>
+                        <div className="flex items-center gap-1.5">
+                          <Button
+                            size="icon-xs"
+                            variant="outline"
+                            disabled={mergeCol <= splitCol}
+                            onClick={() =>
+                              onPushChain({ ...chain, mergeCol: Math.max(splitCol, mergeCol - 1) }, false)
+                            }
+                          >
+                            <Minus className="size-3" />
+                          </Button>
+                          <span className="w-5 text-center font-mono font-bold tabular-nums">
+                            {mergeCol + 1}
+                          </span>
+                          <Button
+                            size="icon-xs"
+                            variant="outline"
+                            disabled={mergeCol >= 7}
+                            onClick={() => onPushChain({ ...chain, mergeCol: Math.min(7, mergeCol + 1) }, false)}
+                          >
+                            <Plus className="size-3" />
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">{tx("병렬 믹스", "Parallel Mix")}</span>
+                          <span className="font-mono font-semibold tabular-nums">
+                            {Math.round(chain.parallelMix * 100)}%
+                          </span>
+                        </div>
+                        <Slider
+                          value={[Math.round(chain.parallelMix * 100)]}
+                          min={0}
+                          max={100}
+                          step={1}
+                          onValueChange={([v]) => onPushChain({ ...chain, parallelMix: v / 100 }, false)}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Master Input / Output Gain Trim */}
+                <div className="space-y-2.5 pt-2 border-t border-border text-xs">
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">{tx("입력 트림 (Input)", "Input Trim")}</span>
+                      <button
+                        type="button"
+                        onDoubleClick={() => onPushChain({ ...chain, inputGainDb: 0 }, false)}
+                        className="font-mono font-semibold tabular-nums cursor-pointer"
+                      >
+                        {chain.inputGainDb >= 0
+                          ? `+${chain.inputGainDb.toFixed(1)}`
+                          : chain.inputGainDb.toFixed(1)}
+                        dB
+                      </button>
+                    </div>
+                    <Slider
+                      value={[chain.inputGainDb]}
+                      min={-12}
+                      max={12}
+                      step={0.5}
+                      onValueChange={([v]) => onPushChain({ ...chain, inputGainDb: v }, false)}
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">{tx("마스터 출력 (Output)", "Output Gain")}</span>
+                      <button
+                        type="button"
+                        onDoubleClick={() => onPushChain({ ...chain, outputGainDb: 0 }, false)}
+                        className="font-mono font-semibold tabular-nums cursor-pointer"
+                      >
+                        {chain.outputGainDb >= 0
+                          ? `+${chain.outputGainDb.toFixed(1)}`
+                          : chain.outputGainDb.toFixed(1)}
+                        dB
+                      </button>
+                    </div>
+                    <Slider
+                      value={[chain.outputGainDb]}
+                      min={-12}
+                      max={12}
+                      step={0.5}
+                      onValueChange={([v]) => onPushChain({ ...chain, outputGainDb: v }, false)}
+                    />
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
-        </div>
+        </header>
 
-        {/* Center: Recessed OLED Boutique Silhouette Patchboard */}
+        {/* Centerpiece: Pure 2x8 Dark Obsidian Signal Chain */}
         <CortexGrid
           chain={chain}
           tones={tones}
-          selectedSlot={selectedSlot}
+          selectedSlot={inspectorOpen || catalogOpen ? selectedSlot : -1}
           midiState={midiState}
           onSelectSlot={handleSelectSlot}
           onToggleBypass={toggleSlotBypass}
@@ -1332,340 +1468,442 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
           onRemoveSlot={removeSlotBlock}
           onMoveOrSwap={moveOrSwapSlot}
           onDropModelFromLibrary={onAssignModel}
-          onUpdateRouting={(patch) => onPushChain({ ...chain, ...patch }, false)}
           onStartMidiLearn={onStartMidiLearn}
           onClearMidiBinding={onClearMidiBinding}
           meterL={meterL}
           meterR={meterR}
           clip={clip}
         />
+      </div>
 
-        {/* Zone 3: Bottom Split Hardware Console (Faceplate 8 cols + TP-7 Micro Tape Deck 4 cols) */}
+      {/* Floating Bottom Slot Parameter Sheet (Shown ONLY when a gear tile is clicked) */}
+      {inspectorOpen && currentModel && currentCategory && (
         <section
-          className={`${
-            currentModel?.category === "cab" && cabRoomOpen ? "h-[280px]" : "h-[238px]"
-          } shrink-0 border-t border-border bg-card grid grid-cols-1 md:grid-cols-12 transition-[height] duration-150`}
+          data-tour="inspector-dock"
+          className="fixed inset-x-0 bottom-5 z-30 mx-auto w-[min(960px,calc(100vw-48px))] rounded-[18px] border border-border bg-card/96 backdrop-blur-md shadow-[0_24px_64px_rgba(11,14,16,0.22)] overflow-hidden"
         >
-          {/* Left: Module Parameter Faceplate */}
-          <div className="md:col-span-8 flex flex-col min-w-0 min-h-0">
-            <div className="h-10 shrink-0 px-3.5 border-b border-border bg-secondary/40 flex items-center justify-between gap-2">
-              {currentModel && currentCategory ? (
-                <>
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Hint
-                      content={
-                        currentSlot.enabled
-                          ? tx("블록 바이패스", "Bypass Block")
-                          : tx("블록 활성화", "Enable Block")
-                      }
-                      kbd="B"
-                    >
-                      <Button
-                        size="icon-xs"
-                        variant={currentSlot.enabled ? "signal" : "outline"}
-                        onClick={() => toggleSlotBypass(selectedSlot)}
-                      >
-                        <Power className="size-3" />
-                      </Button>
-                    </Hint>
-                    <Badge variant="outline" size="xs">
-                      #{String(selectedSlot + 1).padStart(2, "0")}
-                    </Badge>
-                    <span className="font-mono text-[10px] font-bold uppercase text-muted-foreground shrink-0">
-                      {currentModel.categoryLabel}
-                    </span>
-                    <span className="font-display text-xs font-bold truncate">
-                      {currentModel.name}
-                    </span>
-                    {!currentSlot.enabled && (
-                      <Badge variant="warn" size="xs">
-                        BYPASSED
-                      </Badge>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {supportsTempoSync(currentModel.id) && (
-                      <ToggleGroup
-                        type="single"
-                        size="xs"
-                        variant="keycap"
-                        value={String(currentSlot.syncDivision ?? 0)}
-                        onValueChange={(v) => {
-                          if (v !== "") updateSlotSyncDivision(selectedSlot, Number(v))
-                        }}
-                      >
-                        {TEMPO_SYNC_DIVISIONS.map((div) => (
-                          <ToggleGroupItem key={div.value} value={String(div.value)}>
-                            {div.label}
-                          </ToggleGroupItem>
-                        ))}
-                      </ToggleGroup>
-                    )}
-
-                    {currentModel.id === "nam_capture" && (
-                      <div className="flex items-center gap-1">
-                        <Select
-                          value={currentSlot.namModelId || selectedToneId || "__none__"}
-                          onValueChange={(v) => v !== "__none__" && updateSlotNamModel(selectedSlot, v)}
-                        >
-                          <SelectTrigger className="h-6 w-44 text-[11px]">
-                            <SelectValue placeholder={tx(".nam 선택", "Select .nam")} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {tones.length === 0 ? (
-                              <SelectItem value="__none__">
-                                {tx("불러온 .nam 없음", "No .nam loaded")}
-                              </SelectItem>
-                            ) : (
-                              tones.map((t) => (
-                                <SelectItem key={t.id} value={t.id}>
-                                  {t.name} [{t.architecture}]
-                                </SelectItem>
-                              ))
-                            )}
-                          </SelectContent>
-                        </Select>
-                        <Button
-                          size="xs"
-                          variant="keycap"
-                          onClick={() => void importNamWithSlot(selectedSlot)}
-                        >
-                          <Upload className="size-3" />
-                          .NAM
-                        </Button>
-                      </div>
-                    )}
-
-                    {currentModel.category === "cab" && (
-                      <div className="flex items-center gap-1">
-                        <Toggle
-                          size="xs"
-                          variant="keycap"
-                          pressed={cabRoomOpen}
-                          onPressedChange={setCabRoomOpen}
-                        >
-                          <Mic className="size-3" />
-                          CAB ROOM{currentSlot.cabMic?.dualEnabled ? " 2×" : ""}
-                        </Toggle>
-                        {(currentModel.id === "cab_custom" || currentModel.id === "cab_v30") && (
-                          <Button size="xs" variant="keycap" onClick={handleLoadCabIr}>
-                            <FolderOpen className="size-3" />
-                            WAV IR
-                          </Button>
-                        )}
-                      </div>
-                    )}
-
-                    <Separator orientation="vertical" />
-
-                    <Hint content={tx("왼쪽 이동", "Move Left")}>
-                      <Button
-                        size="icon-xs"
-                        variant="ghost"
-                        disabled={selectedSlot === 0}
-                        onClick={() => moveOrSwapSlot(selectedSlot, selectedSlot - 1)}
-                      >
-                        <ArrowLeft className="size-3.5" />
-                      </Button>
-                    </Hint>
-                    <Hint content={tx("오른쪽 이동", "Move Right")}>
-                      <Button
-                        size="icon-xs"
-                        variant="ghost"
-                        disabled={selectedSlot === 15}
-                        onClick={() => moveOrSwapSlot(selectedSlot, selectedSlot + 1)}
-                      >
-                        <ArrowRight className="size-3.5" />
-                      </Button>
-                    </Hint>
-                    <Hint content={tx("기본값 복원", "Reset Defaults")}>
-                      <Button
-                        size="icon-xs"
-                        variant="ghost"
-                        onClick={() => resetSlotDefaults(selectedSlot)}
-                      >
-                        <RotateCcw className="size-3.5" />
-                      </Button>
-                    </Hint>
-                    <Hint content={tx("블록 제거", "Remove Block")} kbd="Del">
-                      <Button
-                        size="icon-xs"
-                        variant="ghost"
-                        onClick={() => removeSlotBlock(selectedSlot)}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </Hint>
-                  </div>
-                </>
-              ) : (
-                <div className="flex items-center justify-between w-full font-mono text-[11px] text-muted-foreground">
-                  <span>
-                    {tx(
-                      `EMPTY SLOT #${String(selectedSlot + 1).padStart(2, "0")} — 카탈로그 또는 빠른 장착에서 장비를 선택하세요`,
-                      `EMPTY SLOT #${String(selectedSlot + 1).padStart(2, "0")} — Pick gear from catalog or quick mount`
-                    )}
-                  </span>
-                </div>
+          <div className="h-11 shrink-0 px-4 border-b border-border bg-secondary/40 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <Hint
+                content={
+                  currentSlot.enabled
+                    ? tx("블록 바이패스", "Bypass Block")
+                    : tx("블록 활성화", "Enable Block")
+                }
+                kbd="B"
+              >
+                <Button
+                  size="icon-xs"
+                  variant={currentSlot.enabled ? "signal" : "outline"}
+                  onClick={() => toggleSlotBypass(selectedSlot)}
+                >
+                  <Power className="size-3" />
+                </Button>
+              </Hint>
+              <Badge variant="outline" size="xs">
+                {currentModel.categoryLabel}
+              </Badge>
+              <span className="font-display font-normal text-sm truncate">{currentModel.name}</span>
+              {!currentSlot.enabled && (
+                <Badge variant="warn" size="xs">
+                  BYPASSED
+                </Badge>
               )}
             </div>
 
-            <ScrollArea className="flex-1 min-h-0 bg-card">
-              {currentModel && currentCategory ? (
-                <div
-                  className={
-                    currentModel.category === "cab" && cabRoomOpen
-                      ? "flex items-stretch min-h-[218px]"
-                      : ""
-                  }
+            <div className="flex items-center gap-1.5 shrink-0">
+              {supportsTempoSync(currentModel.id) && (
+                <ToggleGroup
+                  type="single"
+                  size="xs"
+                  variant="keycap"
+                  value={String(currentSlot.syncDivision ?? 0)}
+                  onValueChange={(v) => {
+                    if (v !== "") updateSlotSyncDivision(selectedSlot, Number(v))
+                  }}
                 >
-                  <div
-                    className={
-                      currentModel.category === "cab" && cabRoomOpen
-                        ? "w-[310px] shrink-0 grid grid-cols-2"
-                        : "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4"
-                    }
+                  {TEMPO_SYNC_DIVISIONS.map((div) => (
+                    <ToggleGroupItem key={div.value} value={String(div.value)}>
+                      {div.label}
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
+              )}
+
+              {currentModel.id === "nam_capture" && (
+                <div className="flex items-center gap-1">
+                  <Select
+                    value={currentSlot.namModelId || selectedToneId || "__none__"}
+                    onValueChange={(v) => v !== "__none__" && updateSlotNamModel(selectedSlot, v)}
                   >
-                    {currentModel.params.map((p) => {
-                      const val = currentSlot.params[p.index] ?? p.defaultVal
-                      if (p.kind === "toggle") {
-                        return (
-                          <CortexToggleCell
-                            key={p.index}
-                            label={p.label}
-                            checked={val > 0.5}
-                            onLabel={p.onLabel}
-                            offLabel={p.offLabel}
-                            accentHex={currentCategory.hex}
-                            onChange={(checked) => updateSlotParam(selectedSlot, p.index, checked ? 1 : 0)}
-                          />
-                        )
-                      }
-                      return (
-                        <CortexKnob
-                          key={p.index}
-                          label={p.label}
-                          value={val}
-                          min={p.min}
-                          max={p.max}
-                          step={p.step}
-                          defaultVal={p.defaultVal}
-                          unit={p.unit}
-                          accentHex={currentCategory.hex}
-                          syncedText={
-                            supportsTempoSync(currentModel.id) &&
-                            (currentSlot.syncDivision ?? 0) > 0 &&
-                            (p.unit === "ms" || p.unit === "Hz")
-                              ? computeSyncedValueLabel(
-                                  currentModel.id,
-                                  currentSlot.syncDivision ?? 0,
-                                  chain.tempoBpm ?? 120
-                                )
-                              : null
-                          }
-                          midiCc={
-                            midiState?.bindings?.find(
-                              (b) =>
-                                b.targetKind === "param" &&
-                                b.slotIndex === selectedSlot &&
-                                b.paramIndex === p.index
-                            )?.cc ?? null
-                          }
-                          isMidiLearning={
-                            midiState?.learning?.targetKind === "param" &&
-                            midiState?.learning?.slotIndex === selectedSlot &&
-                            midiState?.learning?.paramIndex === p.index
-                          }
-                          onChange={(nextVal) => updateSlotParam(selectedSlot, p.index, nextVal)}
-                          onContextLearn={() => {
-                            const existing = midiState?.bindings?.find(
-                              (b) =>
-                                b.targetKind === "param" &&
-                                b.slotIndex === selectedSlot &&
-                                b.paramIndex === p.index
-                            )
-                            if (existing && onClearMidiBinding) {
-                              onClearMidiBinding({
-                                targetKind: "param",
-                                slotIndex: selectedSlot,
-                                paramIndex: p.index,
-                              })
-                            } else if (onStartMidiLearn) {
-                              onStartMidiLearn({
-                                targetKind: "param",
-                                slotIndex: selectedSlot,
-                                paramIndex: p.index,
-                              })
-                            }
-                          }}
-                        />
-                      )
-                    })}
-                  </div>
-                  {currentModel.category === "cab" && cabRoomOpen && (
-                    <VirtualCabRoom
-                      config={currentSlot.cabMic}
-                      onChange={(next) => updateSlotCabMic(selectedSlot, next)}
-                    />
-                  )}
-                </div>
-              ) : (
-                <div className="p-4 flex flex-wrap items-center gap-1.5">
-                  {[
-                    "od_ts808",
-                    "od_klon",
-                    "dist_rat",
-                    "fuzz_bigmuff",
-                    "pitch_capo",
-                    "amp_plexi",
-                    "amp_slo100",
-                    "nam_capture",
-                    "cab_v30",
-                    "eq_graphic5",
-                    "mod_ce2",
-                    "dly_digital",
-                    "rev_hall",
-                  ].map((id) => {
-                    const m = DEVICE_MAP[id]
-                    const c = CATEGORY_MAP[m.category]
-                    return (
-                      <Button
-                        key={id}
-                        size="xs"
-                        variant="keycap"
-                        onClick={() => onAssignModel(id, selectedSlot)}
-                      >
-                        <span className="size-2 rounded-[1px]" style={{ backgroundColor: c.hex }} />
-                        {m.name}
-                      </Button>
-                    )
-                  })}
+                    <SelectTrigger className="h-7 w-40 text-[11px]">
+                      <SelectValue placeholder={tx(".nam 선택", "Select .nam")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {tones.length === 0 ? (
+                        <SelectItem value="__none__">
+                          {tx("불러온 .nam 없음", "No .nam loaded")}
+                        </SelectItem>
+                      ) : (
+                        tones.map((t) => (
+                          <SelectItem key={t.id} value={t.id}>
+                            {t.name} [{t.architecture}]
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <Button size="xs" variant="keycap" onClick={() => void importNamWithSlot(selectedSlot)}>
+                    <Upload className="size-3" />
+                    .NAM
+                  </Button>
                 </div>
               )}
-            </ScrollArea>
+
+              {currentModel.category === "cab" && (
+                <div className="flex items-center gap-1">
+                  <Toggle
+                    size="xs"
+                    variant="keycap"
+                    pressed={cabRoomOpen}
+                    onPressedChange={setCabRoomOpen}
+                  >
+                    <Mic className="size-3" />
+                    CAB ROOM{currentSlot.cabMic?.dualEnabled ? " 2×" : ""}
+                  </Toggle>
+                  {(currentModel.id === "cab_custom" || currentModel.id === "cab_v30") && (
+                    <Button size="xs" variant="keycap" onClick={handleLoadCabIr}>
+                      <FolderOpen className="size-3" />
+                      WAV IR
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              <Button size="xs" variant="outline" onClick={() => setCatalogOpen(true)}>
+                {tx("장비 변경", "Swap")}
+              </Button>
+
+              <Separator orientation="vertical" className="h-4" />
+
+              <Hint content={tx("왼쪽 이동", "Move Left")}>
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  disabled={selectedSlot === 0}
+                  onClick={() => moveOrSwapSlot(selectedSlot, selectedSlot - 1)}
+                >
+                  <ArrowLeft className="size-3.5" />
+                </Button>
+              </Hint>
+              <Hint content={tx("오른쪽 이동", "Move Right")}>
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  disabled={selectedSlot === 15}
+                  onClick={() => moveOrSwapSlot(selectedSlot, selectedSlot + 1)}
+                >
+                  <ArrowRight className="size-3.5" />
+                </Button>
+              </Hint>
+              <Hint content={tx("기본값 복원", "Reset Defaults")}>
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  onClick={() => resetSlotDefaults(selectedSlot)}
+                >
+                  <RotateCcw className="size-3.5" />
+                </Button>
+              </Hint>
+              <Hint content={tx("블록 제거", "Remove Block")} kbd="Del">
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  onClick={() => removeSlotBlock(selectedSlot)}
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              </Hint>
+              <Hint content={tx("닫기", "Close")} kbd="Esc">
+                <Button size="icon-xs" variant="ghost" onClick={() => setInspectorOpen(false)}>
+                  <X className="size-3.5" />
+                </Button>
+              </Hint>
+            </div>
           </div>
 
-          {/* Right: TP-7 Micro Tape & Loop + MR Deck */}
-          <div className="md:col-span-4 min-h-0">
-            <LooperRecorderDeck
-              looper={looper}
-              recorder={recorder}
-              backing={backing}
-              tempoBpm={chain.tempoBpm ?? 120}
-              isAudioRunning={isAudioRunning}
-              midiState={midiState}
-              onLooperCmd={handleLooperCommand}
-              onRecorderCmd={handleRecorderCommand}
-              onLoadBacking={handleLoadBacking}
-              onControlBacking={controlBacking}
-              onUnloadBacking={unloadBacking}
-              onStartMidiLearn={onStartMidiLearn}
-              onClearMidiBinding={onClearMidiBinding}
-            />
-          </div>
+          <ScrollArea className={currentModel.category === "cab" && cabRoomOpen ? "h-[248px]" : "max-h-[208px]"}>
+            <div
+              className={
+                currentModel.category === "cab" && cabRoomOpen
+                  ? "flex items-stretch min-h-[218px]"
+                  : ""
+              }
+            >
+              <div
+                className={
+                  currentModel.category === "cab" && cabRoomOpen
+                    ? "w-[310px] shrink-0 grid grid-cols-2"
+                    : "grid grid-cols-2 sm:grid-cols-4"
+                }
+              >
+                {currentModel.params.map((p) => {
+                  const val = currentSlot.params[p.index] ?? p.defaultVal
+                  if (p.kind === "toggle") {
+                    return (
+                      <CortexToggleCell
+                        key={p.index}
+                        label={p.label}
+                        checked={val > 0.5}
+                        onLabel={p.onLabel}
+                        offLabel={p.offLabel}
+                        accentHex={currentCategory.hex}
+                        onChange={(checked) => updateSlotParam(selectedSlot, p.index, checked ? 1 : 0)}
+                      />
+                    )
+                  }
+                  return (
+                    <CortexKnob
+                      key={p.index}
+                      label={p.label}
+                      value={val}
+                      min={p.min}
+                      max={p.max}
+                      step={p.step}
+                      defaultVal={p.defaultVal}
+                      unit={p.unit}
+                      accentHex={currentCategory.hex}
+                      syncedText={
+                        supportsTempoSync(currentModel.id) &&
+                        (currentSlot.syncDivision ?? 0) > 0 &&
+                        (p.unit === "ms" || p.unit === "Hz")
+                          ? computeSyncedValueLabel(
+                              currentModel.id,
+                              currentSlot.syncDivision ?? 0,
+                              chain.tempoBpm ?? 120
+                            )
+                          : null
+                      }
+                      midiCc={
+                        midiState?.bindings?.find(
+                          (b) =>
+                            b.targetKind === "param" &&
+                            b.slotIndex === selectedSlot &&
+                            b.paramIndex === p.index
+                        )?.cc ?? null
+                      }
+                      isMidiLearning={
+                        midiState?.learning?.targetKind === "param" &&
+                        midiState?.learning?.slotIndex === selectedSlot &&
+                        midiState?.learning?.paramIndex === p.index
+                      }
+                      onChange={(nextVal) => updateSlotParam(selectedSlot, p.index, nextVal)}
+                      onContextLearn={() => {
+                        const existing = midiState?.bindings?.find(
+                          (b) =>
+                            b.targetKind === "param" &&
+                            b.slotIndex === selectedSlot &&
+                            b.paramIndex === p.index
+                        )
+                        if (existing && onClearMidiBinding) {
+                          onClearMidiBinding({
+                            targetKind: "param",
+                            slotIndex: selectedSlot,
+                            paramIndex: p.index,
+                          })
+                        } else if (onStartMidiLearn) {
+                          onStartMidiLearn({
+                            targetKind: "param",
+                            slotIndex: selectedSlot,
+                            paramIndex: p.index,
+                          })
+                        }
+                      }}
+                    />
+                  )
+                })}
+              </div>
+              {currentModel.category === "cab" && cabRoomOpen && (
+                <VirtualCabRoom
+                  config={currentSlot.cabMic}
+                  onChange={(next) => updateSlotCabMic(selectedSlot, next)}
+                />
+              )}
+            </div>
+          </ScrollArea>
         </section>
-      </div>
+      )}
+
+      {/* Centered Toss-Style Gear Catalog Picker (Shown ONLY when an empty slot or Swap is clicked) */}
+      {catalogOpen && (
+        <div
+          onClick={() => setCatalogOpen(false)}
+          className="fixed inset-0 z-40 flex items-center justify-center bg-black/25 backdrop-blur-[2px] p-4"
+        >
+          <div
+            data-tour-catalog="true"
+            onClick={(e) => e.stopPropagation()}
+            className="w-[460px] max-w-full h-[500px] max-h-[82vh] rounded-[18px] border border-border bg-popover p-4 shadow-[0_32px_80px_rgba(11,14,16,0.32)] flex flex-col gap-3"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <div className="font-mono text-[10.5px] font-semibold text-primary">
+                  SLOT #{String(selectedSlot + 1).padStart(2, "0")}
+                </div>
+                <h2 className="font-display font-light text-lg leading-snug tracking-tight text-foreground">
+                  {tx("장비 선택", "Choose Gear")}
+                </h2>
+              </div>
+              <Button size="icon-xs" variant="ghost" onClick={() => setCatalogOpen(false)}>
+                <X className="size-4" />
+              </Button>
+            </div>
+
+            <div className="relative flex items-center">
+              <Search className="size-3.5 text-muted-foreground absolute left-3 pointer-events-none" />
+              <Input
+                autoFocus
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    if (searchQuery) {
+                      setSearchQuery("")
+                    } else {
+                      setCatalogOpen(false)
+                    }
+                  }
+                }}
+                placeholder={tx("장비·원본 모델 검색 (예: TS808, Plexi)", "Search gear or models (TS808, Plexi)")}
+                className="pl-8 pr-7 h-9 rounded-[10px]"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2.5 text-muted-foreground hover:text-foreground cursor-pointer"
+                >
+                  <X className="size-3.5" />
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-5 gap-1">
+              {CATEGORIES.map((cat) => {
+                const active = activeCategory === cat.id && !searchQuery.trim()
+                return (
+                  <Hint key={cat.id} content={cat.label}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchQuery("")
+                        setActiveCategory(cat.id)
+                      }}
+                      className={`relative h-8 rounded-[8px] border flex items-center justify-center transition-colors cursor-pointer ${
+                        active
+                          ? "bg-foreground text-background border-foreground"
+                          : "bg-background/60 text-muted-foreground border-border hover:text-foreground hover:bg-card"
+                      }`}
+                    >
+                      <span
+                        className="absolute top-0 inset-x-1.5 h-[2px] rounded-full"
+                        style={{ backgroundColor: cat.hex }}
+                      />
+                      <CategoryVectorIcon category={cat.id} className="size-3.5 mt-0.5" />
+                    </button>
+                  </Hint>
+                )
+              })}
+            </div>
+
+            <ScrollArea className="flex-1 min-h-0">
+              <div className="space-y-1 pr-1">
+                {categoryModels.length === 0 ? (
+                  <div className="py-10 text-center text-xs text-muted-foreground">
+                    {tx("일치하는 장비가 없습니다", "No matching gear")}
+                  </div>
+                ) : (
+                  categoryModels.map((model) => {
+                    const isInSelectedSlot = currentSlot?.modelId === model.id
+                    const catColor = CATEGORY_MAP[model.category].hex
+                    return (
+                      <button
+                        key={model.id}
+                        type="button"
+                        onClick={() => handlePickModel(model.id)}
+                        className={`w-full text-left px-3 py-2 rounded-[10px] text-xs transition-colors flex items-center justify-between gap-2 border cursor-pointer ${
+                          isInSelectedSlot
+                            ? "bg-primary/12 text-foreground font-semibold border-primary"
+                            : "text-foreground hover:bg-secondary/75 border-transparent"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span
+                            className="size-2 rounded-full shrink-0"
+                            style={{ backgroundColor: catColor }}
+                          />
+                          <span className="truncate">{model.name}</span>
+                        </div>
+                        <span className="text-[10px] font-mono text-muted-foreground uppercase shrink-0">
+                          {model.category}
+                        </span>
+                      </button>
+                    )
+                  })
+                )}
+              </div>
+            </ScrollArea>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Looper & Recording Pod (Hidden unless opened from Menu or active pill) */}
+      {looperOpen ? (
+        <div className="fixed right-6 bottom-6 w-[388px] max-w-[calc(100vw-32px)] h-[256px] z-30 shadow-[0_24px_64px_rgba(11,14,16,0.32)] rounded-[14px]">
+          <LooperRecorderDeck
+            looper={looper}
+            recorder={recorder}
+            backing={backing}
+            tempoBpm={chain.tempoBpm ?? 120}
+            isAudioRunning={isAudioRunning}
+            midiState={midiState}
+            onLooperCmd={handleLooperCommand}
+            onRecorderCmd={handleRecorderCommand}
+            onLoadBacking={handleLoadBacking}
+            onControlBacking={controlBacking}
+            onUnloadBacking={unloadBacking}
+            onStartMidiLearn={onStartMidiLearn}
+            onClearMidiBinding={onClearMidiBinding}
+          />
+          <button
+            type="button"
+            aria-label={tx("루퍼 닫기", "Close Looper")}
+            onClick={() => onLooperOpenChange?.(false)}
+            className="absolute -top-2.5 -right-2.5 size-6 rounded-full bg-card border border-border text-foreground hover:bg-secondary flex items-center justify-center shadow-md cursor-pointer"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+      ) : (
+        hasLooperActivity && (
+          <button
+            type="button"
+            onClick={() => onLooperOpenChange?.(true)}
+            className="fixed right-6 bottom-5 z-20 rounded-full bg-oled text-oled-foreground border border-oled-border px-3.5 py-1.5 text-xs font-mono flex items-center gap-2 shadow-xl hover:border-primary transition-colors cursor-pointer"
+          >
+            <span className="size-2 rounded-full bg-primary animate-pulse" />
+            <span>
+              {recorder.recording
+                ? tx("녹음 중", "REC ACTIVE")
+                : recorder.reampPlaying
+                  ? tx("리앰핑 중", "RE-AMPING")
+                  : looper.state !== "empty"
+                    ? `${tx("루퍼", "LOOPER")} · ${looper.state.toUpperCase()}`
+                    : tx("백킹 재생 중", "MR PLAYING")}
+            </span>
+          </button>
+        )
+      )}
     </div>
   )
 }

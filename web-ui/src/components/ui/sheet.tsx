@@ -27,11 +27,11 @@ function SheetContent({
 }) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/55 backdrop-blur-[1px]" />
+      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/45 backdrop-blur-[3px]" />
       <DialogPrimitive.Content
         data-slot="sheet-content"
         className={cn(
-          "fixed z-50 flex flex-col bg-card text-card-foreground border-border shadow-2xl outline-none",
+          "fixed z-50 flex flex-col bg-card text-card-foreground border-border shadow-[0_32px_76px_rgba(11,14,16,0.28)] outline-none",
           side === "right"
             ? "inset-y-0 right-0 h-full w-full max-w-xl border-l"
             : "inset-y-0 left-0 h-full w-full max-w-xl border-r",
@@ -40,7 +40,7 @@ function SheetContent({
         {...props}
       >
         {children}
-        <DialogPrimitive.Close className="absolute top-3.5 right-3.5 rounded-sm p-1 text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer">
+        <DialogPrimitive.Close className="absolute top-3.5 right-3.5 rounded-[2px] p-1 text-muted-foreground hover:bg-secondary hover:text-foreground cursor-pointer">
           <X className="size-4" />
           <span className="sr-only">Close</span>
         </DialogPrimitive.Close>
@@ -54,7 +54,7 @@ function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="sheet-header"
       className={cn(
-        "flex flex-col gap-1 border-b border-border bg-secondary/45 px-5 py-3.5 text-left",
+        "flex flex-col gap-1 border-b border-border bg-secondary/50 px-5 py-4 text-left",
         className
       )}
       {...props}
@@ -69,7 +69,7 @@ function SheetTitle({
   return (
     <DialogPrimitive.Title
       data-slot="sheet-title"
-      className={cn("font-display text-sm font-bold tracking-tight text-foreground", className)}
+      className={cn("font-display text-base font-light tracking-[-0.02em] text-foreground", className)}
       {...props}
     />
   )
@@ -93,7 +93,7 @@ function SheetFooter({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="sheet-footer"
       className={cn(
-        "mt-auto flex items-center justify-end gap-2 border-t border-border bg-secondary/35 px-5 py-3",
+        "mt-auto flex items-center justify-end gap-2 border-t border-border bg-secondary/40 px-5 py-3",
         className
       )}
       {...props}
