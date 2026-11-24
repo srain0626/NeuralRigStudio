@@ -3,35 +3,7 @@
    Generous negative space, center-focused dark obsidian stages, 45° CAD lines.
    ========================================================================== */
 
-/* 1. SUIT Variable (100~900, razor-straight geometric cuts) */
-@font-face {
-  font-family: "SUIT Variable";
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-  src: url("https://cdn.jsdelivr.net/gh/sun-typeface/SUIT@2/fonts/variable/woff2/SUIT-Variable.woff2")
-    format("woff2-variations");
-}
-
-/* 2. LINE Seed KR (Thin 100 / Regular 400 — LINE Creative × Dalton Maag) */
-@font-face {
-  font-family: "LINESeedKR";
-  font-weight: 200;
-  font-style: normal;
-  font-display: swap;
-  src: url("https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_11-01@1.0/LINESeedKR-Th.woff2")
-    format("woff2");
-}
-@font-face {
-  font-family: "LINESeedKR";
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-  src: url("https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_11-01@1.0/LINESeedKR-Rg.woff2")
-    format("woff2");
-}
-
-/* 3. Paperlogy (300 Light / 400 Regular — Poster & Display Proportions) */
+/* Paperlogy (300 Light / 400 Regular — Wide Contemporary Display Typography) */
 @font-face {
   font-family: "Paperlogy";
   font-weight: 300;
@@ -49,18 +21,17 @@
     format("woff2");
 }
 
-/* 4. MaruBuri Light (Delicate Contemporary Editorial Serif) */
+/* SUIT Variable (Clean Geometric UI & Body Sans) */
 @font-face {
-  font-family: "MaruBuriLight";
-  font-weight: 300;
+  font-family: "SUIT Variable";
+  font-weight: 100 900;
   font-style: normal;
   font-display: swap;
-  src: url("https://hangeul.pstatic.net/hangeul_static/webfont/MaruBuri/MaruBuri-Light.woff2")
-    format("woff2");
+  src: url("https://cdn.jsdelivr.net/gh/sun-typeface/SUIT@2/fonts/variable/woff2/SUIT-Variable.woff2")
+    format("woff2-variations");
 }
 
-:root,
-[data-kr-font="suit"] {
+:root {
   --mist: #d5dcd9;
   --mist-soft: #dde3e0;
   --mist-deep: #c7d0cc;
@@ -79,37 +50,14 @@
   --accent-warm: #ff8c42;
   --white: #f5f7f6;
 
-  --font-display: "SUIT Variable", "Space Grotesk", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display: "Paperlogy", "Space Grotesk", "SUIT Variable", -apple-system, BlinkMacSystemFont,
+    sans-serif;
   --font-sans: "SUIT Variable", "Space Grotesk", -apple-system, BlinkMacSystemFont, system-ui,
     sans-serif;
   --font-mono: "IBM Plex Mono", "SUIT Variable", ui-monospace, SFMono-Regular, monospace;
-  --display-weight: 270;
-  --display-tracking: -0.036em;
-  --display-lh: 1.13;
-}
-
-[data-kr-font="lineseed"] {
-  --font-display: "LINESeedKR", "Space Grotesk", "SUIT Variable", sans-serif;
-  --font-sans: "LINESeedKR", "SUIT Variable", sans-serif;
-  --display-weight: 200;
-  --display-tracking: -0.03em;
-  --display-lh: 1.15;
-}
-
-[data-kr-font="paperlogy"] {
-  --font-display: "Paperlogy", "Space Grotesk", "SUIT Variable", sans-serif;
-  --font-sans: "SUIT Variable", sans-serif;
   --display-weight: 300;
   --display-tracking: -0.025em;
   --display-lh: 1.15;
-}
-
-[data-kr-font="maruburi"] {
-  --font-display: "MaruBuriLight", Georgia, serif;
-  --font-sans: "SUIT Variable", sans-serif;
-  --display-weight: 300;
-  --display-tracking: -0.038em;
-  --display-lh: 1.18;
 }
 
 *,
@@ -390,8 +338,7 @@ button {
   margin: 0;
   font-family: var(--font-display);
   font-size: clamp(2.75rem, 4.85vw, 4.45rem);
-  font-weight: var(--display-weight);
-  font-variation-settings: "wght" var(--display-weight);
+  font-weight: 300;
   line-height: var(--display-lh);
   letter-spacing: var(--display-tracking);
   color: var(--ink);
@@ -467,8 +414,7 @@ button {
   margin: 0;
   font-family: var(--font-display);
   font-size: clamp(1.95rem, 3.25vw, 2.95rem);
-  font-weight: var(--display-weight);
-  font-variation-settings: "wght" var(--display-weight);
+  font-weight: 300;
   line-height: var(--display-lh);
   letter-spacing: var(--display-tracking);
 }
@@ -511,8 +457,7 @@ button {
   margin: 0;
   font-family: var(--font-display);
   font-size: 21.5px;
-  font-weight: 350;
-  font-variation-settings: "wght" 350;
+  font-weight: 300;
   letter-spacing: -0.025em;
 }
 

@@ -39,9 +39,6 @@ export function LandingExperience({
   liveHubItems,
 }: LandingExperienceProps) {
   const [locale, setLocale] = useState<Locale>("ko");
-  const [krFont, setKrFont] = useState<"suit" | "lineseed" | "paperlogy" | "maruburi">("suit");
-  const [suitWeight, setSuitWeight] = useState<220 | 270 | 330>(270);
-  const [showFontDock, setShowFontDock] = useState(true);
   const [introDone, setIntroDone] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [trioVisible, setTrioVisible] = useState(false);
@@ -63,15 +60,6 @@ export function LandingExperience({
   useEffect(() => {
     document.documentElement.lang = locale;
   }, [locale]);
-
-  useEffect(() => {
-    document.documentElement.setAttribute("data-kr-font", krFont);
-    if (krFont === "suit") {
-      document.documentElement.style.setProperty("--display-weight", String(suitWeight));
-    } else {
-      document.documentElement.style.removeProperty("--display-weight");
-    }
-  }, [krFont, suitWeight]);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 28);
@@ -289,8 +277,7 @@ export function LandingExperience({
                     margin: 0,
                     fontFamily: "var(--font-display)",
                     fontSize: "clamp(1.9rem, 3.2vw, 2.85rem)",
-                    fontWeight: "var(--display-weight)" as React.CSSProperties["fontWeight"],
-                    fontVariationSettings: '"wght" var(--display-weight)',
+                    fontWeight: 300,
                     lineHeight: 1.18,
                     letterSpacing: "var(--display-tracking)",
                     minHeight: "2.4em",
@@ -421,145 +408,6 @@ export function LandingExperience({
           </div>
         </footer>
       </main>
-
-      {/* ====================================================================
-          TEMPORARY LIVE 4-FONT COMPARATOR DOCK
-         ==================================================================== */}
-      {showFontDock ? (
-        <div
-          style={{
-            position: "fixed",
-            bottom: 18,
-            left: "50%",
-            transform: "translateX(-50%)",
-            zIndex: 95,
-            display: "flex",
-            flexWrap: "wrap",
-            alignItems: "center",
-            gap: 6,
-            padding: "7px 10px",
-            borderRadius: 999,
-            background: "rgba(13, 17, 19, 0.9)",
-            backdropFilter: "blur(14px)",
-            border: "1px solid rgba(255, 255, 255, 0.16)",
-            boxShadow: "0 18px 40px rgba(0, 0, 0, 0.32)",
-            color: "#f5f7f6",
-          }}
-        >
-          <span
-            style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: 10.5,
-              color: "#ff8c42",
-              padding: "0 6px",
-              letterSpacing: "0.05em",
-            }}
-          >
-            FONT
-          </span>
-
-          {(
-            [
-              { id: "suit", label: "1. SUIT (날렵)" },
-              { id: "lineseed", label: "2. LINE Seed (테크)" },
-              { id: "paperlogy", label: "3. 페이퍼로지 (와이드)" },
-              { id: "maruburi", label: "4. 마루부리 (명조)" },
-            ] as const
-          ).map((item) => {
-            const active = krFont === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setKrFont(item.id)}
-                style={{
-                  border: 0,
-                  borderRadius: 999,
-                  padding: "6px 12px",
-                  fontSize: 12,
-                  fontWeight: active ? 600 : 400,
-                  background: active ? "#f5f7f6" : "rgba(255,255,255,0.06)",
-                  color: active ? "#0b0e10" : "rgba(255,255,255,0.78)",
-                  cursor: "pointer",
-                  transition: "all 150ms ease",
-                }}
-              >
-                {item.label}
-              </button>
-            );
-          })}
-
-          {krFont === "suit" && (
-            <div
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 4,
-                marginLeft: 4,
-                paddingLeft: 8,
-                borderLeft: "1px solid rgba(255,255,255,0.16)",
-              }}
-            >
-              {([220, 270, 330] as const).map((w) => (
-                <button
-                  key={w}
-                  type="button"
-                  onClick={() => setSuitWeight(w)}
-                  style={{
-                    border: 0,
-                    borderRadius: 999,
-                    padding: "4px 8px",
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 10.5,
-                    background: suitWeight === w ? "#ff6b24" : "transparent",
-                    color: suitWeight === w ? "#ffffff" : "rgba(255,255,255,0.62)",
-                    cursor: "pointer",
-                  }}
-                >
-                  {w}
-                </button>
-              ))}
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={() => setShowFontDock(false)}
-            title="비교 바 접기"
-            style={{
-              border: 0,
-              background: "transparent",
-              color: "rgba(255,255,255,0.55)",
-              fontSize: 12,
-              padding: "4px 8px",
-              cursor: "pointer",
-            }}
-          >
-            ✕
-          </button>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setShowFontDock(true)}
-          style={{
-            position: "fixed",
-            bottom: 18,
-            right: 20,
-            zIndex: 95,
-            border: "1px solid rgba(255,255,255,0.16)",
-            borderRadius: 999,
-            padding: "7px 13px",
-            background: "rgba(13, 17, 19, 0.88)",
-            color: "#f5f7f6",
-            fontFamily: "var(--font-mono)",
-            fontSize: 11,
-            cursor: "pointer",
-          }}
-        >
-          Aa 폰트 비교
-        </button>
-      )}
     </>
   );
 }
