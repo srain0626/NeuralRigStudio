@@ -1,935 +1,177 @@
 export type Locale = "ko" | "en";
-export type ChassisTheme = "putty" | "carbon";
 
-export interface DeckBlock {
-  id: string;
-  code: string;
-  name: string;
-  category: "dyn" | "drive" | "amp" | "nam" | "cab" | "mod" | "delay" | "reverb";
-  color: string;
-  row: 0 | 1;
-  col: number;
-  topologyKo: string;
-  topologyEn: string;
-  metric: string;
-}
-
-export interface ShowcaseRig {
+export interface RigPresetVoice {
+  id: "clean" | "crunch" | "fuzz";
   bank: string;
-  name: string;
-  genreKo: string;
-  genreEn: string;
-  pickupKo: string;
-  pickupEn: string;
-  summaryChain: string;
-  parallelSplit: boolean;
-  defaults: {
-    drive: number;
-    asymmetry: number;
-    tone: number;
-    air: number;
-  };
-  latencyMs: string;
-  blocks: DeckBlock[];
+  labelKo: string;
+  labelEn: string;
+  circuit: string;
+  drive: number;
+  asymmetry: number;
+  tone: number;
+  metricLabel: string;
+  metricValue: string;
+  notes: { freqs: number[]; dur: number }[];
 }
 
-export interface CircuitModelSpec {
-  id: "ts808" | "sd1" | "fuzzface" | "twin65";
-  code: string;
-  name: string;
-  topologyTag: string;
-  matchScore: string;
-  keyMetricLabel: string;
-  keyMetricValue: string;
-  clipMode: "symmetric" | "asymmetric" | "germanium" | "triode";
-  accentColor: string;
-  summaryKo: string;
-  summaryEn: string;
-  schematicNotesKo: string[];
-  schematicNotesEn: string[];
-  /** Relative Bode curve control points (dB at [40, 100, 250, 720, 1500, 3500, 8000, 16000] Hz) */
-  bodeDb: [number, number, number, number, number, number, number, number];
-  peakAnnotation: {
-    freqIndex: number;
-    label: string;
-  };
-  /** Harmonics H1..H7 in dBc (0 to -120) */
-  harmonicsDbc: [number, number, number, number, number, number, number];
-}
-
-export const SHOWCASE_RIGS: ShowcaseRig[] = [
+export const HERO_VOICES: RigPresetVoice[] = [
   {
+    id: "clean",
     bank: "1A",
-    name: "Velvet Neo-Soul Clean",
-    genreKo: "네오소울 · 클린 컴프레션",
-    genreEn: "Neo-Soul · Glassy Compression",
-    pickupKo: "넥 싱글코일 / 4단 하프톤 권장",
-    pickupEn: "Neck Single-Coil / Pos. 4 Split",
-    summaryChain: "SP Comp → Jan Ray → US Blackface Twin + 1×12 Jensen → DC-2W → Spring",
-    parallelSplit: false,
-    defaults: { drive: 0.24, asymmetry: 0.14, tone: 0.58, air: 0.64 },
-    latencyMs: "0.049",
-    blocks: [
-      {
-        id: "comp",
-        code: "COMP",
-        name: "OTA Ross Comp",
-        category: "dyn",
-        color: "#64748B",
-        row: 0,
-        col: 0,
-        topologyKo: "CA3080 트랜스컨덕턴스 엔벨로프 팔로워",
-        topologyEn: "CA3080 OTA Envelope Compressor",
-        metric: "-4.2 dB GR",
-      },
-      {
-        id: "janray",
-        code: "J-RAY",
-        name: "Vemuram Jan Ray",
-        category: "drive",
-        color: "#D96B18",
-        row: 0,
-        col: 1,
-        topologyKo: "4558 쿼드 실리콘 클리핑 + 새추레이션 트리머",
-        topologyEn: "LM4558 Quad-Diode Clipping + Sat Trimmer",
-        metric: "4x HIIR",
-      },
-      {
-        id: "twin",
-        code: "TWIN",
-        name: "'65 Blackface Twin",
-        category: "amp",
-        color: "#D93829",
-        row: 0,
-        col: 2,
-        topologyKo: "250V Norman Koren 12AX7 + FMV 패시브 KCL 톤스택",
-        topologyEn: "250V Koren 12AX7 + Symbolic KCL FMV Stack",
-        metric: "-9.7 dB @ 650Hz",
-      },
-      {
-        id: "jensen",
-        code: "1x12",
-        name: "Jensen C12K IR",
-        category: "cab",
-        color: "#4353FF",
-        row: 0,
-        col: 3,
-        topologyKo: "Zero-Latency Partitioned FFT (16,384 taps)",
-        topologyEn: "Zero-Latency Partitioned FFT (16,384 taps)",
-        metric: "0 smp lat",
-      },
-      {
-        id: "dc2w",
-        code: "DC-2W",
-        name: "Dimension BBD",
-        category: "mod",
-        color: "#2E8B57",
-        row: 0,
-        col: 4,
-        topologyKo: "듀얼 MN3207 BBD 무변조 스테레오 코러스",
-        topologyEn: "Dual MN3207 BBD Motionless Stereo Width",
-        metric: "180° Haas",
-      },
-      {
-        id: "spring",
-        code: "SPRG",
-        name: "3-Spring Tank",
-        category: "reverb",
-        color: "#2B8A6E",
-        row: 0,
-        col: 5,
-        topologyKo: "처프 올패스 분산 네트워크 드립 탱크",
-        topologyEn: "Chirp All-Pass Dispersion Spring Tank",
-        metric: "1.8s Decay",
-      },
+    labelKo: "벨벳 클린",
+    labelEn: "Velvet Clean",
+    circuit: "12AX7 + FMV Stack",
+    drive: 0.24,
+    asymmetry: 0.14,
+    tone: 0.62,
+    metricLabel: "650Hz Scoop",
+    metricValue: "-9.7 dB",
+    notes: [
+      { freqs: [164.81, 246.94, 311.13, 392.0], dur: 0.7 },
+      { freqs: [329.63, 493.88], dur: 0.42 },
+      { freqs: [146.83, 220.0, 293.66, 369.99], dur: 0.7 },
+      { freqs: [293.66, 440.0], dur: 0.45 },
     ],
   },
   {
+    id: "crunch",
     bank: "1C",
-    name: "Brit 800 Arena Crunch",
-    genreKo: "브리티시 하드록 · 비대칭 부스트",
-    genreEn: "British Hard Rock · Asymmetric Push",
-    pickupKo: "브릿지 PAF 험버커 권장",
-    pickupEn: "Bridge PAF Humbucker",
-    summaryChain: "Gate → BOSS SD-1 → JCM800 2203 (+ Parallel .NAM) → 1960BV V30 → Hall",
-    parallelSplit: true,
-    defaults: { drive: 0.66, asymmetry: 0.56, tone: 0.62, air: 0.52 },
-    latencyMs: "0.068",
-    blocks: [
-      {
-        id: "gate",
-        code: "GATE",
-        name: "Adaptive Hysteresis",
-        category: "dyn",
-        color: "#64748B",
-        row: 0,
-        col: 0,
-        topologyKo: "듀얼 디텍터 히스테리시스 노이즈 게이트",
-        topologyEn: "Dual-Detector Hysteresis Noise Gate",
-        metric: "-68 dBFS",
-      },
-      {
-        id: "sd1",
-        code: "SD-1",
-        name: "BOSS SD-1 MNA",
-        category: "drive",
-        color: "#F59E0B",
-        row: 0,
-        col: 1,
-        topologyKo: "3× 1S1588 비대칭 피드백 루프 Newton-Raphson",
-        topologyEn: "3× 1S1588 Asymmetric Feedback Newton-Raphson",
-        metric: "H2 -23.6 dBc",
-      },
-      {
-        id: "jcm800",
-        code: "2203",
-        name: "Brit 800 Master",
-        category: "amp",
-        color: "#FF4400",
-        row: 0,
-        col: 2,
-        topologyKo: "캐스케이드 12AX7 콜드 클리퍼(10kΩ 캐소드) + EL34 새그",
-        topologyEn: "Cascaded 12AX7 Cold-Clipper (10kΩ) + EL34 Sag",
-        metric: "99.2% Match",
-      },
-      {
-        id: "v30",
-        code: "V30",
-        name: "1960BV 4×12",
-        category: "cab",
-        color: "#6366F1",
-        row: 0,
-        col: 3,
-        topologyKo: "SM57 오프액시스 + R121 리본 위상 정렬 블렌드",
-        topologyEn: "SM57 Off-Axis + R121 Ribbon Phase-Aligned",
-        metric: "8,192 taps",
-      },
-      {
-        id: "nam800",
-        code: ".NAM",
-        name: "WaveNet Capture",
-        category: "nam",
-        color: "#A8A29E",
-        row: 1,
-        col: 2,
-        topologyKo: "Vector256<float> AVX2/FMA 딜레이티드 WaveNet 추론",
-        topologyEn: "Vector256<float> AVX2/FMA Dilated WaveNet",
-        metric: "ESR 0.00",
-      },
-      {
-        id: "greenback",
-        code: "G12M",
-        name: "Greenback 25W",
-        category: "cab",
-        color: "#6366F1",
-        row: 1,
-        col: 3,
-        topologyKo: "병렬 로우 B 전용 4×12 그린백 임펄스",
-        topologyEn: "Parallel Row-B Dedicated G12M Impulse",
-        metric: "Split B",
-      },
-      {
-        id: "hall",
-        code: "HALL",
-        name: "Studio Concert Hall",
-        category: "reverb",
-        color: "#14B8A6",
-        row: 0,
-        col: 5,
-        topologyKo: "FDN 8×8 하다마드 피드백 딜레이 매트릭스",
-        topologyEn: "8×8 Hadamard Feedback Delay Network",
-        metric: "2.4s Mix 18%",
-      },
+    labelKo: "비대칭 크런치",
+    labelEn: "Asym Crunch",
+    circuit: "SD-1 3×Diode + 2203",
+    drive: 0.68,
+    asymmetry: 0.58,
+    tone: 0.64,
+    metricLabel: "Even H2",
+    metricValue: "-23.6 dBc",
+    notes: [
+      { freqs: [110.0, 164.81, 220.0], dur: 0.52 },
+      { freqs: [110.0, 164.81], dur: 0.26 },
+      { freqs: [146.83, 220.0, 293.66], dur: 0.52 },
+      { freqs: [130.81, 196.0, 261.63], dur: 0.5 },
     ],
   },
   {
-    bank: "2A",
-    name: "Tight Modern Djent",
-    genreKo: "모던 프로그레시브 · 로우튜닝",
-    genreEn: "Modern Progressive · Extended Range",
-    pickupKo: "7·8현 고출력 세라믹 픽업",
-    pickupEn: "7/8-String High-Output Ceramic",
-    summaryChain: "Gate → TS808 Boost → 5150 III Red → Mesa OS 4×12 → GE-7 Precision EQ",
-    parallelSplit: false,
-    defaults: { drive: 0.84, asymmetry: 0.08, tone: 0.72, air: 0.48 },
-    latencyMs: "0.053",
-    blocks: [
-      {
-        id: "tgate",
-        code: "GATE",
-        name: "1.2ms Fast Gate",
-        category: "dyn",
-        color: "#64748B",
-        row: 0,
-        col: 0,
-        topologyKo: "서브-밀리초 릴리스 팜뮤트 전용 DI 트래커",
-        topologyEn: "Sub-ms Release DI Sidechain Tracker",
-        metric: "0.8ms Rel",
-      },
-      {
-        id: "ts808",
-        code: "TS808",
-        name: "Ibanez TS808 MNA",
-        category: "drive",
-        color: "#22C55E",
-        row: 0,
-        col: 1,
-        topologyKo: "720Hz 액티브 하이패스 미드험프 + 대칭 MA150 쌍",
-        topologyEn: "720Hz Active Mid-Hump + Symmetric MA150 Pair",
-        metric: "+10.3 dB Mid",
-      },
-      {
-        id: "5150",
-        code: "5150",
-        name: "5150 III Red Ch.",
-        category: "amp",
-        color: "#FF4400",
-        row: 0,
-        col: 2,
-        topologyKo: "4단 하이게인 캐스케이드 + SoftKneeCeiling 안정화",
-        topologyEn: "4-Stage High-Gain Cascade + SoftKneeCeiling",
-        metric: "6L6 Resonance",
-      },
-      {
-        id: "mesa",
-        code: "OS412",
-        name: "Oversize Recto Cab",
-        category: "cab",
-        color: "#4353FF",
-        row: 0,
-        col: 3,
-        topologyKo: "타이트 로우엔드 90Hz 공진 보정 16k 탭 FFT",
-        topologyEn: "90Hz Low-Resonance Corrected 16k-Tap FFT",
-        metric: "16,384 taps",
-      },
-      {
-        id: "ge7",
-        code: "GE-7",
-        name: "7-Band Graphic EQ",
-        category: "dyn",
-        color: "#0EA5E9",
-        row: 0,
-        col: 4,
-        topologyKo: "선형 위상 자이레이터 7밴드 정밀 노치/부스트",
-        topologyEn: "Gyrator 7-Band Precision Post Sculpt",
-        metric: "+2.5dB 1.6k",
-      },
-    ],
-  },
-  {
+    id: "fuzz",
     bank: "2D",
-    name: "Psychedelic '68 Fuzz",
-    genreKo: "빈티지 게르마늄 퍼즈 · 광학 모듈레이션",
-    genreEn: "Germanium Fuzz · Photocell Swirl",
-    pickupKo: "기타 볼륨 노브 7→10 클린업 반응 구현",
-    pickupEn: "Responds to Guitar Volume 7→10 Cleanup",
-    summaryChain: "Cry Baby Wah → Ge AC128 Fuzz Face → Plexi 100 → Uni-Vibe → Spring",
-    parallelSplit: false,
-    defaults: { drive: 0.91, asymmetry: 0.78, tone: 0.44, air: 0.61 },
-    latencyMs: "0.057",
-    blocks: [
-      {
-        id: "wah",
-        code: "WAH",
-        name: "Fasel Inductor Wah",
-        category: "mod",
-        color: "#A855F7",
-        row: 0,
-        col: 0,
-        topologyKo: "500mH 레드 파젤 인덕터 상태변수 공진 필터",
-        topologyEn: "500mH Red Fasel Inductor Resonant Filter",
-        metric: "Q = 4.8",
-      },
-      {
-        id: "fuzz",
-        code: "AC128",
-        name: "Ge Fuzz Face MNA",
-        category: "drive",
-        color: "#EF4444",
-        row: 0,
-        col: 1,
-        topologyKo: "PNP 게르마늄 AC128 2트랜지스터 볼트지-피드백 바이어스",
-        topologyEn: "PNP Germanium AC128 2-BJT Shunt-Feedback MNA",
-        metric: "Vc2 = -4.5V",
-      },
-      {
-        id: "plexi",
-        code: "1959",
-        name: "'68 Super Lead 100",
-        category: "amp",
-        color: "#D93829",
-        row: 0,
-        col: 2,
-        topologyKo: "점프 채널 브라이트 캡(4700pF) + 바리악 브라운 새그",
-        topologyEn: "Jumped Bright Cap (4700pF) + Variac Sag",
-        metric: "EL34 Push-Pull",
-      },
-      {
-        id: "vibe",
-        code: "VIBE",
-        name: "4-Stage Photocell",
-        category: "mod",
-        color: "#10B981",
-        row: 0,
-        col: 3,
-        topologyKo: "비선형 CdS 광전소자 4단 비대칭 위상 천이기",
-        topologyEn: "Non-linear CdSLDR 4-Stage Asymmetric Phaser",
-        metric: "1.4 Hz Throb",
-      },
-      {
-        id: "cab68",
-        code: "BASKET",
-        name: "'68 Basketweave",
-        category: "cab",
-        color: "#4353FF",
-        row: 0,
-        col: 4,
-        topologyKo: "Pre-Rola G12H30 리본 마이크 룸 캡처",
-        topologyEn: "Pre-Rola G12H30 Coles 4038 Room Capture",
-        metric: "98.5% Match",
-      },
+    labelKo: "'68 게르마늄",
+    labelEn: "'68 Ge Fuzz",
+    circuit: "PNP AC128 MNA",
+    drive: 0.92,
+    asymmetry: 0.8,
+    tone: 0.46,
+    metricLabel: "Collector Vc2",
+    metricValue: "-4.52 V",
+    notes: [
+      { freqs: [82.41, 164.81, 246.94], dur: 0.62 },
+      { freqs: [196.0, 293.66], dur: 0.44 },
+      { freqs: [110.0, 220.0, 261.63], dur: 0.58 },
+      { freqs: [146.83, 220.0], dur: 0.48 },
     ],
   },
 ];
 
-export const ALL_EIGHT_PATCHES = [
-  {
-    bank: "1A",
-    title: "Velvet Neo-Soul Clean",
-    chain: "SP Comp → Jan Ray → US Blackface Twin + 1×12 Jensen → DC-2W → Spring",
-    tagKo: "클린 · 컴프",
-    tagEn: "Clean · Comp",
-    deckRef: "1A",
-  },
-  {
-    bank: "1B",
-    title: "Golden Edge of Breakup",
-    chain: "Orange Squeezer → TS808 + Klon → Brit 1Star → Alnico Blue → Plate",
-    tagKo: "크런치 경계",
-    tagEn: "Edge Breakup",
-    deckRef: "1A",
-  },
-  {
-    bank: "1C",
-    title: "Brit 800 Arena Crunch",
-    chain: "Adaptive Gate → SD-1 Boost → JCM800 2203 → 1960BV V30 → Hall",
-    tagKo: "브리티시 록",
-    tagEn: "Arena Crunch",
-    deckRef: "1C",
-  },
-  {
-    bank: "1D",
-    title: "Tokyo Anime Pop-Rock",
-    chain: "SP Comp → BD-2 → Parallel JC-120 + AC30 Split → DD-3T 1/8. → Hall",
-    tagKo: "듀얼 병렬",
-    tagEn: "Parallel Split",
-    deckRef: "1C",
-  },
-  {
-    bank: "2A",
-    title: "Tight Modern Djent",
-    chain: "Fast Gate → TS808 Boost → 5150 III Red → Mesa 4×12 + GE-7 Mid Sculpt",
-    tagKo: "하이게인",
-    tagEn: "Modern Metal",
-    deckRef: "2A",
-  },
-  {
-    bank: "2B",
-    title: "Cathedral Shimmer Wash",
-    chain: "SP Comp → AC30 → Alnico Blue → CE-2 → TimeLine Tape → blueSky Shimmer",
-    tagKo: "앰비언트",
-    tagEn: "Ambient Wash",
-    deckRef: "1A",
-  },
-  {
-    bank: "2C",
-    title: "LA Hot-Rod Brown Lead",
-    chain: "Gate → EP Booster → BE-100 Brown Eye → 1960BV V30 → Analog BBD Delay",
-    tagKo: "핫로드 리드",
-    tagEn: "Brown Sound",
-    deckRef: "1C",
-  },
-  {
-    bank: "2D",
-    title: "Psychedelic '68 Fuzz",
-    chain: "Cry Baby Wah → Ge AC128 Fuzz Face → Plexi 100 → Uni-Vibe → Spring Tank",
-    tagKo: "게르마늄 퍼즈",
-    tagEn: "Vintage Fuzz",
-    deckRef: "2D",
-  },
-];
-
-export const CIRCUIT_MODELS: CircuitModelSpec[] = [
-  {
-    id: "ts808",
-    code: "CIRCUIT 01 / MA150×2",
-    name: "Ibanez TS808 Overdrive",
-    topologyTag: "Symmetric Op-Amp Feedback MNA",
-    matchScore: "97.6%",
-    keyMetricLabel: "720 Hz Mid-Hump vs 100 Hz",
-    keyMetricValue: "+10.3 dB",
-    clipMode: "symmetric",
-    accentColor: "#1E9E54",
-    summaryKo:
-      "연산증폭기 부궤환 루프 안의 대칭 실리콘 다이오드 쌍(MA150)과 0.047µF + 4.7kΩ RC 네트워크가 결합되어 720Hz 중역대만 정확히 밀어 올리고 저역은 깨끗한 원음으로 보존합니다.",
-    summaryEn:
-      "Matched silicon diodes inside the op-amp negative feedback loop paired with the 0.047µF / 4.7kΩ high-pass network focus saturation squarely at 720 Hz while keeping sub-bass tight and unclipped.",
-    schematicNotesKo: [
-      "대칭 클리핑 특성으로 짝수 배음(H2, H4)이 -120.0 dBc 수준까지 상쇄됨",
-      "Newton-Raphson 반복 솔버가 4× 오버샘플링(192 kHz) 위에서 비선형 접합 전류를 수렴",
-      "하이게인 앰프 앞단에서 벙벙거리는 100 Hz 이하 로우엔드를 자연스럽게 정리",
-    ],
-    schematicNotesEn: [
-      "Symmetric feedback cancels even-order harmonics (H2, H4) down to -120.0 dBc",
-      "Newton-Raphson solver converges diode junction currents at 4× HIIR (192 kHz)",
-      "Naturally tightens sub-100 Hz flub before hitting cascaded tube stages",
-    ],
-    bodeDb: [-8.5, -4.1, 2.4, 6.2, 3.8, -1.5, -7.2, -13.4],
-    peakAnnotation: { freqIndex: 3, label: "720 Hz · +10.3 dB vs 100 Hz" },
-    harmonicsDbc: [0, -118, -13.2, -119, -24.8, -120, -35.4],
-  },
-  {
-    id: "sd1",
-    code: "CIRCUIT 02 / 1S1588×3",
-    name: "BOSS SD-1 Super OverDrive",
-    topologyTag: "3-Diode Asymmetric MNA",
-    matchScore: "99.2%",
-    keyMetricLabel: "Even 2nd Harmonic (H2)",
-    keyMetricValue: "-23.6 dBc",
-    clipMode: "asymmetric",
-    accentColor: "#D98200",
-    summaryKo:
-      "한쪽 방향에는 다이오드 2개 직렬, 반대 방향에는 1개만 배치한 3-다이오드 비대칭 루프입니다. 양(+)과 음(-) 반주기의 문턱 전압 차이(2Vf vs 1Vf)가 진공관과 유사한 짝수차 배음(H2)을 만들어냅니다.",
-    summaryEn:
-      "Two series 1S1588 diodes opposing a single diode create unequal forward voltage thresholds (2Vf vs 1Vf), injecting rich, tube-like even-order 2nd harmonics absent in symmetric pedals.",
-    schematicNotesKo: [
-      "실측 H2 = -23.6 dBc 로 TS808(-120 dBc) 대비 뚜렷한 짝수 배음 온기 형성",
-      "피킹 강약에 따라 한쪽 반주기만 먼저 깎이는 비대칭 다이나믹 전이 재현",
-      "JCM800 2203 콜드 클리퍼 단과 만났을 때 거칠고 입체적인 크런치 질감 완성",
-    ],
-    schematicNotesEn: [
-      "Verified H2 = -23.6 dBc yields unmistakable asymmetric warmth and bite",
-      "Pick attack crosses the 1Vf rail before the 2Vf rail for touch-sensitive bloom",
-      "Pairs organically with JCM800 cold-clipper stages without sounding sterile",
-    ],
-    bodeDb: [-7.2, -3.4, 2.8, 5.9, 4.4, 0.2, -5.8, -11.9],
-    peakAnnotation: { freqIndex: 3, label: "Asym 2Vf/1Vf · H2 = -23.6 dBc" },
-    harmonicsDbc: [0, -23.6, -14.1, -34.2, -25.9, -43.8, -36.1],
-  },
-  {
-    id: "fuzzface",
-    code: "CIRCUIT 03 / PNP AC128",
-    name: "Dallas-Arbiter '68 Fuzz Face",
-    topologyTag: "2-Transistor Germanium MNA",
-    matchScore: "98.5%",
-    keyMetricLabel: "Q2 Collector Bias (Vc2)",
-    keyMetricValue: "-4.52 V",
-    clipMode: "germanium",
-    accentColor: "#FF4400",
-    summaryKo:
-      "Q1·Q2 두 개의 PNP 게르마늄 트랜지스터(AC128)가 직결 피드백으로 얽힌 비선형 회로입니다. 입력 임피던스 변화에 극도로 민감해 기타 볼륨을 줄이면 유리알 같은 클린으로 풀리는 현상을 물리적으로 모사합니다.",
-    summaryEn:
-      "Direct-coupled PNP Germanium BJTs solved via coupled MNA matrices capture leaky Iceo current, soft knee saturation, and the iconic guitar-volume-knob cleanup from wooly fuzz to glassy chime.",
-    schematicNotesKo: [
-      "Ebers-Moll BJT 방정식으로 Q1/Q2 상호 바이어스 이동(Duty-Cycle Shift) 실시간 해법",
-      "포화 영역에서 홀수·짝수 고차 배음이 촘촘히 차오르는 벨벳 사각파 파형",
-      "온도 드리프트 없는 이상적 -4.5V 컬렉터 스윗스팟 기본 세팅",
-    ],
-    schematicNotesEn: [
-      "Coupled Ebers-Moll BJT solver tracks real-time duty-cycle bias shift",
-      "Dense odd + even harmonic wall with soft germanium knee rounding",
-      "Factory-trimmed to the -4.5V collector sweet spot without thermal drift",
-    ],
-    bodeDb: [2.8, 4.2, 4.9, 4.1, 3.2, 1.4, -3.2, -9.6],
-    peakAnnotation: { freqIndex: 2, label: "Full-Band Ge Saturation · 98.5%" },
-    harmonicsDbc: [0, -16.4, -7.8, -21.5, -13.6, -27.2, -19.8],
-  },
-  {
-    id: "twin65",
-    code: "CIRCUIT 04 / 12AX7 + FMV",
-    name: "Fender '65 Twin Reverb Preamp",
-    topologyTag: "Koren Triode + Symbolic KCL",
-    matchScore: "95.9%",
-    keyMetricLabel: "650 Hz FMV Mid Scoop (5-5-5)",
-    keyMetricValue: "-9.7 dB",
-    clipMode: "triode",
-    accentColor: "#2563EB",
-    summaryKo:
-      "250V 플레이트 전압에서 구동되는 Norman Koren 12AX7 삼극관 방정식과 Treble·Mid·Bass 노브가 서로 간섭하는 Fender-Marshall-Vox 패시브 KCL 톤스택 행렬을 매 샘플 직접 계산합니다.",
-    summaryEn:
-      "250V Norman Koren 12AX7 triode equations coupled to a symbolic Kirchhoff Current Law (KCL) FMV passive tone stack—preserving authentic interactive pot loading and the deep 650 Hz scoop.",
-    schematicNotesKo: [
-      "독립 EQ 필터 근사가 아닌 실제 커패시터·가변저항 상호 간섭 KCL 방정식 해법",
-      "노브 5-5-5 기준 650 Hz 대역 -9.7 dB 미드 스쿱 실측 오차 0.4 dB 이내",
-      "강한 코드 어택 시 그리드 전도(Grid Conduction)가 만드는 부드러운 헤드룸 압축",
-    ],
-    schematicNotesEn: [
-      "True interactive KCL passive network—turning Treble shifts the Mid notch frequency",
-      "5-5-5 setting reproduces the -9.7 dB @ 650 Hz scoop within 0.4 dB of hardware",
-      "Grid-conduction soft compression keeps loud chord stabs glassy, never brittle",
-    ],
-    bodeDb: [3.6, 2.4, -3.8, -9.7, -3.1, 2.6, 4.8, 1.2],
-    peakAnnotation: { freqIndex: 3, label: "650 Hz FMV Scoop · -9.7 dB" },
-    harmonicsDbc: [0, -31.2, -42.6, -54.8, -63.0, -74.5, -82.0],
-  },
-];
-
-export const RIGBENCH_LEDGER = [
-  {
-    testKo: "단일 오버드라이브 페달 (4× HIIR + MNA)",
-    testEn: "Single Overdrive Pedal (4× HIIR + MNA)",
-    budget: "1.333 ms",
-    measured: "0.0234 ms",
-    headroom: "1.8%",
-    alloc: "0 B",
-  },
-  {
-    testKo: "6-블록 표준 스튜디오 리그 (Gate→Drive→Amp→IR→Mod→Rev)",
-    testEn: "6-Block Studio Chain (Gate→Drive→Amp→IR→Mod→Rev)",
-    budget: "1.333 ms",
-    measured: "0.0535 ms",
-    headroom: "4.0%",
-    alloc: "0 B",
-  },
-  {
-    testKo: "2×8 듀얼 앰프 + 병렬 .NAM WaveNet 매트릭스",
-    testEn: "2×8 Dual-Amp + Parallel .NAM WaveNet Matrix",
-    budget: "1.333 ms",
-    measured: "0.0794 ms",
-    headroom: "6.0%",
-    alloc: "0 B",
-  },
-  {
-    testKo: "16슬롯 풀체인 + 8,192탭 Partitioned FFT 스트레스",
-    testEn: "16-Slot Torture Chain + 8,192-Tap Partitioned FFT",
-    budget: "1.333 ms",
-    measured: "0.1840 ms",
-    headroom: "13.8%",
-    alloc: "0 B",
-  },
-];
-
-export const CURATED_HUB_FALLBACK = [
-  {
-    id: "klon-centaur-mna",
-    name: "Centaur Silver Ge MNA",
-    originalName: "Klon Centaur Professional Overdrive",
-    category: "drive",
-    ownerName: "Studio Lab Verified",
-    summaryKo: "MAX1044 +18V/-9V 차지펌프 헤드룸 + 듀얼 갱 클린 블렌드 및 1N34A 게르마늄 클리핑",
-    summaryEn: "MAX1044 +18V/-9V charge-pump headroom with dual-gang clean blend & 1N34A Ge diodes",
-    downloads: 418,
-    tags: ["1N34A", "+18V Rail", "Clean Blend"],
-  },
-  {
-    id: "bluesbreaker-mk1",
-    name: "Brit Breaker MkI '91",
-    originalName: "Marshall BluesBreaker MkI",
-    category: "drive",
-    ownerName: "Ray Kim",
-    summaryKo: "TL072 소프트 실리콘 포드백 루프 · 로우게인 엣지 오브 브레이크업 회로",
-    summaryEn: "TL072 soft silicon feedback topology voiced for transparent edge-of-breakup chime",
-    downloads: 289,
-    tags: ["TL072", "4x HIIR", "0 B RT"],
-  },
-  {
-    id: "swedish-hm2-eq",
-    name: "Stockholm Chainsaw EQ",
-    originalName: "BOSS HM-2 Heavy Metal",
-    category: "drive",
-    ownerName: "NordicRig",
-    summaryKo: "듀얼 자이레이터 1kHz/98Hz 공진 부스트 + 하드 클리핑 스테이지",
-    summaryEn: "Dual-gyrator 1 kHz / 98 Hz resonant peak EQ paired with hard silicon clipping",
-    downloads: 237,
-    tags: ["Gyrator EQ", "High-Gain", "SPICE"],
-  },
-];
-
-export const COPY = {
+export const MINIMAL_COPY = {
   ko: {
-    nav: {
-      deck: "시그널 덱",
-      lab: "회로 해부",
-      matrix: "오디오 · 패치",
-      mcp: "AI 회로 제작",
-      bench: "실측 검정",
-      download: "다운로드",
-    },
-    specRibbon: [
-      { k: "MODEL", v: "NR-300 WORKSTATION" },
-      { k: "RUNTIME", v: ".NET 10 NATIVE · AVX2 / FMA" },
-      { k: "AUDIO GC", v: "0 BYTES / BLOCK" },
-      { k: "OVERSAMPLING", v: "4× HIIR (-133 dB)" },
-      { k: "SPICE CORR.", v: "98.2% VERIFIED" },
+    downloadBtn: "Windows 다운로드",
+    heroWhisper: "REAL-TIME SPICE & .NAM ENGINE",
+    heroLines: ["살아있는 물리 회로,", "제로 바이트", "기타 스튜디오."],
+    trioHeading: ["핵심만 남긴 세 가지", "사운드 엔진"],
+    trioCta: "무료로 시작하기",
+    trio: [
+      {
+        title: "SPICE 물리 회로",
+        line: "다이오드와 12AX7 진공관 방정식을 매 샘플 직접 풉니다.",
+        action: "파형 전환하기",
+      },
+      {
+        title: "2×8 병렬 & .NAM",
+        line: "아날로그 회로와 .NAM 캡처를 0 B 무할당으로 병렬 결합합니다.",
+        action: "라우팅 살펴보기",
+      },
+      {
+        title: "AI 회로도 제작",
+        line: "명령어 한 줄로 실제 회로도를 검증해 새 페달을 즉시 꽂습니다.",
+        action: "명령어 복사하기",
+      },
     ],
-    hero: {
-      index: "01 / INSTRUMENT MONOGRAPH — WINDOWS x64",
-      titleLine1: "부품 단위로 풀어낸 물리 회로,",
-      titleSerif: "Zero-Byte",
-      titleLine2: "실시간 기타 워크스테이션.",
-      lead: "다이오드 접합부의 비대칭 포화, 250V 12AX7 삼극관 그리드 전류, .nam 신경망 추론, 16,384탭 무지연 캐비닛 컨볼루션까지. 백그라운드 파이썬 런타임도, 단 1바이트의 오디오 스레드 메모리 할당도 허용하지 않고 네이티브 기계어 위에서 직접 구동됩니다.",
-      primaryCta: "Windows 인스톨러 받기",
-      primarySub: "Setup.exe · Studio + MCP",
-      secondaryCta: "무설치 포터블 실행 파일",
-      secondarySub: "standalone.exe · 단일 파일",
-      metrics: [
-        { val: "0 B", lbl: "RT 오디오 콜백 힙 할당" },
-        { val: "0.054 ms", lbl: "6블록 풀체인 연산 (@ 64fr)" },
-        { val: "98.2%", lbl: "실제 하드웨어 SPICE 일치율" },
-      ],
-    },
-    lab: {
-      index: "02 / ANATOMY OF PHYSICAL SOUND",
-      titlePre: "추측이 아닌 키르히호프 방정식,",
-      titleSerif: "Solved Live",
-      desc: "단순한 파형 깎기(Waveshaping) 테이블이 아닙니다. Modified Nodal Analysis(MNA) 행렬과 Newton-Raphson 반복 해법이 매 샘플마다 전압과 전류를 수렴시켜, 페달마다 고유한 주파수 공진과 짝수·홀수 배음 지문을 그대로 복원합니다.",
-      bodeTitle: ".AC 주파수 응답 계측 (20 Hz — 20 kHz)",
-      harmTitle: "배음 스펙트럼 밀도 (H1 — H7, dBc)",
-      toneSweepLabel: "톤스택 / 하이컷 스윕",
-    },
-    matrix: {
-      index: "03 / UNIVERSAL AUDIO & PATCH ARCHITECTURE",
-      titlePre: "어떤 인터페이스든 가리지 않는",
-      titleSerif: "Four-Path",
-      titlePost: "라우팅과 8종의 기준 톤.",
-      desc: "전용 ASIO 장비부터 노트북 내장 라인 인풋까지 4가지 오디오 클럭 경로를 자동 구성합니다. 첫 실행과 동시에 8개의 레퍼런스 패치(1A–2D)가 장전되어 별도 세팅 없이 바로 연주할 수 있습니다.",
-      topoHeading: "UNIVERSAL AUDIO ROUTER — 4가지 하드웨어 경로",
-      patchHeading: "FACTORY REFERENCE SHEET — 클릭 시 상단 덱에 즉시 로드",
-      loadToDeck: "덱에서 열기 ↑",
-      topologies: [
-        {
-          code: "PATH 01 · ASIO FULL-DUPLEX",
-          title: "단일 ASIO 인터페이스 직결 구동",
-          body: "Focusrite, Steinberg, Audient, RME, Line 6, Valeton 등 모든 표준 ASIO 드라이버의 네이티브 버퍼 콜백에서 입출력을 직접 처리합니다.",
-        },
-        {
-          code: "PATH 02 · ASIO IN → SPSC RING → WASAPI OUT",
-          title: "외장 인터페이스 입력 + PC 헤드폰/스피커 모니터",
-          body: "락프리 SPSC 링버퍼와 MMCSS 'Pro Audio' 스레드 우선순위(4 / 8 / 16 / 32ms)로 서로 다른 입출력 장치를 글리치 없이 브리지합니다.",
-        },
-        {
-          code: "PATH 03 · DRIVERLESS WASAPI RAW BYPASS",
-          title: "드라이버 없는 라인 인풋 & APO 노이즈억제 우회",
-          body: "Windows 음성용 AGC/노이즈 캔슬링(APO)을 강제 우회해 서스테인 잘림 없는 순수 DI를 확보하고 44.1↔48kHz 무할당 싱크 리샘플러로 동기화합니다.",
-        },
-        {
-          code: "PATH 04 · DUAL-ASIO CLOCK BRIDGE",
-          title: "독립 듀얼 ASIO 하드웨어 조합",
-          body: "서로 다른 제조사의 ASIO 입력 장치와 ASIO 출력 장치를 조합할 때도 드리프트 보정 브리지가 위상 안정성을 유지합니다.",
-        },
-      ],
-    },
-    mcp: {
-      index: "04 / SCHEMATIC TO SILICON — NPX NEURALRIG-MCP",
-      titlePre: "원하는 페달이 없다면, 에이전트에게",
-      titleSerif: "Actual Schematic",
-      titlePost: "을 건네십시오.",
-      desc: "75종 이상의 내장 장비 너머에 있는 부티크 오버드라이브나 빈티지 퍼즈가 필요하다면 명령어 한 줄로 사용 중인 AI 코딩 에이전트를 스튜디오 파이프에 연결하세요. 검증된 회로도가 없으면 지어내지 않고 정직하게 멈춥니다.",
-      installLabel: "7종 AI 클라이언트 원클릭 자동 등록 (Claude · Cursor · Windsurf · Codex · Gemini · Antigravity)",
-      doctorLabel: "네임드 파이프 연결 및 스튜디오 상태 점검",
-      copy: "복사",
-      copied: "복사됨",
-      steps: [
-        {
-          num: "STEP 01",
-          cmd: "neuralrig_get_spice_guide",
-          title: "물리 규격 조회",
-          body: "스튜디오의 MNA 노드 문법과 허용 소자 스키마를 먼저 로드합니다.",
-        },
-        {
-          num: "STEP 02",
-          cmd: "Schematic & Datasheet",
-          title: "실제 회로도 검증 (Honest Stop)",
-          body: "신뢰할 수 있는 실제 회로도와 반도체 데이터시트를 대조합니다. 자료가 없으면 추측 생성을 즉시 중단합니다.",
-        },
-        {
-          num: "STEP 03",
-          cmd: "neuralrig_register_spice_model",
-          title: "반도체 .MODEL 등록",
-          body: "누락된 다이오드(Is, N)나 BJT/JFET 파라미터를 로컬 카탈로그에 정밀 등록합니다.",
-        },
-        {
-          num: "STEP 04",
-          cmd: "neuralrig_simulate_spice",
-          title: ".OP / .AC / .TRAN & 0 B 검정",
-          body: "DC 바이어스 수렴, 주파수 응답, 배음 왜곡률, 그리고 오디오 콜백 0 B 할당 통과 여부를 정량 시험합니다.",
-        },
-        {
-          num: "STEP 05",
-          cmd: "neuralrig_commit_spice_device",
-          title: "무중단 핫스왑 장착",
-          body: "검증을 통과한 회로를 재시작 없이 시그널 체인 슬롯에 즉시 꽂아 연주합니다.",
-        },
-      ],
-    },
-    bench: {
-      index: "05 / CALIBRATION CERTIFICATE & COMMUNITY HUB",
-      titlePre: "마케팅 수식어 대신 공개하는",
-      titleSerif: "RigBench",
-      titlePost: "출하 검정 성적서.",
-      desc: "누구나 앱 상단 BENCH 버튼이나 RigBench.exe를 실행해 자신의 PC에서 동일한 하드웨어 유사도와 실시간 버퍼 여유율을 직접 재현하고 검증할 수 있습니다.",
-      certTitle: "QUANTITATIVE VERIFICATION LEDGER — 48 kHz / 64 FRAMES (1.333 ms BUDGET)",
-      colTopology: "측정 시그널 토폴로지",
-      colBudget: "데드라인",
-      colMeasured: "실측 시간",
-      colUsage: "버짓 점유",
-      colAlloc: "RT 힙 할당",
-      hubTitle: "COMMUNITY GEAR HUB — 검증된 커스텀 SPICE 회로",
-      hubSub: "로컬 SpiceAnalyzer 물리·무할당 검증을 통과한 기어만 등록됩니다.",
-    },
-    acquire: {
-      index: "06 / ACQUIRE NEURALRIG STUDIO",
-      titlePre: "구독도, 계정 강제도 없습니다.",
-      titleSerif: "Plug In & Play",
-      desc: "오프라인 게스트 모드가 기본값입니다. 네트워크 연결 없이도 모든 DSP 엔진, 75+ 기어 카탈로그, .nam 로더, 커스텀 SPICE 제작, VST3/CLAP 익스포트가 온전히 동작하며, 원할 때만 Google 계정을 연결해 프리셋과 기어 허브를 동기화할 수 있습니다.",
-      installerCardTitle: "Windows 정식 인스톨러",
-      installerCardBody: "NeuralRigStudio.exe + NeuralRigMcp.exe 일괄 설치, 시작 메뉴 등록 및 깔끔한 제거 지원",
-      standaloneCardTitle: "무설치 단일 실행 파일",
-      standaloneCardBody: "외부 폴더 없이 단일 .exe 파일 하나로 즉시 구동 (포터블 스튜디오 환경 권장)",
-      colophonToggle: "시스템 텔레메트리 & 클라우드 API 게이트웨이 명세",
-    },
+    stickyTabs: ["SPICE 물리 회로", "2×8 병렬 .NAM", "AI 페달 핫스왑"],
+    stickyChapters: [
+      {
+        title: ["만지는 즉시 반응하는", "실제 회로 파형"],
+        cta: "사운드 들어보기",
+        stopCta: "사운드 멈추기",
+        subTitle: "0 B 오디오 콜백",
+        subLine: "가비지 컬렉션 멈춤 없는 순수 네이티브 C# AVX2 연산.",
+      },
+      {
+        title: ["두 줄로 갈라지는", "2×8 병렬 체인"],
+        cta: "사운드 들어보기",
+        stopCta: "사운드 멈추기",
+        subTitle: "0.054 ms 연산",
+        subLine: "64프레임 버퍼에서도 여유롭게 도는 듀얼 앰프 + 16k탭 IR.",
+      },
+      {
+        title: ["없는 페달은 도면으로", "즉시 제작"],
+        cta: "명령어 복사",
+        stopCta: "복사 완료",
+        subTitle: "npx neuralrig-mcp",
+        subLine: "Claude · Cursor · Gemini · Antigravity 원클릭 연동.",
+      },
+    ],
+    outroTyped: "가볍게 설치하고, 지연 없이 연주하세요.",
+    installerBtn: "정식 인스톨러 (Setup.exe)",
+    portableBtn: "무설치 단일 파일 (.exe)",
   },
   en: {
-    nav: {
-      deck: "SIGNAL DECK",
-      lab: "CIRCUIT LAB",
-      matrix: "I/O & PATCHES",
-      mcp: "AI SCHEMATIC",
-      bench: "RIGBENCH",
-      download: "DOWNLOAD",
-    },
-    specRibbon: [
-      { k: "MODEL", v: "NR-300 WORKSTATION" },
-      { k: "RUNTIME", v: ".NET 10 NATIVE · AVX2 / FMA" },
-      { k: "AUDIO GC", v: "0 BYTES / BLOCK" },
-      { k: "OVERSAMPLING", v: "4× HIIR (-133 dB)" },
-      { k: "SPICE CORR.", v: "98.2% VERIFIED" },
+    downloadBtn: "Download app",
+    heroWhisper: "REAL-TIME SPICE & .NAM ENGINE",
+    heroLines: ["Live circuit physics,", "zero-byte", "guitar studio."],
+    trioHeading: ["Three engines built", "for pure tone"],
+    trioCta: "Get Studio free",
+    trio: [
+      {
+        title: "Live SPICE circuits",
+        line: "Solves diode junctions and 12AX7 triodes on every sample.",
+        action: "Morph waveform",
+      },
+      {
+        title: "2×8 parallel & .NAM",
+        line: "Blend physical amps and .NAM captures at 0 B heap allocation.",
+        action: "Inspect routing",
+      },
+      {
+        title: "AI schematic craft",
+        line: "Turn verified schematics into playable pedals in one command.",
+        action: "Copy CLI command",
+      },
     ],
-    hero: {
-      index: "01 / INSTRUMENT MONOGRAPH — WINDOWS x64",
-      titleLine1: "Component-level analog physics,",
-      titleSerif: "Zero-Byte",
-      titleLine2: "real-time guitar workstation.",
-      lead: "From asymmetric diode junction clipping and 250V Koren 12AX7 triode grids to AVX2 .nam inference and zero-latency 16,384-tap cabinet convolution. Executed natively on the C# audio thread—zero Python sidecars, zero garbage-collector stalls.",
-      primaryCta: "Windows Installer",
-      primarySub: "Setup.exe · Studio + MCP",
-      secondaryCta: "Portable Single Binary",
-      secondarySub: "standalone.exe · Zero Install",
-      metrics: [
-        { val: "0 B", lbl: "RT Callback Heap Allocation" },
-        { val: "0.054 ms", lbl: "6-Block Full Rig (@ 64fr)" },
-        { val: "98.2%", lbl: "Hardware SPICE Correlation" },
-      ],
-    },
-    lab: {
-      index: "02 / ANATOMY OF PHYSICAL SOUND",
-      titlePre: "Kirchhoff nodal matrices, not lookup tables —",
-      titleSerif: "Solved Live",
-      desc: "Every sample steps through Modified Nodal Analysis (MNA) and Newton-Raphson junction solvers at 4× polyphase oversampling, preserving the exact resonant mid-humps, interactive pot loading, and even/odd harmonic fingerprints of physical hardware.",
-      bodeTitle: ".AC FREQUENCY RESPONSE SWEEP (20 Hz — 20 kHz)",
-      harmTitle: "HARMONIC SPECTRUM DENSITY (H1 — H7, dBc)",
-      toneSweepLabel: "TONE STACK / HIGH-CUT SWEEP",
-    },
-    matrix: {
-      index: "03 / UNIVERSAL AUDIO & PATCH ARCHITECTURE",
-      titlePre: "Zero vendor lock-in across",
-      titleSerif: "Four-Path",
-      titlePost: "audio routing & 8 reference rigs.",
-      desc: "Automatically bridges dedicated ASIO interfaces, PC headphones, or bare driverless laptop line-ins. Ships preloaded with 8 studio-voiced showcase banks (1A–2D) ready on first boot.",
-      topoHeading: "UNIVERSAL AUDIO ROUTER — 4 HARDWARE CLOCK TOPOLOGIES",
-      patchHeading: "FACTORY REFERENCE SHEET — CLICK ANY ROW TO LOAD INTO DECK",
-      loadToDeck: "LOAD IN DECK ↑",
-      topologies: [
-        {
-          code: "PATH 01 · ASIO FULL-DUPLEX",
-          title: "Direct Single-Device ASIO Callback",
-          body: "Runs straight inside native hardware buffers on Focusrite, Steinberg, Audient, RME, Line 6, Valeton, and any compliant ASIO interface.",
-        },
-        {
-          code: "PATH 02 · ASIO IN → SPSC RING → WASAPI OUT",
-          title: "ASIO Guitar Interface In + PC Headphones Out",
-          body: "Lock-free SPSC ring buffer with MMCSS 'Pro Audio' scheduling (4 / 8 / 16 / 32 ms profiles) bridges split input/output hardware cleanly.",
-        },
-        {
-          code: "PATH 03 · DRIVERLESS WASAPI RAW BYPASS",
-          title: "Zero-Driver Line-In with Raw APO Bypass",
-          body: "Disables Windows speech AGC/noise suppression so guitar sustain never chokes, paired with a zero-allocation 44.1↔48 kHz windowed-sinc bridge.",
-        },
-        {
-          code: "PATH 04 · DUAL-ASIO CLOCK BRIDGE",
-          title: "Independent Dual-ASIO Hardware Clocks",
-          body: "Combines separate ASIO capture and playback interfaces simultaneously with lock-free clock drift compensation.",
-        },
-      ],
-    },
-    mcp: {
-      index: "04 / SCHEMATIC TO SILICON — NPX NEURALRIG-MCP",
-      titlePre: "Missing a boutique pedal? Hand your agent the",
-      titleSerif: "Actual Schematic.",
-      titlePost: "",
-      desc: "Connect Claude, Cursor, Windsurf, Codex, Gemini CLI, or Antigravity directly to NeuralRig's SPICE compiler in one command. If no verifiable schematic exists, the pipeline halts honestly rather than hallucinating values.",
-      installLabel: "One-command registration across 7 AI clients (Claude · Cursor · Windsurf · Codex · Gemini · Antigravity)",
-      doctorLabel: "Verify Named Pipe connectivity & live Studio session",
-      copy: "COPY",
-      copied: "COPIED",
-      steps: [
-        {
-          num: "STEP 01",
-          cmd: "neuralrig_get_spice_guide",
-          title: "Inspect MNA Schema",
-          body: "Loads valid nodal primitives, pot tapers, and realtime constraints.",
-        },
-        {
-          num: "STEP 02",
-          cmd: "Schematic & Datasheet",
-          title: "Authentic Research (Honest Stop)",
-          body: "Verifies real component values and datasheets; stops honestly if undocumented.",
-        },
-        {
-          num: "STEP 03",
-          cmd: "neuralrig_register_spice_model",
-          title: "Register .MODEL Physics",
-          body: "Commits missing diode (Is, N) or BJT/JFET parameters into the local catalog.",
-        },
-        {
-          num: "STEP 04",
-          cmd: "neuralrig_simulate_spice",
-          title: ".OP / .AC / .TRAN & 0 B Gate",
-          body: "Validates DC bias, Bode response, THD harmonics, and strict 0 B callback allocation.",
-        },
-        {
-          num: "STEP 05",
-          cmd: "neuralrig_commit_spice_device",
-          title: "Zero-Downtime Hot-Swap",
-          body: "Mounts the compiled pedal straight into your live 2×8 signal chain.",
-        },
-      ],
-    },
-    bench: {
-      index: "05 / CALIBRATION CERTIFICATE & COMMUNITY HUB",
-      titlePre: "Published calibration data, verified by",
-      titleSerif: "RigBench.",
-      titlePost: "",
-      desc: "Click BENCH inside the app header or run RigBench.exe on your own machine to reproduce every SPICE accuracy score, P99 latency figure, and zero-byte allocation gate.",
-      certTitle: "QUANTITATIVE VERIFICATION LEDGER — 48 kHz / 64 FRAMES (1.333 ms BUDGET)",
-      colTopology: "Signal Chain Topology",
-      colBudget: "Deadline",
-      colMeasured: "Measured",
-      colUsage: "Budget Used",
-      colAlloc: "RT Heap Alloc",
-      hubTitle: "COMMUNITY GEAR HUB — VERIFIED SPICE BLUEPRINTS",
-      hubSub: "Every community upload passes local SpiceAnalyzer stability & 0 B checks before install.",
-    },
-    acquire: {
-      index: "06 / ACQUIRE NEURALRIG STUDIO",
-      titlePre: "No subscriptions. No forced login.",
-      titleSerif: "Plug In & Play.",
-      desc: "Offline Guest Mode is a first-class citizen: all 75+ devices, MNA SPICE circuits, .nam captures, .wav IR drag-and-drop, and VST3/CLAP exports work with zero internet connection. Sign in with Google only if you want Cloud Sync and the Community Gear Hub.",
-      installerCardTitle: "Windows Setup Installer",
-      installerCardBody: "Installs NeuralRigStudio.exe + NeuralRigMcp.exe with Start Menu shortcuts and clean uninstall",
-      standaloneCardTitle: "Portable Single-File Executable",
-      standaloneCardBody: "Run anywhere from a single self-contained .exe with zero installation footprint",
-      colophonToggle: "SYSTEM TELEMETRY & CLOUD API GATEWAY SPECIFICATION",
-    },
+    stickyTabs: ["Live SPICE circuit", "2×8 parallel .NAM", "AI pedal hot-swap"],
+    stickyChapters: [
+      {
+        title: ["Touch-responsive", "analog waveforms"],
+        cta: "Audition tone",
+        stopCta: "Stop audio",
+        subTitle: "0 B audio callback",
+        subLine: "Native C# AVX2 DSP with zero garbage-collector stalls.",
+      },
+      {
+        title: ["Dual-row split", "2×8 signal matrix"],
+        cta: "Audition tone",
+        stopCta: "Stop audio",
+        subTitle: "0.054 ms runtime",
+        subLine: "Dual amps, .NAM WaveNet, and 16k-tap IR inside 64 frames.",
+      },
+      {
+        title: ["Missing a pedal?", "Compile its schematic"],
+        cta: "Copy command",
+        stopCta: "Copied",
+        subTitle: "npx neuralrig-mcp",
+        subLine: "One-line setup for Claude, Cursor, Gemini & Antigravity.",
+      },
+    ],
+    outroTyped: "Built for zero-latency guitarists.",
+    installerBtn: "Windows Installer (Setup.exe)",
+    portableBtn: "Portable Binary (.exe)",
   },
 } as const;
