@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/sheet"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Hint } from "@/components/ui/tooltip"
+import { HelpHint } from "@/components/ui/tooltip"
 import { useI18n } from "@/lib/i18n"
 import type {
   AsioCapabilitiesDto,
@@ -144,18 +144,25 @@ export const AudioMidiSheet: React.FC<AudioMidiSheetProps> = ({
       <SheetContent className="max-w-xl p-0">
         <SheetHeader>
           <div className="flex items-center justify-between gap-2 pr-8">
-            <div className="space-y-0.5">
-              <SheetTitle>AUDIO I/O &amp; MIDI PATCHBAY</SheetTitle>
-              <SheetDescription>
+            <div className="flex items-center gap-2 min-w-0">
+              <SheetTitle className="truncate">AUDIO I/O &amp; MIDI PATCHBAY</SheetTitle>
+              <HelpHint
+                side="bottom"
+                content={tx(
+                  "ASIO 인터페이스, WASAPI 라인 인풋 라우팅 및 MIDI 컨트롤러를 설정합니다.",
+                  "Configure ASIO interfaces, WASAPI Line-In routing, and MIDI controllers."
+                )}
+              />
+              <SheetDescription className="sr-only">
                 {tx(
                   "범용 ASIO 오디오 인터페이스 · 멀티이펙터 · WASAPI 라인 인풋 라우팅 및 MIDI 컨트롤러 설정",
                   "Configure Universal ASIO Interfaces, Multi-FX USB Audio, WASAPI Line-In routing, and MIDI controllers."
                 )}
               </SheetDescription>
             </div>
-            <Badge variant={isAudioRunning ? "ok" : "outline"} size="xs">
-              <Activity className="size-3" />
-              {audioStatus}
+            <Badge variant={isAudioRunning ? "ok" : "outline"} size="xs" className="max-w-[190px]">
+              <Activity className="size-3 shrink-0" />
+              <span className="truncate">{audioStatus}</span>
             </Badge>
           </div>
         </SheetHeader>
@@ -164,10 +171,19 @@ export const AudioMidiSheet: React.FC<AudioMidiSheetProps> = ({
           <div className="p-5 space-y-4 text-xs">
             {/* Engine Status & Refresh Bar */}
             <div className="flex items-center justify-between gap-2 rounded-sm border border-border bg-secondary/40 px-3 py-2">
-              <span className="font-mono text-[11px] text-muted-foreground">
-                {isAudioRunning
-                  ? tx("오디오 스트림 실행 중 — 장치 변경을 위해 먼저 중지하세요.", "Engine live — stop monitoring to change hardware.")
-                  : tx("대기 상태 — 드라이버와 채널을 선택 후 시작하세요.", "Standby — select driver and start monitoring.")}
+              <span className="flex items-center gap-1.5 min-w-0 font-mono text-[11px] text-muted-foreground">
+                <span className="truncate">
+                  {isAudioRunning ? tx("오디오 실행 중", "Engine live") : tx("오디오 대기 중", "Standby")}
+                </span>
+                {isAudioRunning && (
+                  <HelpHint
+                    side="bottom"
+                    content={tx(
+                      "장치를 변경하려면 모니터링을 먼저 중지하세요.",
+                      "Stop audio monitoring first to change hardware settings."
+                    )}
+                  />
+                )}
               </span>
               <div className="flex items-center gap-1.5 shrink-0">
                 <Button size="xs" variant="ghost" onClick={onRefreshDevices}>
@@ -212,9 +228,15 @@ export const AudioMidiSheet: React.FC<AudioMidiSheetProps> = ({
                 {/* Universal Audio Interface Quick Connect Card */}
                 <div className="rounded-sm border border-border bg-background p-3 space-y-2.5">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-[11px] font-bold flex items-center gap-1.5 text-foreground">
-                      <Usb className="size-3.5 text-primary" />
-                      UNIVERSAL AUDIO INTERFACE QUICK CONNECT
+                    <span className="font-mono text-[11px] font-bold flex items-center gap-1.5 min-w-0 text-foreground">
+                      <Usb className="size-3.5 text-primary shrink-0" />
+                      <span className="truncate">ASIO QUICK CONNECT</span>
+                      <HelpHint
+                        content={tx(
+                          "Focusrite, UAD, RME, Audient, MOTU, Line 6, BOSS 등 모든 ASIO 장치를 자동 감지합니다. 드라이버 없는 USB 케이블은 WASAPI 탭을 이용하세요.",
+                          "Auto-detects Focusrite, UAD, RME, Audient, MOTU, Line 6, BOSS & ASIO4ALL. For driverless USB cables, switch to WASAPI."
+                        )}
+                      />
                     </span>
                     <Badge variant={nonRealtekAsioCount > 0 ? "ok" : "outline"} size="xs">
                       {asioDrivers.length > 0
@@ -229,7 +251,7 @@ export const AudioMidiSheet: React.FC<AudioMidiSheetProps> = ({
                       disabled={isAudioBusy}
                       onClick={() => onQuickStartAutoAudio("WASAPI")}
                     >
-                      {tx("인터페이스 입력 → PC 출력", "Interface In → PC Output")}
+                      <span className="truncate">{tx("인터페이스 입력 → PC 출력", "Interface In → PC Output")}</span>
                     </Button>
                     <Button
                       size="sm"
@@ -237,15 +259,9 @@ export const AudioMidiSheet: React.FC<AudioMidiSheetProps> = ({
                       disabled={isAudioBusy}
                       onClick={() => onQuickStartAutoAudio("ASIO_DUPLEX")}
                     >
-                      {tx("인터페이스 입출력 직결 (Duplex)", "Interface Direct Duplex")}
+                      <span className="truncate">{tx("인터페이스 직결 (Duplex)", "Direct Duplex")}</span>
                     </Button>
                   </div>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">
-                    {tx(
-                      "Focusrite, Universal Audio, RME, Audient, MOTU, Steinberg, SSL, Line 6, BOSS, ASIO4ALL 등 모든 다채널 ASIO 인터페이스를 지원합니다. 별도 드라이버 없는 USB 케이블·PC 라인 인풋은 WASAPI / LINE-IN 탭을 선택하세요.",
-                      "Supports all multi-channel ASIO interfaces (Focusrite, UAD, RME, Audient, MOTU, Steinberg, SSL, Line 6, BOSS, ASIO4ALL, etc.). For driverless USB cables or PC Line-In, use WASAPI / LINE-IN."
-                    )}
-                  </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -373,27 +389,28 @@ export const AudioMidiSheet: React.FC<AudioMidiSheetProps> = ({
               </TabsContent>
 
               <TabsContent value="WASAPI" className="space-y-4 mt-3">
-                <div className="rounded-sm border border-signal-ok/40 bg-signal-ok/10 p-3 space-y-2">
+                <div className="rounded-sm border border-signal-ok/40 bg-signal-ok/10 px-3 py-2.5">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-[11px] font-bold flex items-center gap-1.5 text-signal-ok">
-                      <Usb className="size-3.5" />
-                      PLUG-AND-PLAY WASAPI CAPTURE
+                    <span className="font-mono text-[11px] font-bold flex items-center gap-1.5 min-w-0 text-signal-ok">
+                      <Usb className="size-3.5 shrink-0" />
+                      <span className="truncate">PLUG-AND-PLAY WASAPI</span>
+                      <HelpHint
+                        content={tx(
+                          "별도 ASIO 드라이버 없이 USB 기타 케이블, 클래스 컴플라이언트 장치 및 PC 라인인을 바로 연결합니다.",
+                          "Connect USB guitar cables, class-compliant interfaces, or PC Line-In directly via WASAPI."
+                        )}
+                      />
                     </span>
                     <Button
                       size="xs"
                       variant="keycap"
                       disabled={isAudioBusy}
                       onClick={onQuickStartUniversalWasapi}
+                      className="shrink-0"
                     >
                       {tx("기본 입력으로 즉시 시작", "Quick Start Default")}
                     </Button>
                   </div>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">
-                    {tx(
-                      "별도 ASIO 드라이버 없이 USB 기타 케이블, 클래스 컴플라이언트 오디오 인터페이스, PC 라인인 입력을 즉시 연결합니다.",
-                      "Connect USB guitar cables, class-compliant interfaces, or PC Line-In directly via Windows WASAPI without ASIO drivers."
-                    )}
-                  </p>
                 </div>
 
                 <div className="space-y-1.5">
@@ -483,36 +500,38 @@ export const AudioMidiSheet: React.FC<AudioMidiSheetProps> = ({
                 </div>
 
                 <div className="grid grid-cols-2 gap-2.5">
-                  <Hint
-                    content={tx(
-                      "Windows 소음 억제 및 자동 게인(AGC)을 우회해 기타 서스테인 절단을 방지합니다.",
-                      "Bypass Windows speech AGC & noise suppression to preserve natural guitar sustain."
-                    )}
-                  >
-                    <div className="flex items-center justify-between rounded-sm border border-border bg-background px-3 py-2">
-                      <Label className="text-[11px]">{tx("순수 악기 Raw 모드", "Instrument Raw Mode")}</Label>
-                      <Switch
-                        checked={wasapiInputRaw}
-                        disabled={isAudioRunning}
-                        onCheckedChange={onWasapiInputRawChange}
+                  <div className="flex items-center justify-between gap-2 rounded-sm border border-border bg-background px-3 py-2 min-w-0">
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <Label className="text-[11px] truncate">{tx("순수 악기 Raw 모드", "Instrument Raw Mode")}</Label>
+                      <HelpHint
+                        content={tx(
+                          "Windows 소음 억제 및 자동 게인(AGC)을 우회해 기타 서스테인 절단을 방지합니다.",
+                          "Bypass Windows AGC & noise suppression to preserve natural guitar sustain."
+                        )}
                       />
-                    </div>
-                  </Hint>
-                  <Hint
-                    content={tx(
-                      "입력 장치를 단독 점유해 캡처 레이턴시를 최소화합니다.",
-                      "Claim exclusive capture access for minimum input latency."
-                    )}
-                  >
-                    <div className="flex items-center justify-between rounded-sm border border-border bg-background px-3 py-2">
-                      <Label className="text-[11px]">{tx("WASAPI 입력 단독", "Exclusive Input")}</Label>
-                      <Switch
-                        checked={wasapiInputExclusive}
-                        disabled={isAudioRunning}
-                        onCheckedChange={onWasapiInputExclusiveChange}
+                    </span>
+                    <Switch
+                      checked={wasapiInputRaw}
+                      disabled={isAudioRunning}
+                      onCheckedChange={onWasapiInputRawChange}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-2 rounded-sm border border-border bg-background px-3 py-2 min-w-0">
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <Label className="text-[11px] truncate">{tx("WASAPI 입력 단독", "Exclusive Input")}</Label>
+                      <HelpHint
+                        content={tx(
+                          "입력 장치를 단독 점유해 캡처 레이턴시를 최소화합니다.",
+                          "Claim exclusive capture access for minimum input latency."
+                        )}
                       />
-                    </div>
-                  </Hint>
+                    </span>
+                    <Switch
+                      checked={wasapiInputExclusive}
+                      disabled={isAudioRunning}
+                      onCheckedChange={onWasapiInputExclusiveChange}
+                    />
+                  </div>
                 </div>
               </TabsContent>
             </Tabs>
@@ -542,8 +561,16 @@ export const AudioMidiSheet: React.FC<AudioMidiSheetProps> = ({
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="flex items-center justify-between rounded-sm border border-border bg-background px-3 py-2">
-                    <Label>{tx("WASAPI 출력 단독 모드 (초저지연)", "WASAPI Exclusive Output (Ultra-Low Latency)")}</Label>
+                  <div className="flex items-center justify-between gap-2 rounded-sm border border-border bg-background px-3 py-2 min-w-0">
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <Label className="truncate">{tx("WASAPI 출력 단독 모드", "WASAPI Exclusive Output")}</Label>
+                      <HelpHint
+                        content={tx(
+                          "Windows 오디오 믹서를 우회해 초저지연 출력을 제공합니다.",
+                          "Bypass Windows audio mixer for ultra-low latency playback."
+                        )}
+                      />
+                    </span>
                     <Switch
                       checked={wasapiExclusive}
                       disabled={isAudioRunning}
@@ -600,10 +627,16 @@ export const AudioMidiSheet: React.FC<AudioMidiSheetProps> = ({
 
             {/* External MIDI Controller & Foot Switch Section */}
             <div className="rounded-sm border border-border bg-background p-3 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-[11px] font-bold flex items-center gap-1.5 text-foreground">
-                  <Cpu className="size-3.5 text-primary" />
-                  EXTERNAL MIDI &amp; EXPRESSION
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-mono text-[11px] font-bold flex items-center gap-1.5 min-w-0 text-foreground">
+                  <Cpu className="size-3.5 text-primary shrink-0" />
+                  <span className="truncate">EXTERNAL MIDI &amp; EXPRESSION</span>
+                  <HelpHint
+                    content={tx(
+                      "시그널 체인 슬롯, 노브, 씬(A–H), 루퍼 버튼을 우클릭하면 즉시 MIDI CC 학습 메뉴가 열립니다.",
+                      "Right-click any slot, knob, Scene (A–H), or looper control to open MIDI CC Learn."
+                    )}
+                  />
                 </span>
                 <Badge variant={midiState.connected ? "ok" : "outline"} size="xs">
                   {midiState.connected
@@ -612,12 +645,12 @@ export const AudioMidiSheet: React.FC<AudioMidiSheetProps> = ({
                 </Badge>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 min-w-0">
                 <Select
                   value={midiState.activeDevice || "__none__"}
                   onValueChange={onSelectMidiDevice}
                 >
-                  <SelectTrigger className="flex-1">
+                  <SelectTrigger className="flex-1 min-w-0">
                     <SelectValue placeholder={tx("MIDI 입력 포트 선택", "Select MIDI input port")} />
                   </SelectTrigger>
                   <SelectContent>
@@ -633,6 +666,7 @@ export const AudioMidiSheet: React.FC<AudioMidiSheetProps> = ({
                 <Button
                   size="sm"
                   variant="keycap"
+                  className="shrink-0"
                   onClick={() => {
                     const existing = midiState.bindings.find((b) => b.targetKind === "tunerMute")
                     if (existing) onClearMidiBinding({ targetKind: "tunerMute" })
@@ -648,19 +682,12 @@ export const AudioMidiSheet: React.FC<AudioMidiSheetProps> = ({
               {midiState.bindings.length > 0 && (
                 <div className="flex flex-wrap gap-1 pt-0.5">
                   {midiState.bindings.map((b, idx) => (
-                    <Badge key={`${b.targetKind}-${idx}`} variant="secondary" size="xs">
-                      CC{b.cc} → {b.targetKind}
+                    <Badge key={`${b.targetKind}-${idx}`} variant="secondary" size="xs" className="max-w-full">
+                      <span className="truncate">CC{b.cc} → {b.targetKind}</span>
                     </Badge>
                   ))}
                 </div>
               )}
-
-              <p className="text-[11px] text-muted-foreground">
-                {tx(
-                  "패치보드 슬롯, 노브, 씬(A–H), 루퍼 버튼을 우클릭하면 즉시 MIDI CC 학습 메뉴가 열립니다.",
-                  "Right-click any slot, knob, Scene (A–H), or looper control to open MIDI CC Learn."
-                )}
-              </p>
             </div>
           </div>
         </ScrollArea>

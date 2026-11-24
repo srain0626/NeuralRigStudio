@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { HelpHint } from "@/components/ui/tooltip"
 import { studioBridge } from "@/lib/bridge"
 import { useI18n } from "@/lib/i18n"
 import type { AdminOverviewDto } from "@/types/rig"
@@ -127,11 +128,20 @@ export const AdminConsoleDialog: React.FC<AdminConsoleDialogProps> = ({
               <div className="size-8 rounded-sm bg-oled border border-oled-border flex items-center justify-center text-signal-warn shrink-0">
                 <Shield className="size-4" />
               </div>
-              <div>
-                <DialogTitle>
-                  {tx("어드민 운영 애널리틱스 · 버그 분석 · OTA 정책 콘솔", "ADMIN ANALYTICS · BUG TRIAGE · OTA CONSOLE")}
-                </DialogTitle>
-                <DialogDescription>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <DialogTitle className="truncate">
+                    {tx("어드민 운영 콘솔", "ADMIN CONSOLE")}
+                  </DialogTitle>
+                  <HelpHint
+                    side="bottom"
+                    content={tx(
+                      "관리자 Google 계정 인증 세션 전용 · 애널리틱스 · 버그 분석 · OTA 정책 제어",
+                      "Restricted to authenticated Admin Google accounts · Analytics · Bugs · OTA Policy."
+                    )}
+                  />
+                </div>
+                <DialogDescription className="sr-only">
                   {tx("관리자 Google 계정 인증 세션 전용", "Restricted to authenticated Admin Google accounts")}
                 </DialogDescription>
               </div>
@@ -204,10 +214,10 @@ export const AdminConsoleDialog: React.FC<AdminConsoleDialogProps> = ({
                       <div className="text-muted-foreground">{tx("등록된 허브 기어가 없습니다.", "No Hub items yet.")}</div>
                     ) : (
                       data.topGears.map((g, i) => (
-                        <div key={i} className="flex items-center justify-between border-b border-border pb-1.5">
-                          <div>
-                            <span className="text-foreground font-semibold">{g.name}</span>
-                            <span className="text-[10px] text-muted-foreground ml-2 font-mono">by {g.ownerName}</span>
+                        <div key={i} className="flex items-center justify-between gap-2 border-b border-border pb-1.5 min-w-0 overflow-hidden">
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                            <span className="text-foreground font-semibold truncate">{g.name}</span>
+                            <span className="text-[10px] text-muted-foreground font-mono truncate shrink-0 max-w-[110px]">by {g.ownerName}</span>
                           </div>
                           <Badge variant="secondary" size="xs">{g.downloads} DLs</Badge>
                         </div>
@@ -235,39 +245,39 @@ export const AdminConsoleDialog: React.FC<AdminConsoleDialogProps> = ({
 
           {data && tab === "bugs" && (
             <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-              <div className="md:col-span-2 space-y-2">
+              <div className="md:col-span-2 space-y-2 min-w-0">
                 {data.bugs.map((b) => (
                   <button
                     key={b.id}
                     type="button"
                     onClick={() => setSelectedBugId(b.id)}
-                    className={`w-full text-left rounded-sm border p-2.5 transition-colors cursor-pointer ${
+                    className={`w-full min-w-0 overflow-hidden text-left rounded-sm border p-2.5 transition-colors cursor-pointer ${
                       selectedBug?.id === b.id
                         ? "border-primary bg-secondary"
                         : "border-border bg-card hover:bg-accent"
                     }`}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-semibold text-foreground truncate">{b.title}</span>
-                      <Badge variant={b.status === "resolved" ? "ok" : b.status === "open" ? "hot" : "secondary"} size="xs" className="uppercase">
+                    <div className="flex items-center justify-between gap-2 min-w-0">
+                      <span className="text-xs font-semibold text-foreground truncate flex-1 min-w-0">{b.title}</span>
+                      <Badge variant={b.status === "resolved" ? "ok" : b.status === "open" ? "hot" : "secondary"} size="xs" className="uppercase shrink-0">
                         {b.status}
                       </Badge>
                     </div>
-                    <div className="text-[10px] text-muted-foreground mt-1 flex items-center justify-between font-mono">
-                      <span>{b.category} · {b.severity}</span>
-                      <span>v{b.appVersion}</span>
+                    <div className="text-[10px] text-muted-foreground mt-1 flex items-center justify-between gap-2 font-mono min-w-0">
+                      <span className="truncate">{b.category} · {b.severity}</span>
+                      <span className="shrink-0">v{b.appVersion}</span>
                     </div>
                   </button>
                 ))}
               </div>
 
-              <div className="md:col-span-3 rounded-sm border border-border bg-card p-3.5 space-y-3">
+              <div className="md:col-span-3 rounded-sm border border-border bg-card p-3.5 space-y-3 min-w-0 overflow-hidden">
                 {selectedBug ? (
                   <>
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <div className="font-display text-sm font-bold text-foreground">{selectedBug.title}</div>
-                        <div className="text-[10px] font-mono text-muted-foreground">
+                    <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-display text-sm font-bold text-foreground truncate">{selectedBug.title}</div>
+                        <div className="text-[10px] font-mono text-muted-foreground truncate">
                           {selectedBug.userEmail} · v{selectedBug.appVersion} · {selectedBug.createdAt}
                         </div>
                       </div>

@@ -28,7 +28,15 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { HelpHint } from "@/components/ui/tooltip"
 import { studioBridge } from "@/lib/bridge"
 import { useI18n } from "@/lib/i18n"
 import type {
@@ -265,13 +273,22 @@ export const ToneHubModal: React.FC<ToneHubModalProps> = ({
       <DialogContent className="max-w-4xl h-[82vh] flex flex-col p-0 overflow-hidden bg-card border-border">
         <DialogHeader className="px-5 py-3.5 border-b border-border bg-secondary/45 shrink-0">
           <div className="flex flex-wrap items-center justify-between gap-2 pr-8">
-            <div className="flex items-center gap-2.5">
-              <div className="size-8 rounded-sm bg-oled border border-oled-border flex items-center justify-center text-primary">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="size-8 rounded-sm bg-oled border border-oled-border flex items-center justify-center text-primary shrink-0">
                 <Globe className="size-4" />
               </div>
-              <div>
-                <DialogTitle>TONE HUB · .NRIG BUNDLES · VST3 / CLAP</DialogTitle>
-                <DialogDescription>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <DialogTitle className="truncate">TONE HUB · .NRIG BUNDLES · VST3 / CLAP</DialogTitle>
+                  <HelpHint
+                    side="bottom"
+                    content={tx(
+                      "WaveNet/LSTM/ConvNet 모델, 8K IR, .nrig 아티스트 번들 및 DAW 플러그인 패키징을 제공합니다.",
+                      "Curated WaveNet/LSTM/ConvNet models, 8K IRs, .nrig bundles, and NativeAOT DAW export."
+                    )}
+                  />
+                </div>
+                <DialogDescription className="sr-only">
                   {tx(
                     "WaveNet/LSTM/ConvNet 모델, 8K IR, .nrig 아티스트 번들 및 DAW 플러그인 패키징",
                     "Curated WaveNet/LSTM/ConvNet models, 8K IRs, .nrig bundles, and NativeAOT DAW export."
@@ -363,9 +380,9 @@ export const ToneHubModal: React.FC<ToneHubModalProps> = ({
               {/* Upload User Created Custom SPICE/Cab Gear */}
               <div className="rounded-sm border border-border bg-card p-3.5 space-y-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 text-xs font-semibold">
-                    <Cloud className="size-4 text-primary" />
-                    <span>{tx("내가 생성한 페달 · 앰프 · 캐비넷 커뮤니티 업로드", "Publish Your Custom SPICE / Cab Creation")}</span>
+                  <div className="flex items-center gap-2 text-xs font-semibold min-w-0">
+                    <Cloud className="size-4 text-primary shrink-0" />
+                    <span className="truncate">{tx("내 커스텀 기어 업로드", "Publish Custom Gear")}</span>
                     <Badge variant="secondary" size="xs">{communitySource === "cloud" ? "CLOUD LIVE" : "LOCAL CATALOG"}</Badge>
                   </div>
                   {!cloudState?.isAuthenticated && onRequestLogin && (
@@ -377,21 +394,22 @@ export const ToneHubModal: React.FC<ToneHubModalProps> = ({
 
                 {customDevices.length > 0 ? (
                   <div className="flex flex-wrap items-center gap-2">
-                    <select
-                      value={uploadDeviceId}
-                      onChange={(e) => setUploadDeviceId(e.target.value)}
-                      className="h-8 rounded-sm border border-border bg-background px-2 text-xs"
-                    >
-                      {customDevices.map((d) => (
-                        <option key={d.id} value={d.id}>
-                          [{d.category.toUpperCase()}] {d.originalName || d.name}
-                        </option>
-                      ))}
-                    </select>
+                    <Select value={uploadDeviceId} onValueChange={setUploadDeviceId}>
+                      <SelectTrigger className="w-56 max-w-full shrink-0">
+                        <SelectValue placeholder={tx("기어 선택", "Select custom gear")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {customDevices.map((d) => (
+                          <SelectItem key={d.id} value={d.id}>
+                            [{d.category.toUpperCase()}] {d.originalName || d.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <Input
                       value={uploadSummary}
                       onChange={(e) => setUploadSummary(e.target.value)}
-                      placeholder={tx("회로 설명 / 톤 팁 (선택)", "Circuit notes / tone summary (optional)")}
+                      placeholder={tx("회로 설명 (선택)", "Circuit notes (optional)")}
                       className="flex-1 min-w-[200px] h-8 text-xs"
                     />
                     <Button
@@ -399,7 +417,7 @@ export const ToneHubModal: React.FC<ToneHubModalProps> = ({
                       variant="signal"
                       disabled={!cloudState?.isAuthenticated || !uploadDeviceId || busyId !== null}
                       onClick={() => void handleUploadCommunityGear()}
-                      className="h-8 px-3 gap-1.5"
+                      className="h-8 px-3 gap-1.5 shrink-0"
                     >
                       <Upload className="size-3.5" />
                       {tx("허브 업로드", "PUBLISH")}
@@ -407,10 +425,7 @@ export const ToneHubModal: React.FC<ToneHubModalProps> = ({
                   </div>
                 ) : (
                   <div className="text-[11px] text-muted-foreground">
-                    {tx(
-                      "아직 로컬에 생성된 커스텀 SPICE/캐비넷 기어가 없습니다. 상단 CRAFT 가이드로 새 페달·앰프를 추가한 뒤 공유하세요.",
-                      "Create a custom SPICE pedal, amp, or cab via the CRAFT MCP guide first, then share it here."
-                    )}
+                    {tx("로컬 커스텀 기어 없음", "No custom gear created yet.")}
                   </div>
                 )}
               </div>
@@ -432,29 +447,32 @@ export const ToneHubModal: React.FC<ToneHubModalProps> = ({
               {/* Community Gear List */}
               {communityItems.length === 0 ? (
                 <div className="rounded-sm border border-dashed border-border p-8 text-center text-xs text-muted-foreground">
-                  {tx("표시할 커뮤니티 기어가 없습니다. 검색어를 비우거나 Google 로그인 후 새 기어를 올려보세요.", "No matching community gear found.")}
+                  {tx("표시할 커뮤니티 기어가 없습니다.", "No matching community gear found.")}
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {communityItems.map((it) => (
-                    <div key={it.id} className="rounded-sm border border-border bg-card p-3.5 flex flex-col justify-between gap-2.5">
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-display text-xs font-bold truncate">{it.originalName || it.name}</span>
+                    <div key={it.id} className="rounded-sm border border-border bg-card p-3.5 flex flex-col justify-between gap-2.5 min-w-0 overflow-hidden">
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2 min-w-0">
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                            <span className="font-display text-xs font-bold truncate">{it.originalName || it.name}</span>
+                            <HelpHint content={it.summary} />
+                          </div>
                           <Badge variant="secondary" size="xs">{it.category.toUpperCase()}</Badge>
                         </div>
-                        <div className="text-[10px] font-mono text-muted-foreground">
+                        <div className="text-[10px] font-mono text-muted-foreground truncate">
                           by {it.ownerName} · {it.downloads} downloads
                         </div>
-                        <p className="text-[11px] text-muted-foreground line-clamp-2">{it.summary}</p>
                       </div>
-                      <div className="flex items-center justify-between pt-2 border-t border-border">
-                        <span className="text-[10px] font-mono text-muted-foreground truncate max-w-[180px]">
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-border min-w-0">
+                        <span className="text-[10px] font-mono text-muted-foreground truncate min-w-0 flex-1">
                           {it.schematicSourceUrl || "MNA SPICE Verified"}
                         </span>
                         <Button
                           size="xs"
                           variant="signal"
+                          className="shrink-0"
                           disabled={busyId !== null}
                           onClick={() => void handleInstallCommunityGear(it)}
                         >
@@ -470,29 +488,20 @@ export const ToneHubModal: React.FC<ToneHubModalProps> = ({
           ) : tab === "daw" ? (
             <div className="space-y-4">
               <div className="rounded-sm border border-border bg-card p-4 flex flex-wrap items-center justify-between gap-4">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <Cpu className="size-4 text-primary" />
-                    <span className="font-display text-sm font-bold">
-                      {dawInfo?.pluginName || "NeuralRig Studio"} DAW Plugin (NativeAOT C-ABI)
-                    </span>
-                    <Badge variant="ok" size="xs">
-                      CLAP v1.2 + VST3 v3.7
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {tx(
-                      "무할당 DSP + .nrig 직렬화 + 32개 샘플 정확도 오토메이션 + 호스트 BPM 동기화",
-                      "0-allocation DSP + .nrig state + 32 sample-accurate parameters + host BPM sync."
+                <div className="flex items-center gap-2 min-w-0">
+                  <Cpu className="size-4 text-primary shrink-0" />
+                  <span className="font-display text-sm font-bold truncate">
+                    {dawInfo?.pluginName || "NeuralRig Studio"} DAW Plugin (NativeAOT)
+                  </span>
+                  <Badge variant="ok" size="xs">
+                    CLAP v1.2 + VST3 v3.7
+                  </Badge>
+                  <HelpHint
+                    content={tx(
+                      `0 B RT 할당 DSP · .nrig 상태 저장 · 32개 샘플 정확도 오토메이션 · CLAP ID: ${dawInfo?.clapId || "com.neuralrig.studio.vstclap"}`,
+                      `0-alloc DSP · .nrig state · 32 sample-accurate parameters · CLAP ID: ${dawInfo?.clapId || "com.neuralrig.studio.vstclap"}`
                     )}
-                  </p>
-                  <div className="text-[10px] font-mono text-muted-foreground pt-1 space-y-0.5">
-                    <div>CLAP ID: {dawInfo?.clapId || "com.neuralrig.studio.vstclap"}</div>
-                    <div>VST3 CID: {dawInfo?.vst3ProcessorCid || "A73E91C452D84B6E91F0C38E4B72D101"}</div>
-                    <div>
-                      NativeAOT: {dawInfo?.nativeAotCommand || "dotnet publish src/NeuralRig.Plugin/NeuralRig.Plugin.csproj -c Release -r win-x64 -p:NativeLib=Shared"}
-                    </div>
-                  </div>
+                  />
                 </div>
 
                 <Button
@@ -500,6 +509,7 @@ export const ToneHubModal: React.FC<ToneHubModalProps> = ({
                   variant="signal"
                   disabled={busyId !== null}
                   onClick={handleExportDawPlugin}
+                  className="shrink-0"
                 >
                   <HardDriveDownload className="size-4" />
                   {busyId === "__export_daw__"
@@ -509,9 +519,9 @@ export const ToneHubModal: React.FC<ToneHubModalProps> = ({
               </div>
 
               {exportStatus && (
-                <div className="px-3.5 py-2.5 rounded-sm border border-signal-ok/50 bg-signal-ok/10 text-xs text-signal-ok flex items-center gap-2 font-mono">
+                <div className="px-3.5 py-2.5 rounded-sm border border-signal-ok/50 bg-signal-ok/10 text-xs text-signal-ok flex items-center gap-2 font-mono min-w-0">
                   <CheckCircle2 className="size-4 shrink-0" />
-                  <span>{exportStatus}</span>
+                  <span className="truncate">{exportStatus}</span>
                 </div>
               )}
 
@@ -528,10 +538,10 @@ export const ToneHubModal: React.FC<ToneHubModalProps> = ({
                   {(dawInfo?.parameters ?? []).map((p) => (
                     <div
                       key={p.id}
-                      className="px-3.5 py-1.5 bg-card flex items-center justify-between font-mono text-[11px]"
+                      className="px-3.5 py-1.5 bg-card flex items-center justify-between gap-2 font-mono text-[11px] min-w-0 overflow-hidden"
                     >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-muted-foreground w-6 tabular-nums">#{p.id}</span>
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <span className="text-muted-foreground w-6 shrink-0 tabular-nums">#{p.id}</span>
                         <span className="font-sans font-semibold truncate">{p.name}</span>
                         <Badge variant="secondary" size="xs">
                           {p.module}
@@ -553,11 +563,11 @@ export const ToneHubModal: React.FC<ToneHubModalProps> = ({
                 return (
                   <div
                     key={item.id}
-                    className="rounded-sm border border-border bg-card p-3.5 flex flex-col justify-between gap-3"
+                    className="rounded-sm border border-border bg-card p-3.5 flex flex-col justify-between gap-3 min-w-0 overflow-hidden"
                   >
-                    <div className="space-y-1.5">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
+                    <div className="space-y-1.5 min-w-0">
+                      <div className="flex items-center justify-between gap-2 min-w-0">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
                           {isNam ? (
                             <Sparkles className="size-4 text-signal-warn shrink-0" />
                           ) : isIr ? (
@@ -568,13 +578,14 @@ export const ToneHubModal: React.FC<ToneHubModalProps> = ({
                           <span className="font-display text-xs font-bold truncate">
                             {item.title}
                           </span>
+                          <HelpHint content={item.description} />
                         </div>
                         <Badge variant={isNam ? "warn" : isIr ? "ok" : "hot"} size="xs">
                           {item.architecture}
                         </Badge>
                       </div>
 
-                      <div className="text-[10px] text-muted-foreground flex items-center gap-2 font-mono tabular-nums">
+                      <div className="text-[10px] text-muted-foreground flex items-center gap-2 font-mono tabular-nums truncate">
                         <span>{item.genre}</span>
                         <span>·</span>
                         <span>{item.sampleRate / 1000}kHz</span>
@@ -591,10 +602,6 @@ export const ToneHubModal: React.FC<ToneHubModalProps> = ({
                           </>
                         )}
                       </div>
-
-                      <p className="text-[11px] text-muted-foreground leading-relaxed">
-                        {item.description}
-                      </p>
 
                       <div className="flex flex-wrap gap-1 pt-0.5">
                         {item.tags.map((tg) => (

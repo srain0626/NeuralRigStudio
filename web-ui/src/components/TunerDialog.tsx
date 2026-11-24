@@ -30,7 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { Hint } from "@/components/ui/tooltip"
+import { HelpHint, Hint } from "@/components/ui/tooltip"
 import { useI18n } from "@/lib/i18n"
 import type { TunerSnapshotDto } from "@/types/rig"
 
@@ -163,15 +163,22 @@ export function TunerDialog({
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <div className="flex items-center justify-between gap-2 pr-8">
-            <DialogTitle className="flex items-center gap-2">
-              <Music2 className="size-4 text-primary" />
-              PRECISION STROBE TUNER
+            <DialogTitle className="flex items-center gap-2 min-w-0">
+              <Music2 className="size-4 text-primary shrink-0" />
+              <span className="truncate">PRECISION STROBE TUNER</span>
+              <HelpHint
+                side="bottom"
+                content={tx(
+                  "MPM 기반 고정밀 크로매틱 튜너 · 조율 중 출력 무음 전환 및 A4 기준음 조절을 지원합니다.",
+                  "High-precision MPM chromatic tuner with silent bypass and A4 reference calibration."
+                )}
+              />
             </DialogTitle>
             <Badge variant={isAudioRunning ? "ok" : "outline"} size="xs">
               A4 = {refA4Hz.toFixed(0)} Hz
             </Badge>
           </div>
-          <DialogDescription>
+          <DialogDescription className="sr-only">
             {tx(
               "MPM 기반 고정밀 크로매틱 튜너 · 조율 시 출력 무음 전환 지원",
               "High-precision MPM chromatic tuner with silent bypass option."
@@ -181,9 +188,9 @@ export function TunerDialog({
 
         <div className="space-y-3 text-xs">
           {!isAudioRunning && (
-            <div className="rounded-sm border border-border bg-secondary/50 p-2.5 flex flex-wrap items-center justify-between gap-2">
-              <span className="text-[11px] text-muted-foreground">
-                {tx("튜너를 사용하려면 먼저 오디오 입력을 켜주세요.", "Start audio input to activate tuner.")}
+            <div className="rounded-sm border border-border bg-secondary/50 p-2.5 flex items-center justify-between gap-2">
+              <span className="text-[11px] text-muted-foreground truncate">
+                {tx("오디오 입력 필요", "Audio input required")}
               </span>
               <div className="flex items-center gap-1.5">
                 <Button size="xs" variant="ghost" onClick={onOpenAudioSettings}>

@@ -37,7 +37,7 @@ function TooltipContent({
         data-slot="tooltip-content"
         sideOffset={sideOffset}
         className={cn(
-          "z-50 max-w-xs rounded-sm border border-oled-border bg-oled px-2.5 py-1.5 text-[11px] text-oled-foreground shadow-md animate-in fade-in-0 zoom-in-95",
+          "z-[80] max-w-[260px] rounded-[10px] border border-oled-border bg-oled px-3 py-1.5 text-[11.5px] leading-relaxed text-oled-foreground shadow-lg animate-in fade-in-0 zoom-in-95",
           className
         )}
         {...props}
@@ -72,4 +72,45 @@ function Hint({ content, kbd, side = "bottom", children }: HintProps) {
   )
 }
 
-export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider, Hint }
+interface HelpHintProps {
+  content?: React.ReactNode
+  side?: "top" | "bottom" | "left" | "right"
+  className?: string
+  ariaLabel?: string
+}
+
+function HelpHint({ content, side = "top", className, ariaLabel = "Help" }: HelpHintProps) {
+  if (!content) return null
+  return (
+    <Tooltip delayDuration={80}>
+      <TooltipTrigger asChild>
+        <span
+          role="button"
+          tabIndex={0}
+          data-slot="help-hint"
+          aria-label={ariaLabel}
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault()
+              e.stopPropagation()
+            }
+          }}
+          className={cn(
+            "inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/35 bg-muted-foreground/12 font-mono text-[10px] font-semibold leading-none text-muted-foreground hover:border-primary/60 hover:bg-primary/15 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 transition-colors duration-200 cursor-help select-none align-middle",
+            className
+          )}
+        >
+          ?
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side={side}>{content}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider, Hint, HelpHint }

@@ -19,6 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { HelpHint } from "@/components/ui/tooltip"
 import { studioBridge } from "@/lib/bridge"
 import { useI18n } from "@/lib/i18n"
 import type { CloudStateDto } from "@/types/rig"
@@ -150,15 +151,24 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
                 <Cloud className="size-4" />
               )}
             </div>
-            <div>
-              <DialogTitle>
-                {isFirstGate
-                  ? tx("NEURALRIG STUDIO · 계정 또는 게스트 선택", "NEURALRIG STUDIO · ACCOUNT OR GUEST")
-                  : isDailyReminder
-                    ? tx("오늘의 로그인 안내 · 클라우드 백업", "DAILY REMINDER · SIGN IN WITH GOOGLE")
-                    : tx("GOOGLE 클라우드 계정 & 동기화", "GOOGLE CLOUD ACCOUNT & SYNC")}
-              </DialogTitle>
-              <DialogDescription>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <DialogTitle className="truncate">
+                  {isFirstGate
+                    ? tx("NEURALRIG STUDIO · 로그인", "NEURALRIG STUDIO · SIGN IN")
+                    : isDailyReminder
+                      ? tx("클라우드 백업 · Google 로그인", "CLOUD SYNC · GOOGLE SIGN IN")
+                      : tx("GOOGLE 클라우드 계정", "GOOGLE CLOUD ACCOUNT")}
+                </DialogTitle>
+                <HelpHint
+                  side="bottom"
+                  content={tx(
+                    "Google 계정 로그인 시 프리셋·기타 프로필·커스텀 SPICE 기어가 자동 동기화됩니다. 게스트 모드에서도 모든 로컬 연주·DSP 기능을 제한 없이 쓸 수 있습니다.",
+                    "Sign in with Google to sync presets, guitar profiles, and custom SPICE gear across PCs, or play offline with zero restrictions in Guest mode."
+                  )}
+                />
+              </div>
+              <DialogDescription className="sr-only">
                 {isDailyReminder
                   ? tx(
                       "게스트 모드로 사용 중입니다. Google 계정으로 로그인하면 프리셋·기타 프로필·SPICE 커스텀 기어가 자동 동기화됩니다.",
@@ -268,18 +278,6 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
             </div>
           ) : (
             <div className="space-y-3">
-              <div className="rounded-sm border border-border bg-card p-3.5 space-y-1.5 text-xs text-muted-foreground">
-                <div className="font-mono text-[10px] font-bold uppercase tracking-wider text-primary">
-                  {tx("클라우드 세션 안내", "CLOUD SESSION")}
-                </div>
-                <p className="leading-relaxed text-foreground/90">
-                  {tx(
-                    "Google 계정으로 로그인하면 프리셋·기타 프로필·SPICE 커스텀 기어가 자동 동기화되며, 게스트 모드에서도 모든 오프라인 연주/DSP/로컬 기능을 제한 없이 사용할 수 있습니다.",
-                    "Sign in with Google to synchronize presets, guitar profiles, and custom SPICE gear across PCs, or play offline with zero restrictions in Guest mode."
-                  )}
-                </p>
-              </div>
-
               <div className="grid grid-cols-1 gap-2">
                 <Button
                   size="lg"

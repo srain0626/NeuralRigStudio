@@ -38,7 +38,7 @@ import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
 import { Toaster } from "@/components/ui/sonner"
-import { Hint } from "@/components/ui/tooltip"
+import { HelpHint, Hint } from "@/components/ui/tooltip"
 import {
   FACTORY_PRESETS,
   commitActiveScene,
@@ -1209,24 +1209,28 @@ export default function App() {
                 setAuthDailyPrompt(false)
                 setAuthOpen(true)
               }}
-              className="w-full flex items-center justify-between px-3 py-2.5 rounded-[12px] bg-secondary/70 hover:bg-secondary border border-border text-left transition-colors cursor-pointer"
+              className="w-full min-w-0 overflow-hidden flex items-center justify-between gap-2 px-3 py-2.5 rounded-[12px] bg-secondary/70 hover:bg-secondary border border-border text-left transition-colors cursor-pointer"
             >
-              <div className="flex items-center gap-2.5 min-w-0">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
                 <Cloud className="size-4 text-primary shrink-0" />
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold truncate">
-                    {cloudState.isAuthenticated && cloudState.user
-                      ? cloudState.user.displayName
-                      : tx("Google 클라우드 동기화", "Cloud Account & Sync")}
-                  </div>
-                  <div className="text-[10.5px] text-muted-foreground truncate">
-                    {cloudState.isAuthenticated && cloudState.user
+                <span className="text-xs font-semibold truncate">
+                  {cloudState.isAuthenticated && cloudState.user
+                    ? cloudState.user.displayName
+                    : tx("Google 클라우드 동기화", "Cloud Account & Sync")}
+                </span>
+                <HelpHint
+                  side="top"
+                  content={
+                    cloudState.isAuthenticated && cloudState.user
                       ? cloudState.user.email
-                      : tx("프리셋 백업 · 커뮤니티 업로드", "Sync presets & publish gear")}
-                  </div>
-                </div>
+                      : tx(
+                          "프리셋·기타 프로필 클라우드 백업 및 커뮤니티 기어 게시",
+                          "Back up presets & guitar profiles or publish custom gear."
+                        )
+                  }
+                />
               </div>
-              <span className="font-mono text-xs text-primary">→</span>
+              <span className="font-mono text-xs text-primary shrink-0">→</span>
             </button>
 
             {/* Compact Segmented Mode Chips: Theme & Language */}
@@ -1234,20 +1238,20 @@ export default function App() {
               <button
                 type="button"
                 onClick={toggleTheme}
-                className="h-8 px-2.5 rounded-[10px] border border-border bg-card hover:bg-secondary text-xs font-medium flex items-center justify-between transition-colors cursor-pointer"
+                className="h-8 min-w-0 overflow-hidden px-2.5 rounded-[10px] border border-border bg-card hover:bg-secondary text-xs font-medium flex items-center justify-between gap-1.5 transition-colors cursor-pointer"
               >
-                <span className="text-muted-foreground">{tx("화면 테마", "Theme")}</span>
-                <span className="font-mono text-[11px] font-semibold text-foreground">
+                <span className="text-muted-foreground truncate">{tx("화면 테마", "Theme")}</span>
+                <span className="font-mono text-[11px] font-semibold text-foreground shrink-0">
                   {themeId === "mist" ? tx("라이트", "Mist") : tx("다크", "Dark")}
                 </span>
               </button>
               <button
                 type="button"
                 onClick={toggleLocale}
-                className="h-8 px-2.5 rounded-[10px] border border-border bg-card hover:bg-secondary text-xs font-medium flex items-center justify-between transition-colors cursor-pointer"
+                className="h-8 min-w-0 overflow-hidden px-2.5 rounded-[10px] border border-border bg-card hover:bg-secondary text-xs font-medium flex items-center justify-between gap-1.5 transition-colors cursor-pointer"
               >
-                <span className="text-muted-foreground">{tx("언어", "Lang")}</span>
-                <span className="font-mono text-[11px] font-semibold text-foreground">
+                <span className="text-muted-foreground truncate">{tx("언어", "Lang")}</span>
+                <span className="font-mono text-[11px] font-semibold text-foreground shrink-0">
                   {locale === "ko" ? "한국어" : "English"}
                 </span>
               </button>
@@ -1261,7 +1265,7 @@ export default function App() {
                   setStudioMenuOpen(false)
                   setAudioDialogOpen(true)
                 }}
-                className="flex items-center gap-2 px-2.5 py-2 rounded-[10px] border border-border bg-card hover:bg-secondary text-left transition-colors cursor-pointer"
+                className="min-w-0 overflow-hidden flex items-center gap-2 px-2.5 py-2 rounded-[10px] border border-border bg-card hover:bg-secondary text-left transition-colors cursor-pointer"
               >
                 <SlidersHorizontal className="size-3.5 text-primary shrink-0" />
                 <span className="text-xs font-medium truncate">
@@ -1275,7 +1279,7 @@ export default function App() {
                   setStudioMenuOpen(false)
                   setTunerDialogOpen(true)
                 }}
-                className="flex items-center justify-between gap-1.5 px-2.5 py-2 rounded-[10px] border border-border bg-card hover:bg-secondary text-left transition-colors cursor-pointer"
+                className="min-w-0 overflow-hidden flex items-center justify-between gap-1.5 px-2.5 py-2 rounded-[10px] border border-border bg-card hover:bg-secondary text-left transition-colors cursor-pointer"
               >
                 <div className="flex items-center gap-2 min-w-0">
                   <Music2 className="size-3.5 text-primary shrink-0" />
@@ -1297,7 +1301,7 @@ export default function App() {
                   setStudioMenuOpen(false)
                   setGuitarDialogOpen(true)
                 }}
-                className="flex items-center gap-2 px-2.5 py-2 rounded-[10px] border border-border bg-card hover:bg-secondary text-left transition-colors cursor-pointer"
+                className="min-w-0 overflow-hidden flex items-center gap-2 px-2.5 py-2 rounded-[10px] border border-border bg-card hover:bg-secondary text-left transition-colors cursor-pointer"
               >
                 <Guitar className="size-3.5 text-primary shrink-0" />
                 <span className="text-xs font-medium truncate">
@@ -1311,7 +1315,7 @@ export default function App() {
                   setStudioMenuOpen(false)
                   setCommandOpen(true)
                 }}
-                className="flex items-center justify-between gap-1.5 px-2.5 py-2 rounded-[10px] border border-border bg-card hover:bg-secondary text-left transition-colors cursor-pointer"
+                className="min-w-0 overflow-hidden flex items-center justify-between gap-1.5 px-2.5 py-2 rounded-[10px] border border-border bg-card hover:bg-secondary text-left transition-colors cursor-pointer"
               >
                 <div className="flex items-center gap-2 min-w-0">
                   <Search className="size-3.5 text-primary shrink-0" />
@@ -1319,14 +1323,14 @@ export default function App() {
                     {tx("빠른 검색", "Search")}
                   </span>
                 </div>
-                <span className="font-mono text-[10px] text-muted-foreground">/</span>
+                <span className="font-mono text-[10px] text-muted-foreground shrink-0">/</span>
               </button>
             </div>
 
             <Separator />
 
             {/* Workspace & Advanced Feature List */}
-            <div className="space-y-0.5 text-xs">
+            <div className="space-y-0.5 text-xs min-w-0">
               {[
                 {
                   icon: Layers,
@@ -1370,10 +1374,10 @@ export default function App() {
                       setStudioMenuOpen(false)
                       item.action()
                     }}
-                    className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-[8px] hover:bg-secondary text-left text-foreground transition-colors cursor-pointer"
+                    className="w-full min-w-0 overflow-hidden flex items-center gap-2.5 px-2.5 py-1.5 rounded-[8px] hover:bg-secondary text-left text-foreground transition-colors cursor-pointer"
                   >
                     <Icon className="size-3.5 text-muted-foreground shrink-0" strokeWidth={1.6} />
-                    <span className="truncate">{item.label}</span>
+                    <span className="truncate min-w-0 flex-1">{item.label}</span>
                   </button>
                 )
               })}
@@ -1385,10 +1389,10 @@ export default function App() {
                     setStudioMenuOpen(false)
                     setAdminOpen(true)
                   }}
-                  className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-[8px] hover:bg-secondary text-left text-signal-warn transition-colors cursor-pointer"
+                  className="w-full min-w-0 overflow-hidden flex items-center gap-2.5 px-2.5 py-1.5 rounded-[8px] hover:bg-secondary text-left text-signal-warn transition-colors cursor-pointer"
                 >
                   <Shield className="size-3.5 shrink-0" strokeWidth={1.6} />
-                  <span className="font-medium">
+                  <span className="font-medium truncate min-w-0 flex-1">
                     {tx("어드민 애널리틱스 · OTA 콘솔", "Admin Analytics & OTA Console")}
                   </span>
                 </button>

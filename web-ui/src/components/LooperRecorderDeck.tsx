@@ -27,7 +27,7 @@ import {
 import { Slider } from "@/components/ui/slider"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Toggle } from "@/components/ui/toggle"
-import { Hint } from "@/components/ui/tooltip"
+import { HelpHint, Hint } from "@/components/ui/tooltip"
 import { useI18n } from "@/lib/i18n"
 import type {
   BackingTrackStateDto,
@@ -369,8 +369,15 @@ export const LooperRecorderDeck: React.FC<LooperRecorderDeckProps> = ({
           {/* Lower Bay: Dual-Stream Dry/Wet Recorder & 1-Click Re-Amp */}
           <div className="rounded-[8px] border border-oled-border bg-white/[0.04] px-2.5 py-2 space-y-1.5">
             <div className="flex items-center justify-between gap-1.5">
-              <span className="font-mono text-[9.5px] tracking-[0.12em] text-oled-muted">
-                REC · RE-AMP
+              <span className="inline-flex items-center gap-1.5 font-mono text-[9.5px] tracking-[0.12em] text-oled-muted">
+                <span>REC · RE-AMP</span>
+                <HelpHint
+                  side="top"
+                  content={tx(
+                    "드라이 DI 원음과 Wet 스테레오를 동시 녹음해 1클릭 리앰핑을 지원합니다.",
+                    "Records Dry DI + Wet stereo simultaneously for 1-click re-amping."
+                  )}
+                />
               </span>
               <div className="flex items-center gap-1">
                 <Hint
@@ -459,14 +466,21 @@ export const LooperRecorderDeck: React.FC<LooperRecorderDeckProps> = ({
 
         {/* Tab 2: Backing Track (MR) Transport */}
         <TabsContent value="mr" className="flex-1 min-h-0 p-3 flex flex-col justify-between gap-2">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5 min-w-0">
+          <div className="flex items-center justify-between gap-2 min-w-0">
+            <div className="flex items-center gap-1.5 min-w-0 flex-1">
               <Music className="size-3.5 text-primary shrink-0" />
               <span className="text-xs font-medium truncate text-oled-foreground">
                 {backing.loaded
                   ? backing.name
-                  : tx("MR 백킹 트랙 없음", "No backing track loaded")}
+                  : tx("MR 백킹 트랙 없음", "No backing track")}
               </span>
+              <HelpHint
+                side="top"
+                content={tx(
+                  "WAV / MP3 반주 파일을 불러와 함께 합주할 수 있습니다 (단축키 Space).",
+                  "Load a WAV / MP3 backing track and toggle playback with Space."
+                )}
+              />
             </div>
             <div className="flex items-center gap-1 shrink-0">
               <Button size="xs" variant="oled" onClick={onLoadBacking}>
@@ -530,12 +544,9 @@ export const LooperRecorderDeck: React.FC<LooperRecorderDeckProps> = ({
               </div>
             </div>
           ) : (
-            <div className="flex-1 rounded-[8px] border border-dashed border-oled-border bg-white/[0.02] flex flex-col items-center justify-center p-4 text-center">
-              <span className="text-[11px] text-oled-muted leading-relaxed">
-                {tx(
-                  "WAV / MP3 반주 파일을 불러와 톤에 맞춰 합주하세요 (단축키 Space)",
-                  "Load a WAV / MP3 backing track to jam along (Shortcut: Space)"
-                )}
+            <div className="flex-1 rounded-[8px] border border-dashed border-oled-border bg-white/[0.02] flex items-center justify-center p-4 text-center">
+              <span className="text-[11px] font-mono text-oled-muted">
+                {tx("WAV · MP3 미로드", "EMPTY MR SLOT")}
               </span>
             </div>
           )}

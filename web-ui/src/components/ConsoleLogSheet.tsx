@@ -11,6 +11,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { HelpHint } from "@/components/ui/tooltip"
 import { useI18n } from "@/lib/i18n"
 
 export interface StudioLogEntry {
@@ -39,12 +40,19 @@ export const ConsoleLogSheet: React.FC<ConsoleLogSheetProps> = ({
       <SheetContent className="max-w-lg p-0">
         <SheetHeader>
           <div className="flex items-center justify-between gap-2 pr-8">
-            <div className="space-y-0.5">
+            <div className="min-w-0">
               <SheetTitle className="flex items-center gap-2">
-                <Terminal className="size-4 text-primary" />
-                SYSTEM TELEMETRY CONSOLE
+                <Terminal className="size-4 text-primary shrink-0" />
+                <span className="truncate">SYSTEM TELEMETRY CONSOLE</span>
+                <HelpHint
+                  side="bottom"
+                  content={tx(
+                    "오디오 엔진, MIDI, 프리셋, MCP 회로도 이벤트 기록입니다.",
+                    "Real-time audio engine, MIDI, preset, and MCP schematic event log."
+                  )}
+                />
               </SheetTitle>
-              <SheetDescription>
+              <SheetDescription className="sr-only">
                 {tx(
                   "오디오 엔진, MIDI, 프리셋, MCP 회로도 이벤트 기록",
                   "Real-time audio engine, MIDI, preset, and MCP schematic event log."
@@ -64,17 +72,17 @@ export const ConsoleLogSheet: React.FC<ConsoleLogSheetProps> = ({
                 {tx("기록된 이벤트가 없습니다.", "No events recorded yet.")}
               </div>
             ) : (
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 min-w-0">
                 {logs.map((entry) => (
                   <div
                     key={entry.id}
-                    className={
+                    className={`break-words overflow-hidden ${
                       entry.level === "error"
                         ? "text-signal-hot"
                         : entry.level === "success"
                           ? "text-signal-ok"
                           : "text-oled-foreground/85"
-                    }
+                    }`}
                   >
                     {entry.text}
                   </div>

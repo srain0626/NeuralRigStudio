@@ -194,7 +194,7 @@ export const CortexGrid: React.FC<CortexGridProps> = ({
     return (
       <ContextMenu key={slotIdx}>
         <ContextMenuTrigger asChild>
-          <div>
+          <div className="w-full max-w-[126px] min-w-0">
             <Hint
               content={tx(
                 `${def.name} (${bypassed ? "바이패스됨" : "활성"}) — 더블클릭 ON/OFF · 우클릭 메뉴 · 드래그 이동`,
@@ -210,14 +210,14 @@ export const CortexGrid: React.FC<CortexGridProps> = ({
                 onDrop={(e) => handleDrop(e, slotIdx)}
                 onClick={() => onSelectSlot(slotIdx, false)}
                 onDoubleClick={() => onToggleBypass(slotIdx)}
-                className={`relative z-10 w-full max-w-[126px] h-[86px] rounded-[14px] px-3 py-2.5 flex flex-col justify-between text-left transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-grab active:cursor-grabbing ${cardStateClasses} ${
+                className={`relative z-10 w-full max-w-[126px] min-w-0 overflow-hidden h-[86px] rounded-[14px] px-3 py-2.5 flex flex-col justify-between text-left transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-grab active:cursor-grabbing ${cardStateClasses} ${
                   isDragOver ? "ring-2 ring-primary scale-105" : ""
                 }`}
               >
                 {/* Top Micro Row: Category Stamp + Status Dot */}
-                <div className="flex items-center justify-between gap-1 font-mono text-[10px] leading-none">
+                <div className="flex items-center justify-between gap-1 font-mono text-[10px] leading-none min-w-0">
                   <span
-                    className={`font-semibold tracking-[0.05em] ${
+                    className={`font-semibold tracking-[0.05em] truncate ${
                       isSelected && !bypassed ? "text-[#ff6b24]" : "opacity-55"
                     }`}
                   >
@@ -240,7 +240,7 @@ export const CortexGrid: React.FC<CortexGridProps> = ({
 
                 {/* Center Model Title */}
                 <div
-                  className={`font-sans text-[13px] font-semibold tracking-[-0.015em] truncate leading-tight ${
+                  className={`font-sans text-[13px] font-semibold tracking-[-0.015em] w-full min-w-0 truncate leading-tight ${
                     bypassed ? "line-through opacity-75" : ""
                   }`}
                 >
@@ -248,9 +248,9 @@ export const CortexGrid: React.FC<CortexGridProps> = ({
                 </div>
 
                 {/* Bottom Parameter Hairline + Optional Sync/Mic Badge */}
-                <div className="flex items-center justify-between gap-1.5">
+                <div className="flex items-center justify-between gap-1.5 min-w-0">
                   <div
-                    className={`h-[2px] flex-1 rounded-full overflow-hidden ${
+                    className={`h-[2px] flex-1 min-w-0 rounded-full overflow-hidden ${
                       bypassed ? "bg-white/15" : "bg-black/10"
                     }`}
                   >
@@ -268,7 +268,7 @@ export const CortexGrid: React.FC<CortexGridProps> = ({
                   </div>
                   {(syncBadge || dualMicBadge || bypassBinding) && (
                     <span
-                      className={`font-mono text-[8px] font-bold leading-none ${
+                      className={`font-mono text-[8px] font-bold leading-none shrink-0 ${
                         isSelected && !bypassed ? "text-[#ff6b24]" : "opacity-65"
                       }`}
                     >
@@ -282,22 +282,22 @@ export const CortexGrid: React.FC<CortexGridProps> = ({
         </ContextMenuTrigger>
         <ContextMenuContent>
           <ContextMenuItem onSelect={() => onSelectSlot(slotIdx, true)}>
-            <span className="flex items-center gap-2 font-medium">
-              <Repeat className="size-3.5 text-primary" />
-              {tx("장비 변경…", "Change Gear…")}
+            <span className="flex items-center gap-2 min-w-0 font-medium">
+              <Repeat className="size-3.5 text-primary shrink-0" />
+              <span className="truncate">{tx("장비 변경…", "Change Gear…")}</span>
             </span>
           </ContextMenuItem>
           <ContextMenuItem onSelect={() => onSelectSlot(slotIdx, false)}>
-            <span className="flex items-center gap-2">
-              <SlidersHorizontal className="size-3.5" />
-              {tx("세부 노브 열기", "Edit Parameters")}
+            <span className="flex items-center gap-2 min-w-0">
+              <SlidersHorizontal className="size-3.5 shrink-0" />
+              <span className="truncate">{tx("세부 노브 열기", "Edit Parameters")}</span>
             </span>
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem onSelect={() => onToggleBypass(slotIdx)}>
-            <span className="flex items-center gap-2">
-              <Power className="size-3.5" />
-              {slot.enabled ? tx("블록 바이패스", "Bypass Block") : tx("블록 활성화", "Enable Block")}
+            <span className="flex items-center gap-2 min-w-0">
+              <Power className="size-3.5 shrink-0" />
+              <span className="truncate">{slot.enabled ? tx("블록 바이패스", "Bypass Block") : tx("블록 활성화", "Enable Block")}</span>
             </span>
           </ContextMenuItem>
           {(onStartMidiLearn || onClearMidiBinding) && (
@@ -310,38 +310,40 @@ export const CortexGrid: React.FC<CortexGridProps> = ({
                 }
               }}
             >
-              <span className="flex items-center gap-2">
-                <Radio className="size-3.5 text-primary" />
-                {bypassBinding
-                  ? tx(`바이패스 MIDI CC#${bypassBinding.cc} 해제`, `Clear Bypass MIDI CC#${bypassBinding.cc}`)
-                  : tx("바이패스 MIDI CC 학습", "Learn Bypass MIDI CC")}
+              <span className="flex items-center gap-2 min-w-0">
+                <Radio className="size-3.5 text-primary shrink-0" />
+                <span className="truncate">
+                  {bypassBinding
+                    ? tx(`바이패스 MIDI CC#${bypassBinding.cc} 해제`, `Clear Bypass MIDI CC#${bypassBinding.cc}`)
+                    : tx("바이패스 MIDI CC 학습", "Learn Bypass MIDI CC")}
+                </span>
               </span>
             </ContextMenuItem>
           )}
           <ContextMenuSeparator />
           <ContextMenuItem disabled={slotIdx === 0} onSelect={() => onMoveOrSwap(slotIdx, slotIdx - 1)}>
-            <span className="flex items-center gap-2">
-              <ArrowLeft className="size-3.5" />
-              {tx("왼쪽 슬롯과 교환", "Swap Left")}
+            <span className="flex items-center gap-2 min-w-0">
+              <ArrowLeft className="size-3.5 shrink-0" />
+              <span className="truncate">{tx("왼쪽 슬롯과 교환", "Swap Left")}</span>
             </span>
           </ContextMenuItem>
           <ContextMenuItem disabled={slotIdx === 15} onSelect={() => onMoveOrSwap(slotIdx, slotIdx + 1)}>
-            <span className="flex items-center gap-2">
-              <ArrowRight className="size-3.5" />
-              {tx("오른쪽 슬롯과 교환", "Swap Right")}
+            <span className="flex items-center gap-2 min-w-0">
+              <ArrowRight className="size-3.5 shrink-0" />
+              <span className="truncate">{tx("오른쪽 슬롯과 교환", "Swap Right")}</span>
             </span>
           </ContextMenuItem>
           <ContextMenuItem onSelect={() => onResetSlot(slotIdx)}>
-            <span className="flex items-center gap-2">
-              <RotateCcw className="size-3.5" />
-              {tx("파라미터 기본값 복원", "Reset Parameters")}
+            <span className="flex items-center gap-2 min-w-0">
+              <RotateCcw className="size-3.5 shrink-0" />
+              <span className="truncate">{tx("파라미터 기본값 복원", "Reset Parameters")}</span>
             </span>
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem variant="destructive" onSelect={() => onRemoveSlot(slotIdx)}>
-            <span className="flex items-center gap-2">
-              <Trash2 className="size-3.5" />
-              {tx("슬롯에서 제거", "Remove Block")}
+            <span className="flex items-center gap-2 min-w-0">
+              <Trash2 className="size-3.5 shrink-0" />
+              <span className="truncate">{tx("슬롯에서 제거", "Remove Block")}</span>
             </span>
           </ContextMenuItem>
         </ContextMenuContent>
@@ -426,7 +428,7 @@ export const CortexGrid: React.FC<CortexGridProps> = ({
           </div>
 
           {[0, 1, 2, 3, 4, 5, 6, 7].map((idx) => (
-            <div key={idx} className="flex justify-center">
+            <div key={idx} className="flex justify-center min-w-0">
               {renderSlot(idx)}
             </div>
           ))}
@@ -439,7 +441,7 @@ export const CortexGrid: React.FC<CortexGridProps> = ({
           <div className="h-[86px] w-full" aria-hidden="true" />
 
           {[8, 9, 10, 11, 12, 13, 14, 15].map((idx) => (
-            <div key={idx} className="flex justify-center">
+            <div key={idx} className="flex justify-center min-w-0">
               {renderSlot(idx)}
             </div>
           ))}

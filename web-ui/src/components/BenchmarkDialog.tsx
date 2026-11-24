@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { HelpHint } from "@/components/ui/tooltip"
 import { studioBridge } from "@/lib/bridge"
 import { useI18n } from "@/lib/i18n"
 import type { RigBenchmarkReportDto } from "@/types/rig"
@@ -94,15 +95,24 @@ export const BenchmarkDialog: React.FC<BenchmarkDialogProps> = ({
       <DialogContent className="max-w-4xl p-0 overflow-hidden bg-card text-card-foreground border-border gap-0">
         <DialogHeader className="px-5 py-3.5 border-b border-border bg-secondary/45 shrink-0">
           <div className="flex flex-wrap items-center justify-between gap-3 pr-8">
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2.5 min-w-0">
               <div className="size-8 rounded-sm bg-oled border border-oled-border flex items-center justify-center text-primary shrink-0">
                 <Gauge className="size-4" strokeWidth={1.7} />
               </div>
-              <div>
-                <DialogTitle>
-                  {tx("하드웨어 유사도 · 지연시간 · 멀티체인 벤치마크", "HARDWARE SIMILARITY · LATENCY · MULTI-CHAIN BENCHMARK")}
-                </DialogTitle>
-                <DialogDescription>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <DialogTitle className="truncate">
+                    {tx("DSP 성능 · 유사도 벤치마크", "DSP & FIDELITY BENCHMARK")}
+                  </DialogTitle>
+                  <HelpHint
+                    side="bottom"
+                    content={tx(
+                      "MNA SPICE 회로 해석, 4x HIIR 비대칭 클리핑, WaveNet ESR, 64/128/256fr RT 데드라인 및 16슬롯 스트레스 검증을 수행합니다.",
+                      "MNA SPICE nodal checks, 4x HIIR harmonic checks, WaveNet ESR, 64/128/256fr RT deadlines, and 16-slot stress suite."
+                    )}
+                  />
+                </div>
+                <DialogDescription className="sr-only">
                   {tx(
                     "MNA SPICE 물리 회로 해석 · 4x HIIR 대칭/비대칭 클리핑 · WaveNet · 64/128/256fr RT 데드라인 · 16슬롯 스트레스 검증",
                     "MNA SPICE nodal checks · 4x HIIR harmonic verification · WaveNet ESR · 64/128/256fr RT deadlines · 16-slot torture suite"
@@ -275,23 +285,19 @@ export const BenchmarkDialog: React.FC<BenchmarkDialogProps> = ({
               {report.similarityItems.map((item) => (
                 <div
                   key={item.id}
-                  className="rounded-sm border border-border bg-card p-3 space-y-2"
+                  className="rounded-sm border border-border bg-card p-3 space-y-2 min-w-0 overflow-hidden"
                 >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-display text-xs font-bold text-foreground">
-                          {item.originalHardware}
-                        </span>
-                        <span className="font-mono text-[10px] text-muted-foreground">
-                          ({item.deviceName})
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-muted-foreground mt-0.5">
-                        {item.topologySummary}
-                      </div>
+                  <div className="flex items-center justify-between gap-2 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <span className="font-display text-xs font-bold text-foreground truncate">
+                        {item.originalHardware}
+                      </span>
+                      <span className="font-mono text-[10px] text-muted-foreground truncate">
+                        ({item.deviceName})
+                      </span>
+                      <HelpHint content={item.topologySummary} />
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 shrink-0">
                       <span className="font-mono text-xs font-bold tabular-nums text-primary">
                         {item.similarityPct.toFixed(1)}%
                       </span>
@@ -350,7 +356,7 @@ export const BenchmarkDialog: React.FC<BenchmarkDialogProps> = ({
                       key={`${row.profileName}-${row.bufferFrames}-${idx}`}
                       className="hover:bg-accent/50"
                     >
-                      <td className="py-2 px-3 font-sans text-[11px] font-medium text-foreground">
+                      <td className="py-2 px-3 font-sans text-[11px] font-medium text-foreground max-w-[210px] truncate">
                         {row.profileName}
                       </td>
                       <td className="py-2 px-2 text-right tabular-nums text-foreground">
@@ -388,21 +394,19 @@ export const BenchmarkDialog: React.FC<BenchmarkDialogProps> = ({
               {report.multiChainItems.map((item) => (
                 <div
                   key={item.scenarioName}
-                  className="rounded-sm border border-border bg-card p-3 space-y-2"
+                  className="rounded-sm border border-border bg-card p-3 space-y-2 min-w-0 overflow-hidden"
                 >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-display text-xs font-bold text-foreground">
-                          {item.scenarioName}
-                        </span>
-                        <Badge variant="secondary" size="xs">
-                          {item.activeBlocks} Blocks · {item.routingMode}
-                        </Badge>
-                      </div>
-                      <div className="text-[11px] text-muted-foreground mt-0.5">{item.detail}</div>
+                  <div className="flex items-center justify-between gap-2 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <span className="font-display text-xs font-bold text-foreground truncate">
+                        {item.scenarioName}
+                      </span>
+                      <Badge variant="secondary" size="xs">
+                        {item.activeBlocks} Blocks · {item.routingMode}
+                      </Badge>
+                      <HelpHint content={item.detail} />
                     </div>
-                    <Badge variant={item.passed ? "ok" : "destructive"} size="xs">
+                    <Badge variant={item.passed ? "ok" : "destructive"} size="xs" className="shrink-0">
                       {item.passed ? "PASS · 0 B RT ALLOC" : "FAIL"}
                     </Badge>
                   </div>

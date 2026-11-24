@@ -11,7 +11,7 @@ import {
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import { Toggle } from "@/components/ui/toggle"
-import { Hint } from "@/components/ui/tooltip"
+import { HelpHint, Hint } from "@/components/ui/tooltip"
 import { useI18n } from "@/lib/i18n"
 import type { CabMicConfigDto } from "@/types/rig"
 
@@ -86,11 +86,18 @@ export const VirtualCabRoom: React.FC<VirtualCabRoomProps> = ({ config, onChange
       {/* Left: 2D Interactive Speaker Cone Radar */}
       <div className="w-[232px] shrink-0 flex flex-col justify-between gap-1.5">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <Mic className="size-3.5 text-signal-warn" strokeWidth={1.5} />
-            <span className="font-mono text-[10px] font-bold tracking-wider text-foreground">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Mic className="size-3.5 text-signal-warn shrink-0" strokeWidth={1.5} />
+            <span className="font-mono text-[10px] font-bold tracking-wider text-foreground truncate">
               VIRTUAL CAB ROOM
             </span>
+            <HelpHint
+              side="top"
+              content={tx(
+                "스피커 콘 위 마이크 A·B를 드래그해 Cap↔Edge 위치와 거리를 조절합니다.",
+                "Drag Mic A/B over the speaker cone to adjust Cap↔Edge position and distance."
+              )}
+            />
           </div>
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] font-mono text-muted-foreground">
@@ -440,9 +447,18 @@ export const VirtualCabRoom: React.FC<VirtualCabRoomProps> = ({ config, onChange
           </div>
 
           <div className="space-y-1 font-mono tabular-nums">
-            <div className="flex justify-between text-[10px]">
-              <span className="text-muted-foreground">HAAS DELAY</span>
-              <span className="text-primary">{cfg.micBDelayMs.toFixed(1)} ms</span>
+            <div className="flex items-center justify-between gap-1 text-[10px]">
+              <span className="flex items-center gap-1 text-muted-foreground">
+                <span>HAAS DELAY</span>
+                <HelpHint
+                  side="top"
+                  content={tx(
+                    "Mic B를 0–15ms 지연해 위상 손실 없이 스테레오 폭을 넓힙니다.",
+                    "Delay Mic B (0–15 ms) to widen stereo image without phase cancellation."
+                  )}
+                />
+              </span>
+              <span className="text-primary shrink-0">{cfg.micBDelayMs.toFixed(1)} ms</span>
             </div>
             <Slider
               value={[Math.round(cfg.micBDelayMs * 10)]}
@@ -451,13 +467,6 @@ export const VirtualCabRoom: React.FC<VirtualCabRoomProps> = ({ config, onChange
               step={1}
               onValueChange={([v]) => patch({ dualEnabled: true, micBDelayMs: v / 10 })}
             />
-          </div>
-
-          <div className="text-[10px] text-muted-foreground leading-tight">
-            {tx(
-              "스피커 콘 위 마이크를 드래그해 Cap↔Edge와 거리를 조절하세요.",
-              "Drag mics across the speaker cone to adjust Cap↔Edge & distance."
-            )}
           </div>
         </div>
       </div>

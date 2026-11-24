@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { HelpHint } from "@/components/ui/tooltip"
 import { useI18n } from "@/lib/i18n"
 import type { CustomDeviceSpecDto } from "@/types/rig"
 
@@ -117,15 +118,24 @@ export const CustomGearGuideDialog: React.FC<CustomGearGuideDialogProps> = ({
       <DialogContent className="max-w-4xl p-0 overflow-hidden bg-card text-card-foreground border-border gap-0">
         <DialogHeader className="px-5 py-3.5 border-b border-border bg-secondary/45 shrink-0">
           <div className="flex flex-wrap items-center justify-between gap-3 pr-8">
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2.5 min-w-0">
               <div className="size-8 rounded-sm bg-oled border border-oled-border flex items-center justify-center text-primary shrink-0">
                 <Wrench className="size-4" />
               </div>
-              <div>
-                <DialogTitle>
-                  {tx("새 페달 · 앰프 · 캐비넷 생성 & AI MCP 연동 가이드", "CUSTOM PEDAL, AMP & CAB CREATION + MCP GUIDE")}
-                </DialogTitle>
-                <DialogDescription>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <DialogTitle className="truncate">
+                    {tx("커스텀 페달 · 앰프 · MCP", "CUSTOM GEAR & MCP")}
+                  </DialogTitle>
+                  <HelpHint
+                    side="bottom"
+                    content={tx(
+                      "실제 회로도 리서치 → .OP/.AC/.TRAN 물리 검증 → 0 B 실시간 MNA SPICE 및 IR 핫로드를 지원합니다.",
+                      "Web Schematic Research → .OP/.AC/.TRAN Physics Verification → Zero-Alloc MNA SPICE & Cab IR Hot-Load."
+                    )}
+                  />
+                </div>
+                <DialogDescription className="sr-only">
                   {tx(
                     "실제 회로도 리서치 → .OP/.AC/.TRAN 물리 검증 → 0 B 실시간 MNA SPICE / Partitioned IR 핫로드",
                     "Web Schematic Research → .OP/.AC/.TRAN Physics Verification → Zero-Alloc MNA SPICE & Cab IR Hot-Load"
@@ -168,17 +178,17 @@ export const CustomGearGuideDialog: React.FC<CustomGearGuideDialogProps> = ({
         <ScrollArea className="h-[440px] px-5 py-4 bg-background">
           {tab === "workflow" && (
             <div className="space-y-4 pb-2">
-              <div className="rounded-sm border border-signal-warn/45 bg-signal-warn/10 p-3 flex items-start gap-2.5 text-xs text-foreground">
-                <ShieldAlert className="size-4 text-signal-warn shrink-0 mt-0.5" />
-                <div>
-                  <span className="font-bold">
-                    {tx("할루시네이션 차단 원칙: ", "Strict Anti-Hallucination Policy: ")}
-                  </span>
-                  {tx(
-                    "웹에서 실제 페달/앰프 회로도나 공식 반도체 데이터시트를 찾지 못하면 임의로 추측하지 않고 '회로도를 찾을 수 없음'으로 정확히 답변하도록 설계되어 있습니다.",
-                    "If no verifiable schematic or semiconductor datasheet exists online, the MCP pipeline refuses to fabricate values and informs you clearly."
+              <div className="rounded-sm border border-signal-warn/45 bg-signal-warn/10 px-3 py-2 flex items-center gap-2 text-xs text-foreground">
+                <ShieldAlert className="size-4 text-signal-warn shrink-0" />
+                <span className="font-semibold truncate">
+                  {tx("실제 회로도 검증 원칙 (추측 생성 금지)", "Verified Schematics Only (No Fabrication)")}
+                </span>
+                <HelpHint
+                  content={tx(
+                    "웹에서 실제 페달/앰프 회로도나 공식 데이터시트를 찾지 못하면 임의로 추측하지 않고 '찾을 수 없음'으로 보고합니다.",
+                    "If no verifiable schematic or datasheet exists online, the MCP pipeline refuses to fabricate values and reports clearly."
                   )}
-                </div>
+                />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
@@ -189,38 +199,39 @@ export const CustomGearGuideDialog: React.FC<CustomGearGuideDialogProps> = ({
                   { n: "04", title: ".OP/.AC/.TRAN", sub: "neuralrig_simulate_spice (0B)" },
                   { n: "05", title: "Hot-Load & Sync", sub: "neuralrig_commit_spice_device" },
                 ].map((s) => (
-                  <div key={s.n} className="rounded-sm border border-border bg-card p-2.5">
+                  <div key={s.n} className="rounded-sm border border-border bg-card p-2.5 min-w-0 overflow-hidden">
                     <div className="text-[10px] font-mono font-bold text-primary">STEP {s.n}</div>
-                    <div className="font-display text-xs font-bold text-foreground mt-0.5">{s.title}</div>
-                    <div className="text-[10px] font-mono text-muted-foreground mt-1 break-all">{s.sub}</div>
+                    <div className="font-display text-xs font-bold text-foreground mt-0.5 truncate">{s.title}</div>
+                    <div className="text-[10px] font-mono text-muted-foreground mt-1 truncate">{s.sub}</div>
                   </div>
                 ))}
               </div>
 
               <div className="space-y-2.5">
                 <div className="flex items-center gap-1.5 font-display text-xs font-bold text-foreground">
-                  <Sparkles className="size-3.5 text-primary" />
-                  <span>{tx("AI 에이전트에게 바로 붙여넣는 원클릭 프롬프트", "Copyable Prompts for Your AI Agent")}</span>
+                  <Sparkles className="size-3.5 text-primary shrink-0" />
+                  <span>{tx("AI 에이전트 원클릭 프롬프트", "Copyable AI Prompts")}</span>
                 </div>
                 {prompts.map((p) => (
-                  <div key={p.id} className="rounded-sm border border-border bg-card p-3 space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
+                  <div key={p.id} className="rounded-sm border border-border bg-card p-3 space-y-2 min-w-0 overflow-hidden">
+                    <div className="flex items-center justify-between gap-2 min-w-0">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
                         <Badge variant="hot" size="xs">
                           {p.tag}
                         </Badge>
-                        <span className="text-xs font-semibold text-foreground">{tx(p.titleKo, p.titleEn)}</span>
+                        <span className="text-xs font-semibold text-foreground truncate">{tx(p.titleKo, p.titleEn)}</span>
                       </div>
                       <Button
                         size="xs"
                         variant="keycap"
+                        className="shrink-0"
                         onClick={() => void copyText(p.id, p.prompt, tx(p.titleKo, p.titleEn))}
                       >
                         {copiedId === p.id ? <Check className="size-3 text-signal-ok" /> : <Copy className="size-3" />}
-                        <span>{copiedId === p.id ? tx("복사됨", "COPIED") : tx("프롬프트 복사", "COPY PROMPT")}</span>
+                        <span>{copiedId === p.id ? tx("복사됨", "COPIED") : tx("복사", "COPY")}</span>
                       </Button>
                     </div>
-                    <p className="text-[11px] font-mono text-oled-foreground bg-oled rounded-sm p-2.5 border border-oled-border leading-relaxed">
+                    <p className="text-[11px] font-mono text-oled-foreground bg-oled rounded-sm p-2.5 border border-oled-border leading-relaxed break-words">
                       {p.prompt}
                     </p>
                   </div>
@@ -231,17 +242,17 @@ export const CustomGearGuideDialog: React.FC<CustomGearGuideDialogProps> = ({
 
           {tab === "mcp" && (
             <div className="space-y-4 pb-2">
-              <div className="rounded-sm border border-border bg-card p-3.5 text-xs space-y-1">
-                <div className="flex items-center gap-2 font-display font-bold text-foreground">
-                  <Bot className="size-4 text-primary" />
-                  <span>{tx("범용 npx neuralrig-mcp 패키지로 어떤 AI 툴이든 10초 만에 연동", "Connect Any AI Provider in 10 Seconds via npx")}</span>
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  {tx(
-                    "아래에서 사용 중인 AI 에이전트를 선택하면 설정 파일 경로에 자동으로 등록하는 명령어와 JSON/TOML 설정을 복사할 수 있습니다.",
-                    "Select your AI client below to copy the one-line automatic installer command or manual config snippet."
+              <div className="rounded-sm border border-border bg-card px-3.5 py-2.5 text-xs flex items-center gap-2">
+                <Bot className="size-4 text-primary shrink-0" />
+                <span className="font-display font-bold text-foreground truncate">
+                  {tx("npx neuralrig-mcp 다중 AI 연동", "Connect Any AI via npx neuralrig-mcp")}
+                </span>
+                <HelpHint
+                  content={tx(
+                    "아래에서 AI 에이전트를 선택하면 설정 파일 자동 등록 명령어와 JSON/TOML 스니펫을 복사할 수 있습니다.",
+                    "Select an AI client below to copy the auto-install CLI command or manual JSON/TOML config."
                   )}
-                </p>
+                />
               </div>
 
               <div className="flex flex-wrap gap-1.5">
@@ -257,15 +268,16 @@ export const CustomGearGuideDialog: React.FC<CustomGearGuideDialogProps> = ({
                 ))}
               </div>
 
-              <div className="rounded-sm border border-border bg-card p-3 space-y-2">
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="flex items-center gap-1.5 font-mono font-bold text-primary">
-                    <Terminal className="size-3.5" />
-                    {tx("자동 설치 명령어 (터미널 실행)", "AUTO-CONFIGURE COMMAND")}
+              <div className="rounded-sm border border-border bg-card p-3 space-y-2 min-w-0">
+                <div className="flex items-center justify-between gap-2 text-[11px]">
+                  <span className="flex items-center gap-1.5 font-mono font-bold text-primary min-w-0">
+                    <Terminal className="size-3.5 shrink-0" />
+                    <span className="truncate">{tx("자동 설치 명령어", "AUTO-CONFIGURE COMMAND")}</span>
                   </span>
                   <Button
                     size="xs"
                     variant="keycap"
+                    className="shrink-0"
                     onClick={() => void copyText("mcp-cmd", installCmd, "npx command")}
                   >
                     {copiedId === "mcp-cmd" ? <Check className="size-3 text-signal-ok" /> : <Copy className="size-3" />}
@@ -275,20 +287,21 @@ export const CustomGearGuideDialog: React.FC<CustomGearGuideDialogProps> = ({
                 <pre className="text-xs font-mono text-oled-foreground bg-oled border border-oled-border rounded-sm p-2.5 overflow-x-auto">
                   {installCmd}
                 </pre>
-                <div className="text-[10px] text-muted-foreground font-mono">
+                <div className="text-[10px] text-muted-foreground font-mono truncate">
                   Target: {AI_PROVIDERS.find((x) => x.id === selectedClient)?.path}
                 </div>
               </div>
 
-              <div className="rounded-sm border border-border bg-card p-3 space-y-2">
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="flex items-center gap-1.5 font-mono font-bold text-foreground">
-                    <FileCode2 className="size-3.5 text-signal-ok" />
-                    {tx("수동 설정 스니펫 (JSON / TOML)", "MANUAL CONFIGURATION SNIPPET")}
+              <div className="rounded-sm border border-border bg-card p-3 space-y-2 min-w-0">
+                <div className="flex items-center justify-between gap-2 text-[11px]">
+                  <span className="flex items-center gap-1.5 font-mono font-bold text-foreground min-w-0">
+                    <FileCode2 className="size-3.5 text-signal-ok shrink-0" />
+                    <span className="truncate">{tx("수동 설정 스니펫", "MANUAL CONFIG SNIPPET")}</span>
                   </span>
                   <Button
                     size="xs"
                     variant="keycap"
+                    className="shrink-0"
                     onClick={() => void copyText("mcp-json", snippetText, "config snippet")}
                   >
                     {copiedId === "mcp-json" ? <Check className="size-3 text-signal-ok" /> : <Copy className="size-3" />}
@@ -309,44 +322,43 @@ export const CustomGearGuideDialog: React.FC<CustomGearGuideDialogProps> = ({
 
           {tab === "library" && (
             <div className="space-y-4 pb-2">
-              <div className="rounded-sm border border-border bg-card p-3.5 text-xs space-y-1.5">
-                <div className="font-display font-bold text-foreground flex items-center gap-1.5">
-                  <Cpu className="size-3.5 text-primary" />
-                  <span>{tx("WAV 캐비넷 IR · .nam 뉴럴 캡처 · .nrig 빠른 추가", "Quick Import: .wav Cab IR / .nam / .nrig")}</span>
-                </div>
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  {tx(
-                    "서드파티 `.wav` 임펄스 응답 파일이나 `.nam` 모델, `.nrig` 번들은 별도 메뉴 없이 스튜디오 화면에 드래그 앤 드롭하면 최대 16,384-tap Zero-Latency FFT 컨볼버로 즉시 적용됩니다.",
-                    "Drag and drop any `.wav` cabinet IR (up to 16,384 taps), `.nam` file, or `.nrig` bundle directly onto the Studio window."
+              <div className="rounded-sm border border-border bg-card px-3.5 py-2.5 text-xs flex items-center gap-2">
+                <Cpu className="size-3.5 text-primary shrink-0" />
+                <span className="font-display font-bold text-foreground truncate">
+                  {tx(".wav IR · .nam · .nrig 드래그 앤 드롭 가져오기", "Drag & Drop .wav IR / .nam / .nrig")}
+                </span>
+                <HelpHint
+                  content={tx(
+                    "서드파티 .wav(최대 16,384-tap), .nam 모델, .nrig 번들을 스튜디오 창 위로 끌어다 놓으면 즉시 로드됩니다.",
+                    "Drop any .wav cab IR (up to 16,384 taps), .nam model, or .nrig bundle onto the Studio window."
                   )}
-                </p>
+                />
               </div>
 
               <div>
                 <div className="font-display text-xs font-bold text-foreground mb-2">
-                  {tx(`현재 스튜디오에 등록된 커스텀 장비 (${customDevices.length})`, `Registered Custom Gear (${customDevices.length})`)}
+                  {tx(`등록된 커스텀 기어 (${customDevices.length})`, `Registered Custom Gear (${customDevices.length})`)}
                 </div>
                 {customDevices.length === 0 ? (
                   <div className="rounded-sm border border-dashed border-border bg-card p-6 text-center text-xs text-muted-foreground">
-                    {tx(
-                      "아직 커스텀 SPICE/Cab 장비가 없습니다. MCP 프롬프트로 추가하거나 커뮤니티 허브에서 인기 장비를 설치해 보세요!",
-                      "No custom SPICE/Cab gear yet. Use the AI MCP pipeline or download community rigs from the Hub."
-                    )}
+                    {tx("등록된 커스텀 기어가 없습니다.", "No custom SPICE/Cab gear registered yet.")}
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {customDevices.map((d) => (
-                      <div key={d.id} className="rounded-sm border border-border bg-card p-3 space-y-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-display text-xs font-bold text-foreground truncate">
-                            {d.originalName || d.name}
-                          </span>
+                      <div key={d.id} className="rounded-sm border border-border bg-card p-3 space-y-1 min-w-0 overflow-hidden">
+                        <div className="flex items-center justify-between gap-2 min-w-0">
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                            <span className="font-display text-xs font-bold text-foreground truncate">
+                              {d.originalName || d.name}
+                            </span>
+                            <HelpHint content={d.schematicSummary} />
+                          </div>
                           <Badge variant="hot" size="xs" className="uppercase">
                             {d.category}
                           </Badge>
                         </div>
                         <div className="text-[10px] text-muted-foreground font-mono truncate">{d.id}</div>
-                        <div className="text-[11px] text-muted-foreground line-clamp-2">{d.schematicSummary}</div>
                       </div>
                     ))}
                   </div>

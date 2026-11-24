@@ -25,7 +25,7 @@ import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Hint } from "@/components/ui/tooltip"
+import { HelpHint, Hint } from "@/components/ui/tooltip"
 import { studioBridge } from "@/lib/bridge"
 import { useI18n } from "@/lib/i18n"
 import type { GuitarAnalysisLiveStateDto, GuitarProfileDto } from "@/types/rig"
@@ -56,12 +56,12 @@ function GuitarProfileDetail({ profile }: { profile: GuitarProfileDto }) {
 
   return (
     <div className="space-y-3 text-xs">
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-sm border border-border bg-secondary/45 px-3 py-2">
-        <div className="space-y-0.5">
+      <div className="flex items-center justify-between gap-2 rounded-sm border border-border bg-secondary/45 px-3 py-2 min-w-0">
+        <div className="space-y-0.5 min-w-0 flex-1">
           <div className="font-mono text-[10px] uppercase text-muted-foreground">
-            {tx("추정 픽업 / 악기 성향", "ESTIMATED PICKUP PROFILE")}
+            {tx("추정 픽업", "PICKUP PROFILE")}
           </div>
-          <div className="font-display text-sm font-bold text-foreground">
+          <div className="font-display text-sm font-bold text-foreground truncate">
             {profile.estimatedPickupType}
           </div>
         </div>
@@ -391,19 +391,11 @@ export function GuitarAnalyzerContent({
 
       <TabsContent value="analyze" className="space-y-3 mt-1 min-h-0 overflow-y-auto">
         {!isAudioRunning && !isCompletedWizard && (
-          <div className="rounded-sm border border-border bg-secondary/50 p-3 flex flex-wrap items-center justify-between gap-2 text-xs">
-            <div className="space-y-0.5">
-              <div className="font-semibold text-foreground">
-                {tx("먼저 오디오 엔진을 시작하세요", "Start Audio Engine First")}
-              </div>
-              <div className="text-[11px] text-muted-foreground">
-                {tx(
-                  "드라이 DI 원음을 분석하려면 오디오 입력이 켜져 있어야 합니다.",
-                  "Dry DI analysis requires an active audio input stream."
-                )}
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5">
+          <div className="rounded-sm border border-border bg-secondary/50 px-3 py-2 flex items-center justify-between gap-2 text-xs">
+            <span className="font-medium text-foreground truncate">
+              {tx("오디오 입력 필요", "Start Audio Engine First")}
+            </span>
+            <div className="flex items-center gap-1.5 shrink-0">
               <Button size="xs" variant="ghost" onClick={onOpenAudioSettings}>
                 {tx("오디오 설정", "AUDIO I/O")}
               </Button>
@@ -419,7 +411,7 @@ export function GuitarAnalyzerContent({
           <Card className="py-3 gap-3">
             <CardContent className="px-4 space-y-3.5">
               <div className="space-y-1.5">
-                <Label>{tx("기타 이름 / 픽업 위치 메모", "Guitar Name / Pickup Position")}</Label>
+                <Label>{tx("기타 이름 / 픽업 위치", "Guitar Name / Pickup")}</Label>
                 <Input
                   value={guitarName}
                   onChange={(e) => setGuitarName(e.target.value)}
@@ -428,27 +420,24 @@ export function GuitarAnalyzerContent({
               </div>
 
               <div className="space-y-1.5">
-                <div className="font-mono text-[10px] uppercase text-muted-foreground">
-                  {tx("6단계 측정 시퀀스 (약 12초)", "6-STEP SEQUENCE (~12s)")}
+                <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase text-muted-foreground">
+                  <span>{tx("6단계 측정 시퀀스 (약 12초)", "6-STEP SEQUENCE (~12s)")}</span>
+                  <HelpHint
+                    content={tx(
+                      "기타 볼륨·톤 노브를 최대로 맞추고 튜닝을 확인한 뒤 시작하면 픽업 출력, 60Hz 험, 밝기, 서스테인을 정밀 계측해 저장합니다.",
+                      "Set guitar volume/tone to max and check tuning first. Measures raw pickup output, 60Hz hum, brightness, and sustain."
+                    )}
+                  />
                 </div>
                 <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
                   {stepLabels.map((s) => (
                     <div
                       key={s.id}
-                      className="rounded-sm border border-border bg-secondary/50 px-2 py-1.5 text-center font-mono text-[10px] font-bold text-foreground"
+                      className="rounded-sm border border-border bg-secondary/50 px-2 py-1.5 text-center font-mono text-[10px] font-bold text-foreground truncate"
                     >
                       {s.short}
                     </div>
                   ))}
-                </div>
-              </div>
-
-              <div className="rounded-sm border border-border bg-background p-3 text-[11px] text-muted-foreground space-y-1 leading-relaxed">
-                <div>
-                  • {tx("기타 볼륨·톤 노브를 최대로 맞추고 튜닝을 확인하세요.", "Set guitar volume & tone to max and verify tuning.")}
-                </div>
-                <div>
-                  • {tx("순수 픽업 출력, 60Hz 험, 밝기, 서스테인을 정밀 계측해 저장합니다.", "Measures raw pickup output, 60Hz hum, brightness, and sustain.")}
                 </div>
               </div>
 
@@ -663,12 +652,12 @@ export function GuitarAnalyzerContent({
                   <div
                     key={g.id}
                     onClick={() => setSelectedProfileId(g.id)}
-                    className={`cursor-pointer rounded-sm border p-2.5 flex items-start justify-between gap-2 transition-colors ${
+                    className={`cursor-pointer rounded-sm border p-2.5 flex items-start justify-between gap-2 min-w-0 overflow-hidden transition-colors ${
                       isSelected ? "border-primary bg-secondary/70" : "border-border bg-card hover:bg-secondary/40"
                     }`}
                   >
-                    <div className="space-y-0.5 min-w-0">
-                      <div className="flex items-center gap-1.5">
+                    <div className="space-y-0.5 min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 min-w-0">
                         <span className="text-xs font-bold truncate">{g.name}</span>
                         {isActive && (
                           <Badge variant="ok" size="xs">
@@ -679,7 +668,7 @@ export function GuitarAnalyzerContent({
                       <div className="text-[11px] text-muted-foreground truncate">
                         {g.estimatedPickupType}
                       </div>
-                      <div className="text-[10px] font-mono tabular-nums text-muted-foreground">
+                      <div className="text-[10px] font-mono tabular-nums text-muted-foreground truncate">
                         BRT {g.brightnessScore} · OUT {g.outputPowerScore}
                       </div>
                     </div>
@@ -687,6 +676,7 @@ export function GuitarAnalyzerContent({
                       <Button
                         size="icon-xs"
                         variant="ghost"
+                        className="shrink-0"
                         onClick={(e) => {
                           e.stopPropagation()
                           void handleDeleteProfile(g.id)
@@ -703,14 +693,14 @@ export function GuitarAnalyzerContent({
             {selectedProfile && (
               <div className="space-y-3">
                 <GuitarProfileDetail profile={selectedProfile} />
-                <div className="flex flex-wrap items-center justify-between gap-2 rounded-sm border border-border bg-secondary/35 px-3 py-2">
-                  <span className="text-[11px] text-muted-foreground">
-                    {tx(
+                <div className="flex items-center justify-between gap-2 rounded-sm border border-border bg-secondary/35 px-3 py-2">
+                  <HelpHint
+                    content={tx(
                       "활성 기타 스펙은 AI 톤 설계 시 자동 참조됩니다.",
-                      "Active guitar profile informs AI tone synthesis."
+                      "Active guitar profile automatically informs AI tone synthesis."
                     )}
-                  </span>
-                  <div className="flex items-center gap-2">
+                  />
+                  <div className="flex items-center gap-2 shrink-0">
                     {selectedProfile.id !== activeProfileId && (
                       <Button
                         size="xs"
@@ -774,10 +764,17 @@ export function GuitarAnalyzerDialog({
       <DialogContent className="max-w-2xl max-h-[86vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Guitar className="size-4 text-primary" />
-            GUITAR DI PROFILER
+            <Guitar className="size-4 text-primary shrink-0" />
+            <span>GUITAR DI PROFILER</span>
+            <HelpHint
+              side="bottom"
+              content={tx(
+                "6단계 실측으로 픽업 출력·주파수 밸런스·60Hz 험을 분석하고 입력 트림을 자동 보정합니다.",
+                "Analyzes pickup output, spectral tilt, and 60Hz hum across 6 steps to calibrate input trim."
+              )}
+            />
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="sr-only">
             {tx(
               "6단계 실측으로 픽업 출력·주파수 밸런스·60Hz 험을 분석하고 입력 트림을 자동 보정합니다.",
               "Analyze pickup output, spectral tilt, and 60Hz hum across 6 steps to calibrate input trim."

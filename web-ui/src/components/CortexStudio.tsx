@@ -55,7 +55,7 @@ import { Separator } from "@/components/ui/separator"
 import { Slider } from "@/components/ui/slider"
 import { Toggle } from "@/components/ui/toggle"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { Hint } from "@/components/ui/tooltip"
+import { HelpHint, Hint } from "@/components/ui/tooltip"
 import {
   CATEGORIES,
   CATEGORY_MAP,
@@ -709,16 +709,17 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
     return (
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-transparent">
         <div className="max-w-[1180px] mx-auto w-full px-6 pt-5 pb-3 shrink-0 flex items-center justify-between gap-3">
-          <div>
-            <h1 className="font-display font-light text-[26px] leading-tight tracking-[-0.025em] text-foreground">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <h1 className="font-display font-light text-[26px] leading-tight tracking-[-0.025em] text-foreground truncate">
               {tx("톤 보관함 · .NAM · VST3", "Rig Vault & Neural Hub")}
             </h1>
-            <p className="text-xs text-muted-foreground mt-0.5 tabular-nums">
-              {tx(
-                `프리셋 ${allPresets.length}개 · .NAM 모델 ${tones.length}개`,
-                `${allPresets.length} presets · ${tones.length} .NAM models`
+            <HelpHint
+              side="bottom"
+              content={tx(
+                ".nrig 번들, .nam 캡처, 커스텀 WAV IR 및 DAW 플러그인을 관리합니다.",
+                "Manage .nrig bundles, .nam captures, custom WAV IRs, and DAW plugins."
               )}
-            </p>
+            />
           </div>
           <div className="flex items-center gap-1.5">
             <Button
@@ -762,32 +763,29 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
           </div>
         </div>
 
-        <div className="max-w-[1180px] mx-auto w-full px-6 pb-6 pt-1 flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <div className="max-w-[1180px] mx-auto w-full px-6 pb-24 pt-1 flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-4">
           {/* Col 1: Presets Bank */}
           <div className="lg:col-span-4 rounded-[16px] border border-border bg-card shadow-[0_18px_42px_rgba(11,14,16,0.08)] flex flex-col min-h-0 overflow-hidden">
             <div className="h-11 px-4 border-b border-border flex items-center justify-between gap-2 bg-secondary/40">
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-[11px] font-bold tracking-[0.08em] uppercase">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="font-mono text-[11px] font-bold tracking-[0.08em] uppercase truncate">
                   {tx("프리셋 뱅크", "PRESET BANK")}
                 </span>
                 <Badge variant="outline" size="xs">
                   {allPresets.length}
                 </Badge>
               </div>
-              <span className="text-[10.5px] text-muted-foreground">
-                {tx("클릭해서 열기", "Click to load")}
-              </span>
             </div>
 
             <ScrollArea className="flex-1 p-2.5">
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 w-full min-w-0">
                 {allPresets.map((p) => {
                   const isActive = p.presetId === chain.presetId
                   const isUser = savedPresets.some((u) => u.presetId === p.presetId)
                   return (
                     <div
                       key={p.presetId}
-                      className={`flex items-center justify-between px-3 py-2.5 rounded-[10px] border transition-all cursor-pointer ${
+                      className={`w-full min-w-0 overflow-hidden flex items-center justify-between gap-2 px-3 py-2.5 rounded-[10px] border transition-all cursor-pointer ${
                         isActive
                           ? "bg-foreground text-background border-foreground shadow-[0_10px_24px_rgba(11,14,16,0.16)]"
                           : "bg-background/45 border-border hover:bg-card text-foreground"
@@ -797,7 +795,7 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                         onChangeView("grid")
                       }}
                     >
-                      <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
                         <span
                           className={`font-mono text-[11px] font-bold w-8 shrink-0 ${
                             isActive ? "text-primary" : "opacity-65"
@@ -813,6 +811,7 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                         <Button
                           size="icon-xs"
                           variant="ghost"
+                          className="shrink-0"
                           onClick={(e) => {
                             e.stopPropagation()
                             void handleDeleteUserPreset(p.presetId)
@@ -830,11 +829,19 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
 
           {/* Col 2: Neural Captures (.nam) & Cab IR */}
           <div className="lg:col-span-4 rounded-[16px] border border-border bg-card shadow-[0_18px_42px_rgba(11,14,16,0.08)] flex flex-col min-h-0 overflow-hidden">
-            <div className="h-11 px-4 border-b border-border flex items-center justify-between bg-secondary/40">
-              <span className="font-mono text-[11px] font-bold tracking-[0.08em] uppercase">
-                NEURAL CAPTURES (.NAM)
-              </span>
-              <div className="flex items-center gap-1">
+            <div className="h-11 px-4 border-b border-border flex items-center justify-between gap-2 bg-secondary/40">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="font-mono text-[11px] font-bold tracking-[0.08em] uppercase truncate">
+                  NEURAL CAPTURES (.NAM)
+                </span>
+                <HelpHint
+                  content={tx(
+                    "WaveNet · LSTM · ConvNet 지원 (체인 내 최대 3슬롯 동시 구동)",
+                    "Supports WaveNet, LSTM & ConvNet (up to 3 concurrent slots)."
+                  )}
+                />
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
                 <Button size="xs" variant="keycap" onClick={handleImportNam}>
                   <Upload className="size-3" />
                   {tx("가져오기", "Import")}
@@ -854,35 +861,33 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
 
             <ScrollArea className="flex-1 p-2.5">
               {tones.length === 0 ? (
-                <div className="p-8 text-center text-xs text-muted-foreground leading-relaxed">
-                  {tx(
-                    "로드된 .nam 파일이 없습니다. 가져오기 버튼으로 Neural Amp Modeler 캡처를 추가하세요.",
-                    "No .nam models loaded. Import official Neural Amp Modeler files above."
-                  )}
+                <div className="p-8 text-center text-xs text-muted-foreground">
+                  {tx("로드된 .nam 모델 없음", "No .nam models loaded")}
                 </div>
               ) : (
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 w-full min-w-0">
                   {tones.map((t) => {
                     const sel = t.id === selectedToneId
                     return (
                       <div
                         key={t.id}
                         onClick={() => void handleSelectNamModel(t.id)}
-                        className={`flex items-center justify-between px-3 py-2 rounded-[10px] border cursor-pointer transition-all ${
+                        className={`w-full min-w-0 overflow-hidden flex items-center justify-between gap-2 px-3 py-2 rounded-[10px] border cursor-pointer transition-all ${
                           sel
                             ? "bg-card border-primary shadow-[0_0_0_1px_var(--signal-hot)] text-foreground"
                             : "border-border bg-background/45 hover:bg-card text-foreground"
                         }`}
                       >
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <div className="font-display font-normal text-xs truncate">{t.name}</div>
-                          <div className="text-[10px] font-mono text-muted-foreground tabular-nums">
+                          <div className="text-[10px] font-mono text-muted-foreground tabular-nums truncate">
                             {t.archPreset} · {t.sampleRate} Hz
                           </div>
                         </div>
                         <Button
                           size="icon-xs"
                           variant="ghost"
+                          className="shrink-0"
                           onClick={(e) => {
                             e.stopPropagation()
                             void handleDeleteNam(t.id)
@@ -898,11 +903,17 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
             </ScrollArea>
 
             <div className="border-t border-border p-3.5 bg-secondary/35 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                  CUSTOM CAB IR (.WAV)
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 min-w-0 font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  <span className="truncate">CUSTOM CAB IR (.WAV)</span>
+                  <HelpHint
+                    content={tx(
+                      "최대 16,384-tap Zero-Latency 분할 FFT 컨볼버",
+                      "Up to 16,384-tap zero-latency partitioned FFT convolver."
+                    )}
+                  />
                 </span>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 shrink-0">
                   <Button size="xs" variant="keycap" onClick={handleLoadCabIr}>
                     <FolderOpen className="size-3" />
                     {tx("IR 열기", "Load IR")}
@@ -924,23 +935,23 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
           <div className="lg:col-span-4 flex flex-col min-h-0 gap-4">
             <Card className="py-4 gap-3 bg-card shadow-[0_18px_42px_rgba(11,14,16,0.08)]">
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider">
-                    <Globe className="size-4 text-primary" />
-                    TONE HUB &amp; COMMUNITY
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider min-w-0">
+                    <Globe className="size-4 text-primary shrink-0" />
+                    <span className="truncate">TONE HUB &amp; COMMUNITY</span>
+                    <HelpHint
+                      content={tx(
+                        "검증된 WaveNet/LSTM/ConvNet 앰프 캡처, 초저지연 캐비넷 IR, 커뮤니티 .nrig 번들을 원클릭 설치합니다.",
+                        "Install curated WaveNet/LSTM/ConvNet models, 8K IRs, and community .nrig bundles."
+                      )}
+                    />
                   </CardTitle>
                   <Badge variant="hot" size="xs">
                     CURATED
                   </Badge>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-3 text-xs">
-                <p className="text-muted-foreground leading-relaxed">
-                  {tx(
-                    "검증된 WaveNet/LSTM/ConvNet 앰프 캡처, 초저지연 캐비넷 IR, 커뮤니티 .nrig 번들을 원클릭으로 설치하고 공유할 수 있습니다.",
-                    "Browse and install curated WaveNet/LSTM/ConvNet neural models, IRs, and community .nrig bundles."
-                  )}
-                </p>
+              <CardContent className="text-xs">
                 <Button size="sm" variant="signal" className="w-full rounded-full" onClick={onOpenToneHub}>
                   <Package className="size-3.5" />
                   {tx("Tone Hub 카탈로그 열기", "Open Tone Hub Catalog")}
@@ -950,38 +961,38 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
 
             <Card className="py-4 gap-3 bg-card shadow-[0_18px_42px_rgba(11,14,16,0.08)]">
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider">
-                    <Cpu className="size-4 text-primary" />
-                    NATIVEAOT DAW PLUGIN
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider min-w-0">
+                    <Cpu className="size-4 text-primary shrink-0" />
+                    <span className="truncate">NATIVEAOT DAW PLUGIN</span>
+                    <HelpHint
+                      content={tx(
+                        "현재 시그널 체인과 .nam 모델을 32개 샘플 정확도 오토메이션을 지원하는 VST3/CLAP으로 패키징합니다.",
+                        "Package the current rig into a 0-alloc VST3 & CLAP DAW plugin with 32 parameters."
+                      )}
+                    />
                   </CardTitle>
                   <Badge variant="ok" size="xs">
                     VST3 + CLAP
                   </Badge>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-3 text-xs">
-                <p className="text-muted-foreground leading-relaxed">
-                  {tx(
-                    "현재 구축된 시그널 체인과 .nam 모델을 32개 샘플 정확도 오토메이션을 지원하는 네이티브 VST3/CLAP 플러그인으로 패키징합니다.",
-                    "Package the current rig into a zero-allocation NativeAOT VST3 & CLAP DAW plugin with 32 parameters."
-                  )}
-                </p>
+              <CardContent className="text-xs">
                 <Button size="sm" variant="keycap" className="w-full rounded-full" onClick={onOpenToneHub}>
                   {tx("VST3 / CLAP 내보내기 센터", "Open VST3 / CLAP Exporter")}
                 </Button>
               </CardContent>
             </Card>
 
-            <div className="mt-auto rounded-[16px] border border-oled-border nr-obsidian-pod p-4 font-mono text-[11px] text-oled-foreground space-y-1.5">
+            <div className="mt-auto rounded-[16px] border border-oled-border nr-obsidian-pod p-4 font-mono text-[11px] text-oled-foreground space-y-1.5 min-w-0 overflow-hidden">
               <div className="flex items-center justify-between text-oled-muted text-[10px] tracking-[0.12em]">
                 <span>ACTIVE RIG</span>
-                <span className="size-1.5 rounded-full bg-primary" />
+                <span className="size-1.5 rounded-full bg-primary shrink-0" />
               </div>
               <div className="font-display font-light text-lg tracking-tight text-oled-foreground truncate">
                 {chain.presetId} · {chain.presetName}
               </div>
-              <div className="text-oled-muted tabular-nums text-[10px]">
+              <div className="text-oled-muted tabular-nums text-[10px] truncate">
                 SCENE {SCENE_LABELS[chain.activeScene]} · {Math.round(chain.tempoBpm ?? 120)} BPM ·{" "}
                 {chain.routingMode === 1 ? "PARALLEL" : "SERIAL"}
               </div>
@@ -999,21 +1010,24 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
     return (
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-transparent">
         <div className="max-w-[1180px] mx-auto w-full px-6 pt-5 pb-3 shrink-0 flex items-center justify-between gap-3">
-          <div>
-            <h1 className="font-display font-light text-[26px] leading-tight tracking-[-0.025em] text-foreground">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <h1 className="font-display font-light text-[26px] leading-tight tracking-[-0.025em] text-foreground truncate">
               {tx("스펙트럼 · 기타 DI 분석", "Harmonic Spectrum & Guitar DI Lab")}
             </h1>
-            <p className="text-xs text-muted-foreground mt-0.5 tabular-nums">
-              {isAudioRunning ? tx("실시간 측정 중", "Stream active") : tx("오디오 대기 중", "Standby")} ·{" "}
-              {guitarProfiles.length} {tx("저장된 프로파일", "saved profiles")}
-            </p>
+            <HelpHint
+              side="bottom"
+              content={tx(
+                "실시간 FFT 배음 스펙트럼과 기타 픽업 DI 특성을 계측합니다.",
+                "Real-time FFT harmonic spectrum and guitar pickup DI profiler."
+              )}
+            />
           </div>
           <Badge variant={isAudioRunning ? "ok" : "outline"} size="xs">
             {isAudioRunning ? tx("LIVE ENGINE", "LIVE ENGINE") : tx("STANDBY", "STANDBY")}
           </Badge>
         </div>
 
-        <div className="max-w-[1180px] mx-auto w-full px-6 pb-6 pt-1 flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <div className="max-w-[1180px] mx-auto w-full px-6 pb-24 pt-1 flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-4">
           <div className="lg:col-span-7 flex flex-col min-h-0">
             <VisualizerCanvas
               activeToneLabel={customCabIrName || undefined}
@@ -1022,9 +1036,15 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
             />
           </div>
           <div className="lg:col-span-5 flex flex-col min-h-0 rounded-[16px] border border-border bg-card shadow-[0_18px_42px_rgba(11,14,16,0.08)] p-4 overflow-hidden">
-            <div className="pb-2.5 mb-2.5 border-b border-border flex items-center justify-between">
-              <span className="font-mono text-[11px] font-bold tracking-[0.08em] uppercase">
-                GUITAR DI PROFILER
+            <div className="pb-2.5 mb-2.5 border-b border-border flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5 min-w-0 font-mono text-[11px] font-bold tracking-[0.08em] uppercase">
+                <span className="truncate">GUITAR DI PROFILER</span>
+                <HelpHint
+                  content={tx(
+                    "6단계 측정으로 픽업 출력·험·밝기를 분석해 Input Trim과 Gate를 자동 보정합니다.",
+                    "Measures pickup output, hum, and tilt across 6 steps to calibrate Input Trim & Gate."
+                  )}
+                />
               </span>
               <Badge variant="outline" size="xs">
                 {guitarProfiles.length} SAVED
@@ -1069,13 +1089,13 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
           className="w-full flex items-center justify-between gap-3 flex-wrap px-1"
         >
           {/* Left: Preset Stepper + Clickable Title Popover */}
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
             <Hint content={tx("이전 프리셋", "Previous Preset")}>
               <Button
                 size="icon-sm"
                 variant="outline"
                 onClick={() => stepPreset(-1)}
-                className="rounded-full"
+                className="rounded-full shrink-0"
               >
                 <ChevronLeft className="size-4" />
               </Button>
@@ -1085,7 +1105,7 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                 size="icon-sm"
                 variant="outline"
                 onClick={() => stepPreset(1)}
-                className="rounded-full"
+                className="rounded-full shrink-0"
               >
                 <ChevronRight className="size-4" />
               </Button>
@@ -1095,12 +1115,12 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
               <PopoverTrigger asChild>
                 <button
                   type="button"
-                  className="inline-flex items-baseline gap-2.5 px-3 py-1.5 rounded-[12px] hover:bg-card/70 transition-colors cursor-pointer min-w-0"
+                  className="inline-flex items-baseline gap-2.5 px-3 py-1.5 rounded-[12px] hover:bg-card/70 transition-colors cursor-pointer min-w-0 max-w-full overflow-hidden"
                 >
                   <span className="font-mono text-xs font-bold text-primary shrink-0 tabular-nums">
                     {chain.presetId}
                   </span>
-                  <span className="font-display font-light text-[25px] md:text-[28px] leading-tight tracking-[-0.025em] text-foreground truncate max-w-[360px]">
+                  <span className="font-display font-light text-[25px] md:text-[28px] leading-tight tracking-[-0.025em] text-foreground truncate max-w-[220px] sm:max-w-[340px] md:max-w-[420px]">
                     {chain.presetName}
                   </span>
                   <ChevronDown className="size-4 text-muted-foreground shrink-0 self-center" />
@@ -1139,7 +1159,7 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                 <Separator />
 
                 <ScrollArea className="h-64">
-                  <div className="space-y-1 pr-1">
+                  <div className="space-y-1 pr-1 w-full min-w-0">
                     {allPresets.map((p) => {
                       const isActive = p.presetId === chain.presetId
                       const isUser = savedPresets.some((u) => u.presetId === p.presetId)
@@ -1150,13 +1170,13 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                             onLoadPreset(p)
                             setPresetPickerOpen(false)
                           }}
-                          className={`flex items-center justify-between px-2.5 py-2 rounded-[10px] text-xs cursor-pointer transition-colors ${
+                          className={`w-full min-w-0 overflow-hidden flex items-center justify-between gap-2 px-2.5 py-2 rounded-[10px] text-xs cursor-pointer transition-colors ${
                             isActive
                               ? "bg-foreground text-background font-medium"
                               : "hover:bg-secondary text-foreground"
                           }`}
                         >
-                          <div className="flex items-center gap-2 min-w-0">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
                             <span
                               className={`font-mono text-[11px] font-bold w-7 shrink-0 ${
                                 isActive ? "text-primary" : "text-muted-foreground"
@@ -1170,6 +1190,7 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                             <Button
                               size="icon-xs"
                               variant="ghost"
+                              className="shrink-0"
                               onClick={(e) => {
                                 e.stopPropagation()
                                 void handleDeleteUserPreset(p.presetId)
@@ -1316,6 +1337,13 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                   <div className="text-[11px] font-medium text-muted-foreground flex items-center gap-1.5">
                     <GitBranch className="size-3.5" />
                     <span>{tx("신호 경로", "Signal Routing")}</span>
+                    <HelpHint
+                      side="top"
+                      content={tx(
+                        "병렬 분기 시 Row 1·Row 2로 신호를 나누어 듀얼 앰프·캐비넷을 블렌딩할 수 있습니다.",
+                        "Parallel routing splits the chain across Row 1 & Row 2 for dual-amp/cab blending."
+                      )}
+                    />
                   </div>
                   <div className="grid grid-cols-2 gap-1.5">
                     <Button
@@ -1413,7 +1441,16 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                 <div className="space-y-2.5 pt-2 border-t border-border text-xs">
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">{tx("입력 트림 (Input)", "Input Trim")}</span>
+                      <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                        <span>{tx("입력 트림 (Input)", "Input Trim")}</span>
+                        <HelpHint
+                          side="top"
+                          content={tx(
+                            "수치를 더블클릭하면 0.0 dB로 초기화됩니다.",
+                            "Double-click any dB value to reset to 0.0 dB."
+                          )}
+                        />
+                      </span>
                       <button
                         type="button"
                         onDoubleClick={() => onPushChain({ ...chain, inputGainDb: 0 }, false)}
@@ -1489,7 +1526,7 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
           className="fixed inset-x-0 bottom-[80px] z-30 mx-auto w-[min(960px,calc(100vw-48px))] rounded-[18px] border border-border bg-card/96 backdrop-blur-md shadow-[0_24px_64px_rgba(11,14,16,0.22)] overflow-hidden nr-float-up"
         >
           <div className="h-11 shrink-0 px-4 border-b border-border bg-secondary/40 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
               <Hint
                 content={
                   currentSlot.enabled
@@ -1752,15 +1789,23 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
             className="w-[460px] max-w-full h-[500px] max-h-[82vh] rounded-[18px] border border-border bg-popover p-4 shadow-[0_32px_80px_rgba(11,14,16,0.32)] flex flex-col gap-3"
           >
             <div className="flex items-start justify-between gap-2">
-              <div>
+              <div className="min-w-0">
                 <div className="font-mono text-[10.5px] font-semibold text-primary">
                   SLOT #{String(selectedSlot + 1).padStart(2, "0")}
                 </div>
-                <h2 className="font-display font-light text-lg leading-snug tracking-tight text-foreground">
-                  {tx("장비 선택", "Choose Gear")}
-                </h2>
+                <div className="flex items-center gap-1.5">
+                  <h2 className="font-display font-light text-lg leading-snug tracking-tight text-foreground truncate">
+                    {tx("장비 선택", "Choose Gear")}
+                  </h2>
+                  <HelpHint
+                    content={tx(
+                      "원본 하드웨어 모델명(TS808, Plexi 등)으로도 검색할 수 있습니다.",
+                      "Search by studio name or original hardware (TS808, Plexi)."
+                    )}
+                  />
+                </div>
               </div>
-              <Button size="icon-xs" variant="ghost" onClick={() => setCatalogOpen(false)}>
+              <Button size="icon-xs" variant="ghost" className="shrink-0" onClick={() => setCatalogOpen(false)}>
                 <X className="size-4" />
               </Button>
             </div>
@@ -1780,7 +1825,7 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                     }
                   }
                 }}
-                placeholder={tx("장비·원본 모델 검색 (예: TS808, Plexi)", "Search gear or models (TS808, Plexi)")}
+                placeholder={tx("장비 검색…", "Search gear…")}
                 className="pl-8 pr-7 h-9 rounded-[10px]"
               />
               {searchQuery && (
@@ -1823,7 +1868,7 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
             </div>
 
             <ScrollArea className="flex-1 min-h-0">
-              <div className="space-y-1 pr-1">
+              <div className="space-y-1 pr-1 w-full min-w-0">
                 {categoryModels.length === 0 ? (
                   <div className="py-10 text-center text-xs text-muted-foreground">
                     {tx("일치하는 장비가 없습니다", "No matching gear")}
@@ -1837,13 +1882,13 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                         key={model.id}
                         type="button"
                         onClick={() => handlePickModel(model.id)}
-                        className={`w-full text-left px-3 py-2 rounded-[10px] text-xs transition-colors flex items-center justify-between gap-2 border cursor-pointer ${
+                        className={`w-full min-w-0 overflow-hidden text-left px-3 py-2 rounded-[10px] text-xs transition-colors flex items-center justify-between gap-2 border cursor-pointer ${
                           isInSelectedSlot
                             ? "bg-primary/12 text-foreground font-semibold border-primary"
                             : "text-foreground hover:bg-secondary/75 border-transparent"
                         }`}
                       >
-                        <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
                           <span
                             className="size-2 rounded-full shrink-0"
                             style={{ backgroundColor: catColor }}

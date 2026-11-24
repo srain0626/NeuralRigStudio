@@ -258,14 +258,14 @@ export const VisualizerCanvas: React.FC<{
       )}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Activity className="size-4 text-primary" strokeWidth={1.6} />
-          <span className="font-mono text-xs font-medium tracking-[0.1em] uppercase">
+        <div className="flex items-center gap-2 min-w-0">
+          <Activity className="size-4 text-primary shrink-0" strokeWidth={1.6} />
+          <span className="font-mono text-xs font-medium tracking-[0.1em] uppercase truncate">
             HARMONIC SPECTRUM · SCOPE
           </span>
           {activeToneLabel && (
-            <Badge variant="warn" size="xs">
-              IR: {activeToneLabel}
+            <Badge variant="warn" size="xs" className="max-w-[180px]">
+              <span className="truncate">IR: {activeToneLabel}</span>
             </Badge>
           )}
         </div>

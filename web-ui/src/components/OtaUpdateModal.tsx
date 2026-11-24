@@ -15,6 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { HelpHint } from "@/components/ui/tooltip"
 import { studioBridge } from "@/lib/bridge"
 import { useI18n } from "@/lib/i18n"
 import type { OtaCheckResultDto } from "@/types/rig"
@@ -89,20 +90,27 @@ export const OtaUpdateModal: React.FC<OtaUpdateModalProps> = ({
             >
               {isForced ? <AlertTriangle className="size-4" /> : <Sparkles className="size-4" />}
             </div>
-            <div>
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <DialogTitle>
+                <DialogTitle className="truncate">
                   {isForced
-                    ? tx("필수 강제 업데이트 필요", "MANDATORY UPDATE REQUIRED")
+                    ? tx("필수 업데이트 필요", "MANDATORY UPDATE")
                     : ota.updateAvailable
-                      ? tx("새 버전 업데이트 가능", "NEW VERSION AVAILABLE")
+                      ? tx("새 버전 업데이트", "UPDATE AVAILABLE")
                       : tx("최신 버전 사용 중", "UP TO DATE")}
                 </DialogTitle>
                 <Badge variant={isForced ? "destructive" : "ok"} size="xs">
                   v{ota.latestVersion}
                 </Badge>
+                <HelpHint
+                  side="bottom"
+                  content={tx(
+                    `현재 v${ota.currentVersion} → 최신 v${ota.latestVersion} (최소 지원 v${ota.minSupportedVersion})`,
+                    `Current v${ota.currentVersion} → Latest v${ota.latestVersion} (Min v${ota.minSupportedVersion})`
+                  )}
+                />
               </div>
-              <DialogDescription className="mt-0.5 font-mono text-[11px]">
+              <DialogDescription className="sr-only">
                 {tx(
                   `현재 v${ota.currentVersion} → 최신 v${ota.latestVersion} (최소 지원 v${ota.minSupportedVersion})`,
                   `Current v${ota.currentVersion} → Latest v${ota.latestVersion} (Min v${ota.minSupportedVersion})`
@@ -114,11 +122,16 @@ export const OtaUpdateModal: React.FC<OtaUpdateModalProps> = ({
 
         <div className="px-5 py-4 space-y-3 bg-background">
           {isForced && (
-            <div className="rounded-sm border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive font-medium leading-relaxed">
-              {tx(
-                "보안·클라우드 프로토콜 호환성 유지 또는 치명적 오류 패치를 위해 이 업데이트를 설치해야 앱을 계속 사용할 수 있습니다.",
-                `This release includes critical protocol/compatibility fixes. Installing v${ota.latestVersion} is required before continuing.`
-              )}
+            <div className="rounded-sm border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive font-medium flex items-center justify-between gap-2">
+              <span className="truncate">
+                {tx(`v${ota.latestVersion} 필수 업데이트 후 실행 가능`, `v${ota.latestVersion} update required to continue`)}
+              </span>
+              <HelpHint
+                content={tx(
+                  "보안·클라우드 프로토콜 호환성 유지 또는 치명적 오류 패치를 위해 이 업데이트를 설치해야 앱을 계속 사용할 수 있습니다.",
+                  `This release includes critical compatibility fixes. Installing v${ota.latestVersion} is required before continuing.`
+                )}
+              />
             </div>
           )}
 

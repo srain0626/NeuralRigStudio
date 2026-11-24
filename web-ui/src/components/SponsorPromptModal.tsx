@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { HelpHint } from "@/components/ui/tooltip"
 import { studioBridge } from "@/lib/bridge"
 import { useI18n } from "@/lib/i18n"
 
@@ -61,20 +62,24 @@ export const SponsorPromptModal: React.FC<SponsorPromptModalProps> = ({
             <div className="size-8 rounded-sm bg-oled border border-oled-border flex items-center justify-center text-primary shrink-0">
               <Heart className="size-4" />
             </div>
-            <div>
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <DialogTitle>
-                  {tx(
-                    "NEURALRIG STUDIO와 함께해 주셔서 감사합니다",
-                    "THANK YOU FOR PLAYING WITH NEURALRIG STUDIO"
-                  )}
+                <DialogTitle className="truncate">
+                  {tx("NEURALRIG STUDIO 후원", "SUPPORT NEURALRIG STUDIO")}
                 </DialogTitle>
                 <Badge variant="ok" size="xs">
                   <Sparkles className="size-2.5" />
                   7+ DAYS
                 </Badge>
+                <HelpHint
+                  side="bottom"
+                  content={tx(
+                    "일주일 이상 함께 연주해 주신 크리에이터분께 최초 1회만 표시됩니다.",
+                    "A one-time thank-you note shown after 7+ days with NeuralRig Studio."
+                  )}
+                />
               </div>
-              <DialogDescription className="mt-0.5">
+              <DialogDescription className="sr-only">
                 {tx(
                   "일주일 이상 함께 연주해 주신 크리에이터분께 드리는 안내 (1회만 표시)",
                   "A one-time thank-you note after your first week with NeuralRig Studio"
@@ -85,22 +90,19 @@ export const SponsorPromptModal: React.FC<SponsorPromptModalProps> = ({
         </DialogHeader>
 
         <div className="px-5 py-4 space-y-3.5 bg-background">
-          <div className="rounded-sm border border-border bg-card p-4 space-y-2.5 text-xs leading-relaxed">
-            <div className="font-mono text-[10px] font-bold uppercase tracking-wider text-primary">
-              {tx("인디프렌들리 프리 소프트웨어 후원 안내", "INDEPENDENT OPEN PROJECT SUPPORT")}
-            </div>
-            <p className="text-foreground/95">
+          <div className="rounded-sm border border-border bg-card p-3.5 flex items-center justify-between gap-2 text-xs">
+            <span className="text-foreground/95 font-medium truncate">
               {tx(
-                "NeuralRig Studio는 실시간 MNA SPICE 회로 해석, 네이티브 .nam SIMD 추론 엔진, 커뮤니티 기어 허브와 클라우드 동기화를 무료로 제공하는 1인 개발 프로젝트입니다.",
-                "NeuralRig Studio is built and maintained independently for free—delivering real-time MNA SPICE physics, native .nam SIMD inference, Community Hub, and Cloud Sync."
+                "1인 무료 오픈 프로젝트 · 서버 및 신규 모델 개발 후원",
+                "Independent free project · Sustain servers & circuit models"
               )}
-            </p>
-            <p className="text-muted-foreground">
-              {tx(
-                "유지보수와 신규 앰프·페달 회로 모델링이 꾸준히 이어질 수 있도록, 여유가 되신다면 Patreon 멤버십으로 응원해 주세요. (이 창은 최초 1회만 표시됩니다.)",
-                "If NeuralRig Studio helps your tone and practice, optional Patreon membership support helps sustain server costs and new circuit models. (Shown only once.)"
+            </span>
+            <HelpHint
+              content={tx(
+                "NeuralRig Studio는 실시간 MNA SPICE, 네이티브 .nam SIMD 추론, 클라우드 동기화를 무료로 제공합니다. 이 창은 최초 1회만 표시됩니다.",
+                "NeuralRig Studio provides free real-time MNA SPICE, native .nam SIMD inference, and Cloud Sync. Optional Patreon support sustains ongoing work (shown once)."
               )}
-            </p>
+            />
           </div>
 
           <div className="rounded-sm border border-oled-border bg-oled px-3 py-2 flex items-center justify-between gap-2 text-[11px] font-mono">

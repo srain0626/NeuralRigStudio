@@ -131,7 +131,7 @@ function CommandItem({
     <CommandPrimitive.Item
       data-slot="command-item"
       className={cn(
-        "relative flex cursor-pointer select-none items-center justify-between gap-2 rounded-sm px-2.5 py-1.5 text-xs outline-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-40 data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground",
+        "relative flex w-full min-w-0 max-w-full cursor-pointer select-none items-center justify-between gap-2 overflow-hidden rounded-sm px-2.5 py-1.5 text-xs outline-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-40 data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground",
         className
       )}
       {...props}
@@ -146,7 +146,7 @@ function CommandShortcut({
   return (
     <span
       data-slot="command-shortcut"
-      className={cn("ml-auto font-mono text-[10px] tracking-wider text-muted-foreground", className)}
+      className={cn("ml-auto shrink-0 font-mono text-[10px] tracking-wider text-muted-foreground", className)}
       {...props}
     />
   )

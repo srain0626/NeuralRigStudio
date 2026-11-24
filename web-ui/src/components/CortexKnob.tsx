@@ -105,7 +105,7 @@ export const CortexKnob: React.FC<CortexKnobProps> = ({
 
   const knobCell = (
     <div
-      className={`relative flex items-center justify-between px-3.5 py-2.5 bg-card hover:bg-secondary/50 transition-colors border-r border-b border-border cursor-ns-resize select-none ${
+      className={`relative min-w-0 overflow-hidden flex items-center justify-between px-3.5 py-2.5 bg-card hover:bg-secondary/50 transition-colors border-r border-b border-border cursor-ns-resize select-none ${
         isMidiLearning ? "ring-1 ring-inset ring-signal-warn bg-signal-warn/10" : ""
       }`}
       onPointerDown={handlePointerDown}
@@ -278,13 +278,13 @@ export const CortexToggleCell: React.FC<CortexToggleCellProps> = ({
     <button
       type="button"
       onClick={() => onChange(!checked)}
-      className="flex flex-col justify-between px-3.5 py-2.5 bg-card hover:bg-secondary/50 transition-colors border-r border-b border-border text-left h-full min-h-[70px] cursor-pointer"
+      className="min-w-0 overflow-hidden flex flex-col justify-between px-3.5 py-2.5 bg-card hover:bg-secondary/50 transition-colors border-r border-b border-border text-left h-full min-h-[70px] cursor-pointer"
     >
-      <span className="font-mono text-[10px] font-medium tracking-[0.08em] text-muted-foreground uppercase">
+      <span className="font-mono text-[10px] font-medium tracking-[0.08em] text-muted-foreground uppercase w-full truncate">
         {label}
       </span>
-      <div className="flex items-center gap-3 mt-1">
-        <div className="w-5 h-9 rounded-[4px] bg-secondary border border-border p-0.5 flex flex-col justify-between items-center relative">
+      <div className="flex items-center gap-3 mt-1 min-w-0 w-full">
+        <div className="w-5 h-9 shrink-0 rounded-[4px] bg-secondary border border-border p-0.5 flex flex-col justify-between items-center relative">
           <div
             className="w-3.5 h-3.5 rounded-[2px] transition-[transform,background-color,box-shadow] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
             style={{
@@ -294,11 +294,11 @@ export const CortexToggleCell: React.FC<CortexToggleCellProps> = ({
             }}
           />
         </div>
-        <div className="flex flex-col font-mono text-[11px] leading-tight font-semibold">
-          <span className={`transition-colors duration-250 ${checked ? "text-foreground" : "text-muted-foreground/45"}`}>
+        <div className="flex flex-col font-mono text-[11px] leading-tight font-semibold min-w-0 flex-1">
+          <span className={`truncate transition-colors duration-250 ${checked ? "text-foreground" : "text-muted-foreground/45"}`}>
             {onLabel}
           </span>
-          <span className={`transition-colors duration-250 ${!checked ? "text-foreground" : "text-muted-foreground/45"}`}>
+          <span className={`truncate transition-colors duration-250 ${!checked ? "text-foreground" : "text-muted-foreground/45"}`}>
             {offLabel}
           </span>
         </div>

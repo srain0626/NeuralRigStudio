@@ -26,7 +26,7 @@ function ContextMenuContent({
       <ContextMenuPrimitive.Content
         data-slot="context-menu-content"
         className={cn(
-          "z-50 min-w-[11rem] overflow-hidden rounded-[12px] border border-border bg-popover p-1 text-popover-foreground shadow-lg nr-popover-anim",
+          "z-[70] min-w-[11rem] max-w-[280px] overflow-hidden rounded-[12px] border border-border bg-popover p-1 text-popover-foreground shadow-lg nr-popover-anim",
           className
         )}
         {...props}
@@ -49,7 +49,7 @@ function ContextMenuItem({
       data-slot="context-menu-item"
       data-variant={variant}
       className={cn(
-        "relative flex cursor-pointer select-none items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-xs outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-40 focus:bg-accent focus:text-accent-foreground data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/15",
+        "relative flex min-w-0 max-w-full cursor-pointer select-none items-center justify-between gap-2 overflow-hidden rounded-sm px-2 py-1.5 text-xs outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-40 focus:bg-accent focus:text-accent-foreground data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/15",
         inset && "pl-7",
         className
       )}

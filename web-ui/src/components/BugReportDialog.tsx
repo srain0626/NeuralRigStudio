@@ -20,6 +20,14 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { HelpHint } from "@/components/ui/tooltip"
 import { studioBridge } from "@/lib/bridge"
 import { useI18n } from "@/lib/i18n"
 import type { CloudStateDto } from "@/types/rig"
@@ -105,11 +113,20 @@ export const BugReportDialog: React.FC<BugReportDialogProps> = ({
               <div className="size-8 rounded-sm bg-oled border border-oled-border flex items-center justify-center text-signal-hot shrink-0">
                 <Bug className="size-4" />
               </div>
-              <div>
-                <DialogTitle>
-                  {tx("버그 제보 · 자동 익명화 로그 전송", "BUG REPORT · SCRUBBED LOG TELEMETRY")}
-                </DialogTitle>
-                <DialogDescription>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <DialogTitle className="truncate">
+                    {tx("버그 제보", "BUG REPORT")}
+                  </DialogTitle>
+                  <HelpHint
+                    side="bottom"
+                    content={tx(
+                      `v${appVersion} · 최근 로그와 오디오 진단은 LogSanitizer로 개인정보(경로·사용자명·토큰) 마스킹 후 전송됩니다.`,
+                      `v${appVersion} · Recent logs & audio diagnostics are scrubbed via LogSanitizer before upload.`
+                    )}
+                  />
+                </div>
+                <DialogDescription className="sr-only">
                   {tx(
                     `v${appVersion} · 최근 로그와 오디오 진단은 LogSanitizer로 개인정보(경로·사용자명·토큰) 마스킹 후 전송됩니다.`,
                     `v${appVersion} · Recent logs & audio diagnostics are automatically scrubbed via LogSanitizer before upload.`
@@ -145,31 +162,33 @@ export const BugReportDialog: React.FC<BugReportDialogProps> = ({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>{tx("카테고리", "CATEGORY")}</Label>
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="w-full h-8 rounded-sm border border-input bg-background px-2.5 text-xs text-foreground outline-none focus-visible:border-primary"
-              >
-                <option value="audio">Audio I/O (ASIO/WASAPI)</option>
-                <option value="spice">SPICE / DSP Engine</option>
-                <option value="ui">UI / Signal Chain</option>
-                <option value="hub">Cloud Sync / Gear Hub</option>
-                <option value="ota">OTA / Installer</option>
-                <option value="crash">Crash / Hang</option>
-              </select>
+              <Select value={category} onValueChange={setCategory}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="audio">Audio I/O (ASIO/WASAPI)</SelectItem>
+                  <SelectItem value="spice">SPICE / DSP Engine</SelectItem>
+                  <SelectItem value="ui">UI / Signal Chain</SelectItem>
+                  <SelectItem value="hub">Cloud Sync / Gear Hub</SelectItem>
+                  <SelectItem value="ota">OTA / Installer</SelectItem>
+                  <SelectItem value="crash">Crash / Hang</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1.5">
               <Label>{tx("심각도", "SEVERITY")}</Label>
-              <select
-                value={severity}
-                onChange={(e) => setSeverity(e.target.value)}
-                className="w-full h-8 rounded-sm border border-input bg-background px-2.5 text-xs text-foreground outline-none focus-visible:border-primary"
-              >
-                <option value="low">Low</option>
-                <option value="normal">Normal</option>
-                <option value="high">High</option>
-                <option value="critical">Critical</option>
-              </select>
+              <Select value={severity} onValueChange={setSeverity}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="normal">Normal</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                  <SelectItem value="critical">Critical</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
 

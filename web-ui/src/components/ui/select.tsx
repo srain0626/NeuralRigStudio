@@ -20,7 +20,7 @@ function SelectTrigger({
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
       className={cn(
-        "border-input flex h-8 w-full items-center justify-between gap-2 rounded-sm border bg-background px-2.5 py-1 text-xs outline-none focus-visible:border-primary focus-visible:ring-ring/30 focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-45 cursor-pointer",
+        "border-input flex h-8 w-full min-w-0 items-center justify-between gap-2 overflow-hidden rounded-sm border bg-background px-2.5 py-1 text-xs outline-none focus-visible:border-primary focus-visible:ring-ring/30 focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-45 cursor-pointer [&>span]:truncate [&>span]:min-w-0",
         className
       )}
       {...props}
@@ -45,13 +45,13 @@ function SelectContent({
         data-slot="select-content"
         position={position}
         className={cn(
-          "bg-popover text-popover-foreground border-border relative z-50 max-h-72 min-w-[8rem] overflow-x-hidden overflow-y-auto rounded-md border shadow-lg",
+          "bg-popover text-popover-foreground border-border relative z-[70] max-h-72 min-w-[8rem] max-w-[min(calc(100vw-2rem),26rem)] overflow-x-hidden overflow-y-auto rounded-md border shadow-lg",
           position === "popper" && "translate-y-1",
           className
         )}
         {...props}
       >
-        <SelectPrimitive.Viewport className="p-1">{children}</SelectPrimitive.Viewport>
+        <SelectPrimitive.Viewport className="p-1 w-full min-w-0">{children}</SelectPrimitive.Viewport>
       </SelectPrimitive.Content>
     </SelectPrimitive.Portal>
   )
@@ -66,7 +66,7 @@ function SelectItem({
     <SelectPrimitive.Item
       data-slot="select-item"
       className={cn(
-        "focus:bg-accent focus:text-accent-foreground relative flex w-full cursor-pointer items-center gap-2 rounded-sm py-1.5 pr-8 pl-2 text-xs outline-hidden select-none",
+        "focus:bg-accent focus:text-accent-foreground relative flex w-full min-w-0 max-w-full cursor-pointer items-center gap-2 overflow-hidden rounded-sm py-1.5 pr-8 pl-2 text-xs outline-hidden select-none [&>span:last-child]:block [&>span:last-child]:min-w-0 [&>span:last-child]:truncate",
         className
       )}
       {...props}
