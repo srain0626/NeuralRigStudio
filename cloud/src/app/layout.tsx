@@ -60,7 +60,7 @@ export const metadata: Metadata = {
     title: "NeuralRig Studio",
     description:
       "Live circuit physics, 2x8 parallel .NAM routing, and one-command AI pedal creation for Windows.",
-    url: `${SITE_URL}/`,
+    url: SITE_URL,
     siteName: "NeuralRig Studio",
     locale: "ko_KR",
     alternateLocale: ["en_US"],
@@ -80,7 +80,7 @@ const JSON_LD = {
     {
       "@type": "WebSite",
       name: "NeuralRig Studio",
-      url: `${SITE_URL}/`,
+      url: SITE_URL,
       isPartOf: {
         "@type": "WebSite",
         name: "seltum.xyz",
@@ -90,7 +90,7 @@ const JSON_LD = {
     {
       "@type": "SoftwareApplication",
       name: "NeuralRig Studio",
-      url: `${SITE_URL}/`,
+      url: SITE_URL,
       description: SITE_DESCRIPTION,
       applicationCategory: "MultimediaApplication",
       operatingSystem: "Windows",
