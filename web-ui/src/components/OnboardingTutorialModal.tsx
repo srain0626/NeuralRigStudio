@@ -52,7 +52,7 @@ export const OnboardingTutorialModal: React.FC<OnboardingTutorialModalProps> = (
   onOpenGearGuide,
   onOpenBenchmark,
 }) => {
-  const { tx } = useI18n()
+  const { tx, locale } = useI18n()
   const [stepIdx, setStepIdx] = useState(0)
 
   useEffect(() => {
@@ -78,7 +78,7 @@ export const OnboardingTutorialModal: React.FC<OnboardingTutorialModalProps> = (
         "No dedicated ASIO driver? Switch to WASAPI / Line-In for instant low-latency playback.",
         "Choose Mono Ch 1..N or Stereo input pairs directly from the Input Patchbay.",
       ],
-      icon: <Volume2 className="size-5 text-cyan-300" />,
+      icon: <Volume2 className="size-4 text-primary" />,
       cta: {
         labelKo: "Audio I/O 설정 열기",
         labelEn: "Open Audio I/O",
@@ -106,7 +106,7 @@ export const OnboardingTutorialModal: React.FC<OnboardingTutorialModalProps> = (
         "Each preset holds 8 glitch-free Scenes (A–H) for Verse, Crunch, Chorus, and Lead solo lifts.",
         "Save custom presets locally and sync them across devices with Google login.",
       ],
-      icon: <Sparkles className="size-5 text-amber-300" />,
+      icon: <Sparkles className="size-4 text-signal-warn" />,
     },
     {
       badge: "STEP 3 / 6",
@@ -126,7 +126,7 @@ export const OnboardingTutorialModal: React.FC<OnboardingTutorialModalProps> = (
         "Enable Parallel Split to blend Dual Amps and Dual Cabs cleanly across Row 1 and Row 2.",
         "Bind any parameter, bypass toggle, scene, or Tap Tempo via MIDI Learn.",
       ],
-      icon: <SlidersHorizontal className="size-5 text-emerald-300" />,
+      icon: <SlidersHorizontal className="size-4 text-signal-ok" />,
     },
     {
       badge: "STEP 4 / 6",
@@ -146,7 +146,7 @@ export const OnboardingTutorialModal: React.FC<OnboardingTutorialModalProps> = (
         "Dual-Stream Recorder captures raw Dry DI + Stereo Wet simultaneously for 1-click live re-amping.",
         "Use the BPM-Synced Stereo Looper with Undo/Redo, Half-Speed, and Reverse.",
       ],
-      icon: <Activity className="size-5 text-violet-300" />,
+      icon: <Activity className="size-4 text-primary" />,
     },
     {
       badge: "STEP 5 / 6",
@@ -166,7 +166,7 @@ export const OnboardingTutorialModal: React.FC<OnboardingTutorialModalProps> = (
         "Upload your verified SPICE creations to the Community Gear Hub or install others' rigs in 1 click.",
         "Drag-and-drop `.nam`, `.wav` IR, or `.nrig` bundle files directly onto the studio window.",
       ],
-      icon: <Wrench className="size-5 text-orange-300" />,
+      icon: <Wrench className="size-4 text-signal-warn" />,
       cta: {
         labelKo: "페달/앰프 제작 & npx MCP 가이드 열기",
         labelEn: "Open Custom Gear & MCP Guide",
@@ -192,7 +192,7 @@ export const OnboardingTutorialModal: React.FC<OnboardingTutorialModalProps> = (
         "Click BENCH in the top bar anytime to run the quantitative benchmark suite.",
         "Need help or found an issue? Click BUG to submit a bug report with automatically scrubbed logs.",
       ],
-      icon: <Gauge className="size-5 text-cyan-300" />,
+      icon: <Gauge className="size-4 text-signal-ok" />,
       cta: {
         labelKo: "지금 벤치마크 실행하기",
         labelEn: "Open Benchmark Suite",
@@ -207,6 +207,7 @@ export const OnboardingTutorialModal: React.FC<OnboardingTutorialModalProps> = (
   const cur = steps[stepIdx]
   const isLast = stepIdx === steps.length - 1
   const pct = Math.round(((stepIdx + 1) / steps.length) * 100)
+  const tips = locale === "ko" ? cur.tipsKo : cur.tipsEn
 
   const handleFinish = () => {
     onComplete()
@@ -215,63 +216,58 @@ export const OnboardingTutorialModal: React.FC<OnboardingTutorialModalProps> = (
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl border-white/10 bg-[#101318] text-studio-ink p-0 overflow-hidden shadow-2xl">
-        <DialogHeader className="px-6 pt-5 pb-4 border-b border-white/[0.06] bg-gradient-to-r from-cyan-500/[0.07] via-transparent to-emerald-500/[0.06]">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-black/40">
+      <DialogContent className="max-w-2xl p-0 overflow-hidden bg-card text-card-foreground border-border gap-0">
+        <DialogHeader className="px-5 py-3.5 border-b border-border bg-secondary/45 shrink-0 space-y-3">
+          <div className="flex items-center justify-between gap-3 pr-8">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="size-9 rounded-sm bg-oled border border-oled-border flex items-center justify-center shrink-0">
                 {cur.icon}
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-[10px] font-mono border-cyan-500/40 text-cyan-300">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge variant="oled" size="xs">
                     {cur.badge}
                   </Badge>
-                  <span className="text-[11px] text-studio-muted flex items-center gap-1">
+                  <span className="text-[11px] font-mono text-muted-foreground flex items-center gap-1">
                     <BookOpen className="size-3" />
-                    {tx("NeuralRig Studio v3.0 시작 튜토리얼", "NeuralRig Studio v3.0 Quick Tour")}
+                    {tx("NEURALRIG STUDIO v3.0 시작 튜토리얼", "NEURALRIG STUDIO v3.0 QUICK TOUR")}
                   </span>
                 </div>
-                <DialogTitle className="mt-1 text-[15px] font-semibold text-white">
+                <DialogTitle className="mt-1 leading-snug">
                   {tx(cur.titleKo, cur.titleEn)}
                 </DialogTitle>
               </div>
             </div>
-            <Button
-              size="xs"
-              variant="ghost"
-              className="text-studio-muted hover:text-white text-[11px]"
-              onClick={handleFinish}
-            >
-              {tx("건너뛰기", "Skip Tour")}
-            </Button>
           </div>
           <DialogDescription className="sr-only">
-            {tx("NeuralRig Studio UI 및 핵심 기능 인터랙티브 가이드", "Interactive walkthrough of NeuralRig Studio UI and features")}
+            {tx(
+              "NeuralRig Studio UI 및 핵심 기능 인터랙티브 가이드",
+              "Interactive walkthrough of NeuralRig Studio UI and features"
+            )}
           </DialogDescription>
 
-          <div className="mt-3 h-1.5 w-full rounded-full bg-black/50 overflow-hidden">
+          <div className="h-1 w-full rounded-[1px] bg-border overflow-hidden">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-emerald-400 transition-all duration-300"
+              className="h-full bg-primary transition-all duration-300"
               style={{ width: `${pct}%` }}
             />
           </div>
         </DialogHeader>
 
-        <div className="px-6 py-5 space-y-4">
-          <p className="text-[13px] leading-relaxed text-white/90">
+        <div className="px-5 py-4 space-y-3.5 bg-background">
+          <p className="text-xs leading-relaxed text-foreground">
             {tx(cur.descKo, cur.descEn)}
           </p>
 
-          <div className="rounded-lg border border-white/[0.07] bg-black/30 p-3.5 space-y-2">
-            <div className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-cyan-300">
+          <div className="rounded-sm border border-border bg-card p-3.5 space-y-2">
+            <div className="flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-primary">
               <Cpu className="size-3" />
-              <span>{tx("핵심 팁", "Key Takeaways")}</span>
+              <span>{tx("핵심 팁", "KEY TAKEAWAYS")}</span>
             </div>
             <ul className="space-y-1.5">
-              {(tx("ko", "en") === "ko" ? cur.tipsKo : cur.tipsEn).map((tip, i) => (
-                <li key={i} className="flex items-start gap-2 text-[12px] text-studio-ink/90">
-                  <CheckCircle2 className="size-3.5 text-emerald-400 shrink-0 mt-0.5" />
+              {tips.map((tip, i) => (
+                <li key={i} className="flex items-start gap-2 text-xs text-foreground leading-relaxed">
+                  <CheckCircle2 className="size-3.5 text-signal-ok shrink-0 mt-0.5" />
                   <span>{tip}</span>
                 </li>
               ))}
@@ -280,60 +276,63 @@ export const OnboardingTutorialModal: React.FC<OnboardingTutorialModalProps> = (
 
           {cur.cta && (
             <div className="flex justify-start">
-              <Button
-                size="sm"
-                variant="outline"
-                className="border-cyan-500/40 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/20 text-xs"
-                onClick={cur.cta.action}
-              >
+              <Button size="sm" variant="keycap" onClick={cur.cta.action}>
                 {tx(cur.cta.labelKo, cur.cta.labelEn)}
               </Button>
             </div>
           )}
         </div>
 
-        <div className="px-6 py-3.5 border-t border-white/[0.06] bg-black/25 flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            {steps.map((_, idx) => (
-              <button
-                key={idx}
-                type="button"
-                aria-label={`Step ${idx + 1}`}
-                onClick={() => setStepIdx(idx)}
-                className={`h-2 rounded-full transition-all ${
-                  idx === stepIdx ? "w-6 bg-cyan-400" : "w-2 bg-white/20 hover:bg-white/40"
-                }`}
-              />
-            ))}
+        <div className="px-5 py-3 border-t border-border bg-secondary/45 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              {steps.map((_, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  aria-label={`Step ${idx + 1}`}
+                  onClick={() => setStepIdx(idx)}
+                  className={`h-1.5 rounded-[1px] transition-all cursor-pointer ${
+                    idx === stepIdx
+                      ? "w-6 bg-primary"
+                      : "w-2 bg-border hover:bg-muted-foreground"
+                  }`}
+                />
+              ))}
+            </div>
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={handleFinish}
+              className="text-[11px]"
+            >
+              {tx("건너뛰기", "SKIP")}
+            </Button>
           </div>
 
           <div className="flex items-center gap-2">
             <Button
               size="sm"
-              variant="ghost"
+              variant="keycap"
               disabled={stepIdx === 0}
               onClick={() => setStepIdx((i) => Math.max(0, i - 1))}
-              className="gap-1 text-xs"
             >
               <ArrowLeft className="size-3.5" />
-              <span>{tx("이전", "Back")}</span>
+              <span>{tx("이전", "BACK")}</span>
             </Button>
             {isLast ? (
-              <Button
-                size="sm"
-                onClick={handleFinish}
-                className="gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-4"
-              >
+              <Button size="sm" variant="signal" onClick={handleFinish} className="px-4">
                 <CheckCircle2 className="size-3.5" />
-                <span>{tx("튜토리얼 완료 · 시작하기", "Finish & Start Playing")}</span>
+                <span>{tx("튜토리얼 완료 · 시작하기", "FINISH & PLAY")}</span>
               </Button>
             ) : (
               <Button
                 size="sm"
+                variant="signal"
                 onClick={() => setStepIdx((i) => Math.min(steps.length - 1, i + 1))}
-                className="gap-1 bg-cyan-600 hover:bg-cyan-500 text-white text-xs px-4"
+                className="px-4"
               >
-                <span>{tx("다음 단계", "Next")}</span>
+                <span>{tx("다음 단계", "NEXT")}</span>
                 <ArrowRight className="size-3.5" />
               </Button>
             )}

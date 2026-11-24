@@ -2,7 +2,6 @@ import React, { useEffect, useState } from "react"
 import {
   Cloud,
   CloudOff,
-  Globe,
   LogIn,
   LogOut,
   RefreshCw,
@@ -20,7 +19,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
 import { studioBridge } from "@/lib/bridge"
 import { useI18n } from "@/lib/i18n"
 import type { CloudStateDto } from "@/types/rig"
@@ -43,54 +41,39 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
   onLog,
 }) => {
   const { tx } = useI18n()
-  const [endpointInput, setEndpointInput] = useState(cloudState.cloudApiBaseUrl || "")
   const [busy, setBusy] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   useEffect(() => {
     if (open) {
-      setEndpointInput(cloudState.cloudApiBaseUrl || "")
       setErrorMsg(null)
     }
-  }, [open, cloudState.cloudApiBaseUrl])
+  }, [open])
 
   const isFirstGate = cloudState.mode === "unselected"
 
-  const handleSaveEndpoint = async () => {
-    if (!studioBridge.isWebView2) return
-    setBusy("endpoint")
-    setErrorMsg(null)
-    try {
-      const next = await studioBridge.invoke<CloudStateDto>("cloudSetEndpoint", {
-        url: endpointInput.trim(),
-      })
-      onCloudStateChange(next)
-      toast.success(tx("클라우드 서버 엔드포인트 저장됨", "Cloud endpoint saved"))
-    } catch (e) {
-      setErrorMsg(String(e))
-    } finally {
-      setBusy(null)
-    }
-  }
-
   const handleGoogleLogin = async () => {
     if (!studioBridge.isWebView2) {
-      setErrorMsg(tx("데스크톱 앱(WebView2) 환경에서만 Google OAuth 루프백 로그인이 동작합니다.", "Google OAuth login requires the desktop runtime."))
+      setErrorMsg(
+        tx(
+          "데스크톱 앱(WebView2) 환경에서만 Google OAuth 루프백 로그인이 동작합니다.",
+          "Google OAuth login requires the desktop runtime."
+        )
+      )
       return
     }
     setBusy("google")
     setErrorMsg(null)
     try {
-      // Save endpoint first if user typed a new URL before hitting Google Sign-In
-      if (endpointInput.trim() !== (cloudState.cloudApiBaseUrl || "")) {
-        const epState = await studioBridge.invoke<CloudStateDto>("cloudSetEndpoint", {
-          url: endpointInput.trim(),
-        })
-        onCloudStateChange(epState)
-      }
       const next = await studioBridge.invoke<CloudStateDto>("cloudSignInGoogle", {})
       onCloudStateChange(next)
-      onLog(tx(`Google 로그인 완료: ${next.user?.displayName || "Player"}`, `Signed in via Google: ${next.user?.displayName || "Player"}`), "success")
+      onLog(
+        tx(
+          `Google 로그인 완료: ${next.user?.displayName || "Player"}`,
+          `Signed in via Google: ${next.user?.displayName || "Player"}`
+        ),
+        "success"
+      )
       onOpenChange(false)
     } catch (e) {
       const msg = String(e)
@@ -147,23 +130,32 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
     }
   }
 
+  const initials = (cloudState.user?.displayName || "NR")
+    .trim()
+    .slice(0, 2)
+    .toUpperCase()
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg border-white/10 bg-[#101318] text-studio-ink p-0 overflow-hidden shadow-2xl">
-        <DialogHeader className="px-6 pt-5 pb-4 border-b border-white/[0.06] bg-gradient-to-r from-cyan-500/[0.08] via-transparent to-violet-500/[0.06]">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-cyan-300">
-              {cloudState.isAuthenticated ? <UserCheck className="size-5" /> : <Cloud className="size-5" />}
+      <DialogContent className="max-w-lg p-0 overflow-hidden bg-card text-card-foreground border-border gap-0">
+        <DialogHeader className="px-5 py-3.5 border-b border-border bg-secondary/45 shrink-0">
+          <div className="flex items-center gap-2.5 pr-8">
+            <div className="size-8 rounded-sm bg-oled border border-oled-border flex items-center justify-center text-primary shrink-0">
+              {cloudState.isAuthenticated ? (
+                <UserCheck className="size-4" />
+              ) : (
+                <Cloud className="size-4" />
+              )}
             </div>
             <div>
-              <DialogTitle className="text-[15px] font-semibold text-white">
+              <DialogTitle>
                 {isFirstGate
-                  ? tx("NeuralRig Studio 시작하기 · 계정 또는 게스트 선택", "Welcome to NeuralRig Studio · Account or Guest")
-                  : tx("Google 클라우드 계정 및 동기화 설정", "Google Cloud Account & Sync")}
+                  ? tx("NEURALRIG STUDIO · 계정 또는 게스트 선택", "NEURALRIG STUDIO · ACCOUNT OR GUEST")
+                  : tx("GOOGLE 클라우드 계정 & 동기화", "GOOGLE CLOUD ACCOUNT & SYNC")}
               </DialogTitle>
-              <DialogDescription className="text-[11px] text-studio-muted">
+              <DialogDescription>
                 {tx(
-                  "Google 로그인 시 프리셋·프로필·커스텀 SPICE 기어 클라우드 동기화 및 커뮤니티 허브 게시가 해금됩니다.",
+                  "Google 로그인 시 프리셋·프로필·커스텀 SPICE 기어 동기화 및 커뮤니티 허브 게시가 해금됩니다.",
                   "Sign in with Google to sync presets & custom SPICE gear across PCs, or play offline anytime in Guest mode."
                 )}
               </DialogDescription>
@@ -171,137 +163,142 @@ export const AuthAccountModal: React.FC<AuthAccountModalProps> = ({
           </div>
         </DialogHeader>
 
-        <div className="px-6 py-5 space-y-4">
+        <div className="px-5 py-4 space-y-3.5 bg-background">
           {errorMsg && (
-            <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-2.5 text-[11px] text-rose-200">
+            <div className="rounded-sm border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
               {errorMsg}
             </div>
           )}
 
           {cloudState.isAuthenticated && cloudState.user ? (
-            <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/[0.05] p-4 space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-white">{cloudState.user.displayName}</span>
-                    {cloudState.user.isAdmin && (
-                      <Badge variant="outline" className="text-[9px] border-amber-500/40 bg-amber-500/15 text-amber-300 gap-1">
-                        <Shield className="size-2.5" />
-                        ADMIN
-                      </Badge>
+            <div className="rounded-sm border border-border bg-card p-4 space-y-3.5">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="size-10 rounded-sm border border-oled-border bg-oled text-oled-foreground flex items-center justify-center shrink-0 overflow-hidden font-display text-xs font-bold">
+                    {cloudState.user.avatarUrl ? (
+                      <img
+                        src={cloudState.user.avatarUrl}
+                        alt={cloudState.user.displayName}
+                        className="size-full object-cover"
+                      />
+                    ) : (
+                      <span>{initials}</span>
                     )}
                   </div>
-                  <div className="text-xs text-studio-muted font-mono">{cloudState.user.email}</div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-display text-sm font-bold text-foreground truncate">
+                        {cloudState.user.displayName}
+                      </span>
+                      {cloudState.user.isAdmin && (
+                        <Badge variant="warn" size="xs">
+                          <Shield className="size-2.5" />
+                          ADMIN
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="text-[11px] font-mono text-muted-foreground truncate">
+                      {cloudState.user.email}
+                    </div>
+                  </div>
                 </div>
-                <Badge variant="outline" className="text-[10px] border-emerald-500/40 text-emerald-300">
-                  Google Connected
+                <Badge variant="ok" size="xs" className="shrink-0">
+                  GOOGLE CONNECTED
                 </Badge>
               </div>
 
-              <div className="text-[11px] text-studio-muted flex items-center justify-between border-t border-white/[0.06] pt-2.5">
-                <span>
-                  {tx("마지막 동기화: ", "Last synced: ")}
-                  <span className="font-mono text-white/85">
-                    {cloudState.lastSyncUtc ? new Date(cloudState.lastSyncUtc).toLocaleString() : tx("기록 없음", "Never")}
-                  </span>
+              <div className="rounded-sm border border-oled-border bg-oled px-3 py-2 flex items-center justify-between text-[11px] font-mono">
+                <span className="text-oled-muted uppercase tracking-wider">
+                  {tx("마지막 클라우드 동기화", "LAST CLOUD SYNC")}
+                </span>
+                <span className="text-oled-foreground tabular-nums">
+                  {cloudState.lastSyncUtc
+                    ? new Date(cloudState.lastSyncUtc).toLocaleString()
+                    : tx("기록 없음", "NEVER")}
                 </span>
               </div>
 
-              <div className="flex flex-wrap gap-2 pt-1">
+              <div className="flex flex-wrap items-center gap-2 pt-0.5">
                 <Button
                   size="sm"
+                  variant="signal"
                   disabled={busy !== null}
                   onClick={() => void handleSyncNow()}
-                  className="bg-cyan-600 hover:bg-cyan-500 text-white text-xs gap-1.5"
                 >
                   <RefreshCw className={`size-3.5 ${busy === "sync" ? "animate-spin" : ""}`} />
-                  <span>{busy === "sync" ? tx("동기화 중...", "Syncing...") : tx("지금 클라우드 동기화", "Sync Now")}</span>
+                  <span>
+                    {busy === "sync"
+                      ? tx("동기화 중...", "SYNCING...")
+                      : tx("지금 클라우드 동기화", "SYNC NOW")}
+                  </span>
                 </Button>
                 <Button
                   size="sm"
-                  variant="outline"
+                  variant="keycap"
                   disabled={busy !== null}
                   onClick={() => {
                     onOpenChange(false)
                     onCheckUpdates()
                   }}
-                  className="text-xs gap-1.5"
                 >
                   <Sparkles className="size-3.5" />
-                  <span>{tx("업데이트 확인", "Check Updates")}</span>
+                  <span>{tx("업데이트 확인", "CHECK UPDATES")}</span>
                 </Button>
                 <Button
                   size="sm"
                   variant="ghost"
                   disabled={busy !== null}
                   onClick={() => void handleSignOut()}
-                  className="text-xs text-rose-300 hover:text-rose-200 gap-1.5 ml-auto"
+                  className="text-destructive hover:text-destructive ml-auto"
                 >
                   <LogOut className="size-3.5" />
-                  <span>{tx("로그아웃", "Sign Out")}</span>
+                  <span>{tx("로그아웃", "SIGN OUT")}</span>
                 </Button>
               </div>
             </div>
           ) : (
             <div className="space-y-3">
-              <div className="grid grid-cols-1 gap-2.5">
+              <div className="rounded-sm border border-border bg-card p-3.5 space-y-1.5 text-xs text-muted-foreground">
+                <div className="font-mono text-[10px] font-bold uppercase tracking-wider text-primary">
+                  {tx("클라우드 세션 안내", "CLOUD SESSION")}
+                </div>
+                <p className="leading-relaxed text-foreground/90">
+                  {tx(
+                    "Google 계정으로 로그인하면 프리셋·기타 프로필·SPICE 커스텀 기어가 자동 동기화되며, 게스트 모드에서도 모든 오프라인 연주/DSP/로컬 기능을 제한 없이 사용할 수 있습니다.",
+                    "Sign in with Google to synchronize presets, guitar profiles, and custom SPICE gear across PCs, or play offline with zero restrictions in Guest mode."
+                  )}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2">
                 <Button
                   size="lg"
+                  variant="signal"
                   disabled={busy !== null}
                   onClick={() => void handleGoogleLogin()}
-                  className="w-full bg-white text-black hover:bg-white/90 font-semibold text-xs h-10 gap-2"
+                  className="w-full h-10"
                 >
                   <LogIn className="size-4" />
                   <span>
                     {busy === "google"
-                      ? tx("브라우저에서 Google 로그인 진행 중...", "Waiting for Google sign-in...")
-                      : tx("Google 계정으로 로그인 (클라우드 동기화 · 허브)", "Sign in with Google (Cloud Sync & Hub)")}
+                      ? tx("브라우저에서 Google 로그인 진행 중...", "WAITING FOR GOOGLE SIGN-IN...")
+                      : tx("Google 계정으로 로그인 (클라우드 동기화 · 허브)", "SIGN IN WITH GOOGLE (SYNC & HUB)")}
                   </span>
                 </Button>
 
                 <Button
                   size="lg"
-                  variant="outline"
+                  variant="keycap"
                   disabled={busy !== null}
                   onClick={() => void handleGuestMode()}
-                  className="w-full border-white/15 bg-white/[0.03] hover:bg-white/[0.07] text-xs h-10 gap-2"
+                  className="w-full h-10"
                 >
-                  <CloudOff className="size-4 text-studio-muted" />
-                  <span>{tx("로그인 없이 게스트 / 오프라인 모드로 연주 시작", "Continue as Guest (Offline Mode)")}</span>
+                  <CloudOff className="size-4 text-muted-foreground" />
+                  <span>{tx("로그인 없이 게스트 / 오프라인 모드로 연주 시작", "CONTINUE AS GUEST (OFFLINE MODE)")}</span>
                 </Button>
               </div>
             </div>
           )}
-
-          {/* Cloud Deployment Endpoint Configuration */}
-          <div className="rounded-md border border-white/[0.07] bg-black/30 p-3 space-y-2">
-            <div className="flex items-center justify-between text-[11px]">
-              <span className="flex items-center gap-1.5 text-studio-muted font-medium">
-                <Globe className="size-3.5 text-cyan-400" />
-                {tx("클라우드 서버 URL (Vercel Next.js)", "Cloud Server URL (Vercel Next.js)")}
-              </span>
-              <Badge variant="outline" className="text-[9px] h-4 border-white/15">
-                {cloudState.isConfigured ? tx("연결 설정됨", "Configured") : tx("로컬/오프라인", "Offline")}
-              </Badge>
-            </div>
-            <div className="flex items-center gap-2">
-              <Input
-                value={endpointInput}
-                onChange={(e) => setEndpointInput(e.target.value)}
-                placeholder="https://your-neuralrig-cloud.vercel.app"
-                className="h-8 text-xs font-mono bg-black/40 border-white/10"
-              />
-              <Button
-                size="xs"
-                variant="outline"
-                disabled={busy !== null}
-                onClick={() => void handleSaveEndpoint()}
-                className="h-8 px-3 text-[11px]"
-              >
-                {tx("저장", "Save")}
-              </Button>
-            </div>
-          </div>
         </div>
       </DialogContent>
     </Dialog>

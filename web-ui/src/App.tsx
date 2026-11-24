@@ -97,8 +97,7 @@ export default function App() {
   const [hasCompletedTutorial, setHasCompletedTutorial] = useState(false)
   const [cloudState, setCloudState] = useState<CloudStateDto>({
     mode: "unselected",
-    cloudApiBaseUrl: "",
-    isConfigured: false,
+    isConfigured: true,
     isAuthenticated: false,
     user: null,
     lastSyncUtc: null,
@@ -1082,11 +1081,10 @@ export default function App() {
             <Hint content={tx("어드민 운영 애널리틱스 · OTA 정책 콘솔", "Admin Analytics & OTA Console")}>
               <Button
                 size="xs"
-                variant="outline"
-                className="border-amber-500/40 text-amber-300"
+                variant="keycap"
                 onClick={() => setAdminOpen(true)}
               >
-                <Shield className="size-3" strokeWidth={1.5} />
+                <Shield className="size-3 text-signal-warn" strokeWidth={1.5} />
                 <span>ADMIN</span>
               </Button>
             </Hint>

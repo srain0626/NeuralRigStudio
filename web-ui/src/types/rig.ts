@@ -167,7 +167,6 @@ export interface AppSettingsDto {
   savedPresets?: SignalChainConfigDto[]
   hasChosenAuthMode?: boolean
   hasCompletedTutorial?: boolean
-  cloudApiBaseUrl?: string | null
   lastCloudSyncUtc?: string | null
   autoCloudSync?: boolean
 }
@@ -525,7 +524,6 @@ export interface CloudUserDto {
 
 export interface CloudStateDto {
   mode: "unselected" | "guest" | "google" | string
-  cloudApiBaseUrl: string
   isConfigured: boolean
   isAuthenticated: boolean
   user?: CloudUserDto | null

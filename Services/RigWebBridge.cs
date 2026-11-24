@@ -375,7 +375,6 @@ public sealed class RigWebBridge : IDisposable
                 "cloudSignInGoogle" => await SignInGoogleAndNotifyAsync(),
                 "cloudContinueGuest" => ContinueGuestAndNotify(),
                 "cloudSignOut" => SignOutAndNotify(),
-                "cloudSetEndpoint" => SetCloudEndpointAndNotify(GetStr(payload, "url")),
                 "cloudSyncNow" => await CloudSyncNowAsync(),
                 "getCommunityHub" => await GetCommunityHubAsync(payload),
                 "uploadCommunityGear" => await UploadCommunityGearAsync(payload),
@@ -2370,13 +2369,6 @@ public sealed class RigWebBridge : IDisposable
         var state = _cloud.SignOut(_settings);
         EmitEvent("cloudStateChanged", state);
         EmitLog("[Cloud] 로그아웃되어 게스트 모드로 전환되었습니다.");
-        return state;
-    }
-
-    private CloudStateDto SetCloudEndpointAndNotify(string? url)
-    {
-        var state = _cloud.SetCloudEndpoint(_settings, url);
-        EmitEvent("cloudStateChanged", state);
         return state;
     }
 

@@ -204,7 +204,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           {isAdmin && onOpenAdmin && (
             <CommandItem onSelect={() => runAndClose(onOpenAdmin)}>
               <span className="flex items-center gap-2">
-                <Shield className="size-3.5 text-amber-400" />
+                <Shield className="size-3.5 text-signal-warn" />
                 <span>{tx("어드민 애널리틱스 · OTA 정책 콘솔", "Admin Analytics · OTA Console")}</span>
               </span>
             </CommandItem>

@@ -23,7 +23,6 @@ public sealed class CloudUserDto
 public sealed class CloudStateDto
 {
     public string Mode { get; set; } = "unselected"; // unselected | guest | google
-    public string CloudApiBaseUrl { get; set; } = "";
     public bool IsConfigured { get; set; }
     public bool IsAuthenticated { get; set; }
     public CloudUserDto? User { get; set; }
@@ -119,20 +118,13 @@ public sealed class CloudPlatformService
 
     public const string DefaultCloudBaseUrl = "https://neuralrig-studio-cloud.vercel.app";
 
-    public static string ResolveCloudBaseUrl(AppSettings settings)
-    {
-        string? envUrl = Environment.GetEnvironmentVariable("NEURALRIG_CLOUD_URL");
-        string raw = !string.IsNullOrWhiteSpace(settings.CloudApiBaseUrl)
-            ? settings.CloudApiBaseUrl
-            : (!string.IsNullOrWhiteSpace(envUrl) ? envUrl : DefaultCloudBaseUrl);
-        return raw.Trim().TrimEnd('/');
-    }
+    public static string ResolveCloudBaseUrl(AppSettings _)
+        => DefaultCloudBaseUrl;
 
     public CloudStateDto GetState(AppSettings settings)
     {
         lock (_lock)
         {
-            string baseUrl = ResolveCloudBaseUrl(settings);
             bool authed = _session != null && !string.IsNullOrWhiteSpace(_session.AccessToken);
             string mode = authed
                 ? "google"
@@ -141,8 +133,7 @@ public sealed class CloudPlatformService
             return new CloudStateDto
             {
                 Mode = mode,
-                CloudApiBaseUrl = baseUrl,
-                IsConfigured = Uri.TryCreate(baseUrl, UriKind.Absolute, out _),
+                IsConfigured = true,
                 IsAuthenticated = authed,
                 User = authed ? _session!.User : null,
                 LastSyncUtc = settings.LastCloudSyncUtc,
@@ -154,20 +145,6 @@ public sealed class CloudPlatformService
     public CloudStateDto ContinueAsGuest(AppSettings settings)
     {
         settings.HasChosenAuthMode = true;
-        settings.Save();
-        return GetState(settings);
-    }
-
-    public CloudStateDto SetCloudEndpoint(AppSettings settings, string? url)
-    {
-        string cleaned = (url ?? "").Trim().TrimEnd('/');
-        if (!string.IsNullOrEmpty(cleaned) &&
-            (!Uri.TryCreate(cleaned, UriKind.Absolute, out var u) ||
-             (u.Scheme != Uri.UriSchemeHttps && u.Scheme != Uri.UriSchemeHttp)))
-        {
-            throw new InvalidOperationException("클라우드 서버 URL은 http:// 또는 https:// 로 시작해야 합니다.");
-        }
-        settings.CloudApiBaseUrl = string.IsNullOrEmpty(cleaned) ? null : cleaned;
         settings.Save();
         return GetState(settings);
     }

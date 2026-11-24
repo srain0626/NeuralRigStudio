@@ -48,7 +48,12 @@ export const BenchmarkDialog: React.FC<BenchmarkDialogProps> = ({
 
   const handleRun = async () => {
     if (!studioBridge.isWebView2) {
-      setErrorMsg(tx("네이티브 호스트(WebView2) 환경에서만 실시간 DSP 벤치마크를 실행할 수 있습니다.", "Live DSP benchmarks require the native desktop host."))
+      setErrorMsg(
+        tx(
+          "네이티브 호스트(WebView2) 환경에서만 실시간 DSP 벤치마크를 실행할 수 있습니다.",
+          "Live DSP benchmarks require the native desktop host."
+        )
+      )
       return
     }
     setRunning(true)
@@ -86,18 +91,18 @@ export const BenchmarkDialog: React.FC<BenchmarkDialogProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl border-white/10 bg-[#101216] text-studio-ink p-0 overflow-hidden shadow-2xl">
-        <DialogHeader className="px-5 pt-4 pb-3 border-b border-white/[0.06] bg-white/[0.02]">
-          <div className="flex items-center justify-between gap-3">
+      <DialogContent className="max-w-4xl p-0 overflow-hidden bg-card text-card-foreground border-border gap-0">
+        <DialogHeader className="px-5 py-3.5 border-b border-border bg-secondary/45 shrink-0">
+          <div className="flex flex-wrap items-center justify-between gap-3 pr-8">
             <div className="flex items-center gap-2.5">
-              <div className="flex h-8 w-8 items-center justify-center rounded-md border border-cyan-400/30 bg-cyan-500/10 text-cyan-300">
+              <div className="size-8 rounded-sm bg-oled border border-oled-border flex items-center justify-center text-primary shrink-0">
                 <Gauge className="size-4" strokeWidth={1.7} />
               </div>
               <div>
-                <DialogTitle className="text-[14px] font-semibold tracking-tight text-white">
-                  {tx("하드웨어 유사도 · 지연시간 · 멀티체인 벤치마크", "Hardware Similarity · Latency · Multi-Chain Benchmark")}
+                <DialogTitle>
+                  {tx("하드웨어 유사도 · 지연시간 · 멀티체인 벤치마크", "HARDWARE SIMILARITY · LATENCY · MULTI-CHAIN BENCHMARK")}
                 </DialogTitle>
-                <DialogDescription className="text-[11px] text-studio-muted">
+                <DialogDescription>
                   {tx(
                     "MNA SPICE 물리 회로 해석 · 4x HIIR 대칭/비대칭 클리핑 · WaveNet · 64/128/256fr RT 데드라인 · 16슬롯 스트레스 검증",
                     "MNA SPICE nodal checks · 4x HIIR harmonic verification · WaveNet ESR · 64/128/256fr RT deadlines · 16-slot torture suite"
@@ -108,59 +113,68 @@ export const BenchmarkDialog: React.FC<BenchmarkDialogProps> = ({
 
             <Button
               size="sm"
-              variant="default"
+              variant="signal"
               disabled={running}
               onClick={() => void handleRun()}
-              className="h-8 gap-1.5 bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] font-medium px-3"
             >
               <Play className="size-3.5" />
-              <span>{running ? tx("계측 중...", "Running...") : report ? tx("벤치마크 다시 실행", "Re-Run Suite") : tx("벤치마크 실행", "Run Suite")}</span>
+              <span>
+                {running
+                  ? tx("계측 중...", "RUNNING...")
+                  : report
+                    ? tx("벤치마크 다시 실행", "RE-RUN SUITE")
+                    : tx("벤치마크 실행", "RUN SUITE")}
+              </span>
             </Button>
           </div>
 
           {/* KPI Summary Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3">
-            <div className="rounded-md border border-white/[0.07] bg-black/30 px-3 py-2">
-              <div className="flex items-center justify-between text-[10px] text-studio-muted uppercase tracking-wider">
-                <span>{tx("하드웨어 유사도", "Hardware Fidelity")}</span>
-                <Waves className="size-3 text-cyan-400" />
+            <div className="rounded-sm border border-oled-border bg-oled px-3 py-2">
+              <div className="flex items-center justify-between font-mono text-[10px] text-oled-muted uppercase tracking-wider">
+                <span>{tx("하드웨어 유사도", "HARDWARE FIDELITY")}</span>
+                <Waves className="size-3 text-primary" />
               </div>
               <div className="mt-1 flex items-baseline gap-1.5">
-                <span className="text-base font-semibold tabular-nums text-white">
+                <span className="font-mono text-base font-bold tabular-nums text-oled-foreground">
                   {report ? `${report.overallSimilarityPct.toFixed(1)}%` : "--"}
                 </span>
                 {report && (
-                  <Badge variant="outline" className="text-[9px] h-4 px-1 border-cyan-500/30 text-cyan-300">
+                  <Badge variant="ok" size="xs">
                     {report.similarityItems.filter((x) => x.passed).length}/{report.similarityItems.length}
                   </Badge>
                 )}
               </div>
             </div>
 
-            <div className="rounded-md border border-white/[0.07] bg-black/30 px-3 py-2">
-              <div className="flex items-center justify-between text-[10px] text-studio-muted uppercase tracking-wider">
-                <span>{tx("64-Frame RT 데드라인", "64fr RT Budget")}</span>
-                <Cpu className="size-3 text-emerald-400" />
+            <div className="rounded-sm border border-oled-border bg-oled px-3 py-2">
+              <div className="flex items-center justify-between font-mono text-[10px] text-oled-muted uppercase tracking-wider">
+                <span>{tx("64-FRAME RT 데드라인", "64FR RT BUDGET")}</span>
+                <Cpu className="size-3 text-signal-ok" />
               </div>
               <div className="mt-1 flex items-baseline gap-1.5">
-                <span className="text-base font-semibold tabular-nums text-white">
+                <span className="font-mono text-base font-bold tabular-nums text-oled-foreground">
                   {report ? (report.minBuffer64Pass ? "PASS" : "OVER") : "--"}
                 </span>
                 {report && (
-                  <span className="text-[10px] text-studio-muted tabular-nums">
+                  <span className="font-mono text-[10px] text-oled-muted tabular-nums">
                     Peak {buf64MaxCpu.toFixed(1)}% CPU
                   </span>
                 )}
               </div>
             </div>
 
-            <div className="rounded-md border border-white/[0.07] bg-black/30 px-3 py-2">
-              <div className="flex items-center justify-between text-[10px] text-studio-muted uppercase tracking-wider">
-                <span>{isAudioRunning ? tx("실측 왕복 레이턴시", "Live Round-Trip") : tx("알고리즘 + 64fr RT", "Algo + 64fr RT")}</span>
-                <Activity className="size-3 text-amber-400" />
+            <div className="rounded-sm border border-oled-border bg-oled px-3 py-2">
+              <div className="flex items-center justify-between font-mono text-[10px] text-oled-muted uppercase tracking-wider">
+                <span>
+                  {isAudioRunning
+                    ? tx("실측 왕복 레이턴시", "LIVE ROUND-TRIP")
+                    : tx("알고리즘 + 64FR RT", "ALGO + 64FR RT")}
+                </span>
+                <Activity className="size-3 text-signal-warn" />
               </div>
               <div className="mt-1 flex items-baseline gap-1.5">
-                <span className="text-base font-semibold tabular-nums text-white">
+                <span className="font-mono text-base font-bold tabular-nums text-oled-foreground">
                   {report
                     ? report.liveAudioRoundTripMs != null
                       ? `${report.liveAudioRoundTripMs.toFixed(1)} ms`
@@ -168,25 +182,25 @@ export const BenchmarkDialog: React.FC<BenchmarkDialogProps> = ({
                     : "--"}
                 </span>
                 {report && (
-                  <span className="text-[10px] text-studio-muted tabular-nums">
+                  <span className="font-mono text-[10px] text-oled-muted tabular-nums">
                     @ {(report.sampleRate / 1000).toFixed(1)}kHz
                   </span>
                 )}
               </div>
             </div>
 
-            <div className="rounded-md border border-white/[0.07] bg-black/30 px-3 py-2">
-              <div className="flex items-center justify-between text-[10px] text-studio-muted uppercase tracking-wider">
-                <span>{tx("RT 메모리 할당 · 체인", "RT Alloc · 16-Slot")}</span>
-                <ShieldCheck className="size-3 text-emerald-400" />
+            <div className="rounded-sm border border-oled-border bg-oled px-3 py-2">
+              <div className="flex items-center justify-between font-mono text-[10px] text-oled-muted uppercase tracking-wider">
+                <span>{tx("RT 메모리 할당 · 체인", "RT ALLOC · 16-SLOT")}</span>
+                <ShieldCheck className="size-3 text-signal-ok" />
               </div>
               <div className="mt-1 flex items-baseline gap-1.5">
-                <span className="text-base font-semibold tabular-nums text-white">
+                <span className="font-mono text-base font-bold tabular-nums text-oled-foreground">
                   {report ? (report.zeroRtAllocAll ? "0 B" : "ALLOC!") : "--"}
                 </span>
                 {report && (
-                  <span className="text-[10px] text-studio-muted tabular-nums">
-                    {report.multiChainItems.filter((x) => x.passed).length}/{report.multiChainItems.length} Chains · {report.totalDurationMs.toFixed(0)}ms
+                  <span className="font-mono text-[10px] text-oled-muted tabular-nums">
+                    {report.multiChainItems.filter((x) => x.passed).length}/{report.multiChainItems.length} · {report.totalDurationMs.toFixed(0)}ms
                   </span>
                 )}
               </div>
@@ -194,53 +208,65 @@ export const BenchmarkDialog: React.FC<BenchmarkDialogProps> = ({
           </div>
         </DialogHeader>
 
-        <div className="px-5 py-3 flex items-center justify-between border-b border-white/[0.05] bg-black/20">
+        <div className="px-5 py-2.5 flex flex-wrap items-center justify-between gap-2 border-b border-border bg-card">
           <Tabs value={tab} onValueChange={(v) => setTab(v as BenchTab)}>
-            <TabsList className="h-8 bg-black/40 border border-white/[0.06] p-0.5">
-              <TabsTrigger value="similarity" className="text-[11px] h-7 px-3">
-                {tx("하드웨어 유사도 검증", "Hardware Similarity")}
+            <TabsList>
+              <TabsTrigger value="similarity">
+                {tx("하드웨어 유사도 검증", "HARDWARE SIMILARITY")}
               </TabsTrigger>
-              <TabsTrigger value="latency" className="text-[11px] h-7 px-3">
-                {tx("지연시간 · RT 데드라인", "Latency · RT Budget")}
+              <TabsTrigger value="latency">
+                {tx("지연시간 · RT 데드라인", "LATENCY · RT BUDGET")}
               </TabsTrigger>
-              <TabsTrigger value="multichain" className="text-[11px] h-7 px-3">
-                {tx("16-슬롯 멀티체인 스트레스", "16-Slot Multi-Chain")}
+              <TabsTrigger value="multichain">
+                {tx("16-슬롯 멀티체인 스트레스", "16-SLOT MULTI-CHAIN")}
               </TabsTrigger>
             </TabsList>
           </Tabs>
 
           {report && (
-            <div className="flex items-center gap-1.5 text-[11px]">
+            <div className="flex items-center gap-1.5 font-mono text-[11px] font-bold">
               {report.overallPassed ? (
-                <CheckCircle2 className="size-3.5 text-emerald-400" />
+                <CheckCircle2 className="size-3.5 text-signal-ok" />
               ) : (
-                <XCircle className="size-3.5 text-rose-400" />
+                <XCircle className="size-3.5 text-destructive" />
               )}
-              <span className={report.overallPassed ? "text-emerald-300 font-medium" : "text-rose-300 font-medium"}>
-                {report.overallPassed ? tx("전체 벤치마크 통과", "ALL BENCHMARKS PASSED") : tx("일부 항목 실패", "SOME CHECKS FAILED")}
+              <span className={report.overallPassed ? "text-signal-ok" : "text-destructive"}>
+                {report.overallPassed
+                  ? tx("전체 벤치마크 통과", "ALL BENCHMARKS PASSED")
+                  : tx("일부 항목 실패", "SOME CHECKS FAILED")}
               </span>
             </div>
           )}
         </div>
 
-        <ScrollArea className="h-[420px] px-5 py-3">
+        <ScrollArea className="h-[420px] px-5 py-3 bg-background">
           {errorMsg && (
-            <div className="mb-3 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-200">
+            <div className="mb-3 rounded-sm border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
               {errorMsg}
             </div>
           )}
 
           {!report && !running && (
-            <div className="flex h-64 flex-col items-center justify-center gap-2 text-studio-muted text-xs">
+            <div className="flex h-64 flex-col items-center justify-center gap-2 text-muted-foreground text-xs">
               <Layers className="size-8 opacity-40" />
-              <span>{tx("'벤치마크 실행' 버튼을 눌러 DSP 및 SPICE 회로 정량 검증을 시작하세요.", "Click 'Run Suite' to execute quantitative DSP & SPICE benchmarks.")}</span>
+              <span>
+                {tx(
+                  "'벤치마크 실행' 버튼을 눌러 DSP 및 SPICE 회로 정량 검증을 시작하세요.",
+                  "Click 'RUN SUITE' to execute quantitative DSP & SPICE benchmarks."
+                )}
+              </span>
             </div>
           )}
 
           {running && !report && (
-            <div className="flex h-64 flex-col items-center justify-center gap-2 text-cyan-300 text-xs">
+            <div className="flex h-64 flex-col items-center justify-center gap-2 text-primary font-mono text-xs">
               <Gauge className="size-7 animate-pulse" />
-              <span>{tx("MNA SPICE · 4x HIIR · 64/128/256fr RT · 16슬롯 멀티체인 측정 중...", "Benchmarking SPICE, 4x HIIR, RT budgets, and 16-slot torture chains...")}</span>
+              <span>
+                {tx(
+                  "MNA SPICE · 4x HIIR · 64/128/256fr RT · 16슬롯 멀티체인 측정 중...",
+                  "Benchmarking SPICE, 4x HIIR, RT budgets, and 16-slot torture chains..."
+                )}
+              </span>
             </div>
           )}
 
@@ -249,52 +275,53 @@ export const BenchmarkDialog: React.FC<BenchmarkDialogProps> = ({
               {report.similarityItems.map((item) => (
                 <div
                   key={item.id}
-                  className="rounded-md border border-white/[0.07] bg-white/[0.02] p-3"
+                  className="rounded-sm border border-border bg-card p-3 space-y-2"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-semibold text-white">{item.originalHardware}</span>
-                        <span className="text-[10px] text-studio-muted">({item.deviceName})</span>
+                        <span className="font-display text-xs font-bold text-foreground">
+                          {item.originalHardware}
+                        </span>
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          ({item.deviceName})
+                        </span>
                       </div>
-                      <div className="text-[10px] text-studio-muted mt-0.5">{item.topologySummary}</div>
+                      <div className="text-[11px] text-muted-foreground mt-0.5">
+                        {item.topologySummary}
+                      </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold tabular-nums text-cyan-300">
+                      <span className="font-mono text-xs font-bold tabular-nums text-primary">
                         {item.similarityPct.toFixed(1)}%
                       </span>
-                      <Badge
-                        variant="outline"
-                        className={
-                          item.passed
-                            ? "text-[9px] h-5 border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                            : "text-[9px] h-5 border-rose-500/30 bg-rose-500/10 text-rose-300"
-                        }
-                      >
+                      <Badge variant={item.passed ? "ok" : "destructive"} size="xs">
                         {item.passed ? "PASS" : "FAIL"}
                       </Badge>
                     </div>
                   </div>
 
-                  <div className="mt-2 h-1.5 w-full rounded-full bg-black/50 overflow-hidden">
+                  <div className="h-1.5 w-full rounded-[1px] bg-secondary overflow-hidden border border-border/50">
                     <div
-                      className={`h-full rounded-full transition-all ${item.passed ? "bg-gradient-to-r from-cyan-500 to-emerald-400" : "bg-rose-500"}`}
+                      className={`h-full transition-all ${
+                        item.passed ? "bg-signal-ok" : "bg-destructive"
+                      }`}
                       style={{ width: `${Math.min(100, Math.max(0, item.similarityPct))}%` }}
                     />
                   </div>
 
-                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2 text-[10px] font-mono">
-                    <div className="rounded bg-black/30 px-2 py-1 text-studio-ink">
-                      <div className="text-[9px] text-studio-muted">{item.metricLabel}</div>
-                      <div className="truncate">{item.measuredValue}</div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[10px] font-mono">
+                    <div className="rounded-sm border border-border bg-background px-2.5 py-1.5">
+                      <div className="text-[9px] text-muted-foreground uppercase">{item.metricLabel}</div>
+                      <div className="truncate text-foreground font-semibold">{item.measuredValue}</div>
                     </div>
-                    <div className="rounded bg-black/30 px-2 py-1 text-studio-muted">
-                      <div className="text-[9px]">Reference Target</div>
-                      <div className="truncate text-white/80">{item.referenceTarget}</div>
+                    <div className="rounded-sm border border-border bg-background px-2.5 py-1.5">
+                      <div className="text-[9px] text-muted-foreground uppercase">Reference Target</div>
+                      <div className="truncate text-foreground">{item.referenceTarget}</div>
                     </div>
-                    <div className="rounded bg-black/30 px-2 py-1 text-studio-muted">
-                      <div className="text-[9px]">Details / Margin</div>
-                      <div className="truncate text-white/80">{item.deviationSummary}</div>
+                    <div className="rounded-sm border border-border bg-background px-2.5 py-1.5">
+                      <div className="text-[9px] text-muted-foreground uppercase">Details / Margin</div>
+                      <div className="truncate text-foreground">{item.deviationSummary}</div>
                     </div>
                   </div>
                 </div>
@@ -303,10 +330,10 @@ export const BenchmarkDialog: React.FC<BenchmarkDialogProps> = ({
           )}
 
           {report && tab === "latency" && (
-            <div className="rounded-md border border-white/[0.07] bg-white/[0.02] overflow-hidden">
+            <div className="rounded-sm border border-border bg-card overflow-hidden">
               <table className="w-full text-left border-collapse text-[11px]">
                 <thead>
-                  <tr className="border-b border-white/[0.06] bg-black/40 text-[10px] text-studio-muted uppercase">
+                  <tr className="border-b border-border bg-secondary/45 font-mono text-[10px] text-muted-foreground uppercase">
                     <th className="py-2 px-3">Profile</th>
                     <th className="py-2 px-2 text-right">Buffer</th>
                     <th className="py-2 px-2 text-right">Budget</th>
@@ -317,29 +344,35 @@ export const BenchmarkDialog: React.FC<BenchmarkDialogProps> = ({
                     <th className="py-2 px-3 text-right">Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/[0.05] font-mono text-[10px]">
+                <tbody className="divide-y divide-border font-mono text-[10px]">
                   {report.latencyItems.map((row, idx) => (
-                    <tr key={`${row.profileName}-${row.bufferFrames}-${idx}`} className="hover:bg-white/[0.02]">
-                      <td className="py-2 px-3 font-sans text-[11px] text-white">{row.profileName}</td>
-                      <td className="py-2 px-2 text-right tabular-nums">{row.bufferFrames} fr</td>
-                      <td className="py-2 px-2 text-right tabular-nums text-studio-muted">{row.budgetMs.toFixed(2)} ms</td>
-                      <td className="py-2 px-2 text-right tabular-nums text-cyan-200">
+                    <tr
+                      key={`${row.profileName}-${row.bufferFrames}-${idx}`}
+                      className="hover:bg-accent/50"
+                    >
+                      <td className="py-2 px-3 font-sans text-[11px] font-medium text-foreground">
+                        {row.profileName}
+                      </td>
+                      <td className="py-2 px-2 text-right tabular-nums text-foreground">
+                        {row.bufferFrames} fr
+                      </td>
+                      <td className="py-2 px-2 text-right tabular-nums text-muted-foreground">
+                        {row.budgetMs.toFixed(2)} ms
+                      </td>
+                      <td className="py-2 px-2 text-right tabular-nums text-primary font-semibold">
                         {row.avgBlockMs.toFixed(3)} / {row.p99BlockMs.toFixed(3)} ms
                       </td>
-                      <td className="py-2 px-2 text-right tabular-nums">{row.cpuLoadPct.toFixed(1)}%</td>
-                      <td className="py-2 px-2 text-right tabular-nums text-studio-muted">
+                      <td className="py-2 px-2 text-right tabular-nums text-foreground">
+                        {row.cpuLoadPct.toFixed(1)}%
+                      </td>
+                      <td className="py-2 px-2 text-right tabular-nums text-muted-foreground">
                         +{row.algorithmicLatencyMs.toFixed(2)} / {row.estimatedRoundTripMs.toFixed(2)} ms
                       </td>
-                      <td className="py-2 px-2 text-right tabular-nums text-emerald-300">{row.rtAllocBytes} B</td>
+                      <td className="py-2 px-2 text-right tabular-nums text-signal-ok font-semibold">
+                        {row.rtAllocBytes} B
+                      </td>
                       <td className="py-2 px-3 text-right">
-                        <Badge
-                          variant="outline"
-                          className={
-                            row.passed
-                              ? "text-[9px] h-4 border-emerald-500/30 text-emerald-300"
-                              : "text-[9px] h-4 border-rose-500/30 text-rose-300"
-                          }
-                        >
+                        <Badge variant={row.passed ? "ok" : "destructive"} size="xs">
                           {row.passed ? "PASS" : "OVER"}
                         </Badge>
                       </td>
@@ -355,50 +388,45 @@ export const BenchmarkDialog: React.FC<BenchmarkDialogProps> = ({
               {report.multiChainItems.map((item) => (
                 <div
                   key={item.scenarioName}
-                  className="rounded-md border border-white/[0.07] bg-white/[0.02] p-3"
+                  className="rounded-sm border border-border bg-card p-3 space-y-2"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-semibold text-white">{item.scenarioName}</span>
-                        <Badge variant="outline" className="text-[9px] h-4 border-white/15 text-studio-muted">
+                        <span className="font-display text-xs font-bold text-foreground">
+                          {item.scenarioName}
+                        </span>
+                        <Badge variant="secondary" size="xs">
                           {item.activeBlocks} Blocks · {item.routingMode}
                         </Badge>
                       </div>
-                      <div className="text-[10px] text-studio-muted mt-0.5">{item.detail}</div>
+                      <div className="text-[11px] text-muted-foreground mt-0.5">{item.detail}</div>
                     </div>
-                    <Badge
-                      variant="outline"
-                      className={
-                        item.passed
-                          ? "text-[9px] h-5 border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                          : "text-[9px] h-5 border-rose-500/30 bg-rose-500/10 text-rose-300"
-                      }
-                    >
+                    <Badge variant={item.passed ? "ok" : "destructive"} size="xs">
                       {item.passed ? "PASS · 0 B RT ALLOC" : "FAIL"}
                     </Badge>
                   </div>
 
-                  <div className="mt-2 grid grid-cols-2 sm:grid-cols-5 gap-2 text-[10px] font-mono">
-                    <div className="rounded bg-black/30 px-2 py-1">
-                      <div className="text-[9px] text-studio-muted">Avg Block (256fr)</div>
-                      <div className="text-cyan-200">{item.avgBlockMs.toFixed(4)} ms</div>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-[10px] font-mono">
+                    <div className="rounded-sm border border-border bg-background px-2.5 py-1.5">
+                      <div className="text-[9px] text-muted-foreground uppercase">Avg Block (256fr)</div>
+                      <div className="text-primary font-semibold tabular-nums">{item.avgBlockMs.toFixed(4)} ms</div>
                     </div>
-                    <div className="rounded bg-black/30 px-2 py-1">
-                      <div className="text-[9px] text-studio-muted">Peak Ceiling</div>
-                      <div className="text-white">{item.peakDbfs.toFixed(2)} dBFS</div>
+                    <div className="rounded-sm border border-border bg-background px-2.5 py-1.5">
+                      <div className="text-[9px] text-muted-foreground uppercase">Peak Ceiling</div>
+                      <div className="text-foreground tabular-nums">{item.peakDbfs.toFixed(2)} dBFS</div>
                     </div>
-                    <div className="rounded bg-black/30 px-2 py-1">
-                      <div className="text-[9px] text-studio-muted">Output RMS</div>
-                      <div className="text-white">{item.rmsDbfs.toFixed(2)} dBFS</div>
+                    <div className="rounded-sm border border-border bg-background px-2.5 py-1.5">
+                      <div className="text-[9px] text-muted-foreground uppercase">Output RMS</div>
+                      <div className="text-foreground tabular-nums">{item.rmsDbfs.toFixed(2)} dBFS</div>
                     </div>
-                    <div className="rounded bg-black/30 px-2 py-1">
-                      <div className="text-[9px] text-studio-muted">Tail DC Offset</div>
-                      <div className="text-white">{item.tailDcOffsetDbfs.toFixed(1)} dBFS</div>
+                    <div className="rounded-sm border border-border bg-background px-2.5 py-1.5">
+                      <div className="text-[9px] text-muted-foreground uppercase">Tail DC Offset</div>
+                      <div className="text-foreground tabular-nums">{item.tailDcOffsetDbfs.toFixed(1)} dBFS</div>
                     </div>
-                    <div className="rounded bg-black/30 px-2 py-1">
-                      <div className="text-[9px] text-studio-muted">NaN / Inf / RT</div>
-                      <div className="text-emerald-300">
+                    <div className="rounded-sm border border-border bg-background px-2.5 py-1.5">
+                      <div className="text-[9px] text-muted-foreground uppercase">NaN / Inf / RT</div>
+                      <div className="text-signal-ok font-semibold tabular-nums">
                         {item.finiteSamplesOnly ? "Clean Finite" : "NaN!"} · {item.rtAllocBytes} B
                       </div>
                     </div>
