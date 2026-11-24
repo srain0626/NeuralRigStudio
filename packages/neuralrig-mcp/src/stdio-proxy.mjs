@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 const PIPE_PATH = "\\\\.\\pipe\\NeuralRigStudio_McpPipe_v1";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
+const PKG_VERSION = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
 
 export function resolveNativeMcpBinary(env = process.env, platform = process.platform) {
   if (env.NEURALRIG_MCP_FORCE_FALLBACK === "1") return null;
@@ -201,7 +202,7 @@ async function handleFallbackRpc(msg) {
       return ok({
         protocolVersion: params?.protocolVersion || "2024-11-05",
         capabilities: { tools: { listChanged: false }, resources: { subscribe: false, listChanged: false } },
-        serverInfo: { name: "neuralrig-mcp-bridge", version: "3.0.0" },
+        serverInfo: { name: "neuralrig-mcp-bridge", version: PKG_VERSION },
       });
     case "ping":
       return ok({});

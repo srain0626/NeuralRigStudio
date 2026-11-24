@@ -1,6 +1,9 @@
 #!/usr/bin/env node
+import fs from "node:fs";
 import { buildServerEntry, getClientSpecs, installForClients } from "../src/clients.mjs";
 import { probeLivePipe, resolveNativeMcpBinary, startStdioServer } from "../src/stdio-proxy.mjs";
+
+const PKG_VERSION = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
 
 const args = process.argv.slice(2);
 const cmd = args[0];
@@ -15,7 +18,7 @@ function readFlag(name, defaultVal = undefined) {
 if (!cmd || cmd === "serve") {
   startStdioServer();
 } else if (cmd === "--help" || cmd === "-h" || cmd === "help") {
-  console.log(`neuralrig-mcp v3.0.0 — NeuralRig Studio Universal MCP Server & Multi-AI Installer
+  console.log(`neuralrig-mcp v${PKG_VERSION} — NeuralRig Studio Universal MCP Server & Multi-AI Installer
 
 Usage:
   npx -y neuralrig-mcp
@@ -32,7 +35,7 @@ Usage:
       Verify Node runtime, native NeuralRigMcp.exe path, and live Studio pipe connection.
 `);
 } else if (cmd === "--version" || cmd === "-v") {
-  console.log("3.0.0");
+  console.log(PKG_VERSION);
 } else if (cmd === "install") {
   const client = readFlag("--client", "all");
   const dryRun = args.includes("--dry-run");
@@ -62,7 +65,7 @@ Usage:
   console.log(
     JSON.stringify(
       {
-        packageVersion: "3.0.0",
+        packageVersion: PKG_VERSION,
         nodeVersion: process.version,
         platform: process.platform,
         nativeMcpBinary: nativeBin || null,

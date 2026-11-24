@@ -8,6 +8,7 @@ import { installForClients, mergeJsonMcpConfig, mergeTomlMcpConfig } from "../sr
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BIN = path.resolve(__dirname, "..", "bin", "neuralrig-mcp.mjs");
+const EXPECTED_VERSION = JSON.parse(fs.readFileSync(path.resolve(__dirname, "..", "package.json"), "utf8")).version;
 
 // 1) Test JSON & TOML client config mergers in an isolated temp home
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "nrig_mcp_test_"));
@@ -53,7 +54,7 @@ assert.equal(dryJson.results.length, 7);
 
 const doctorOut = execFileSync(process.execPath, [BIN, "doctor"], { encoding: "utf8" });
 const doctorJson = JSON.parse(doctorOut);
-assert.equal(doctorJson.packageVersion, "3.0.0");
+assert.equal(doctorJson.packageVersion, EXPECTED_VERSION);
 console.log("[PASS] CLI install --dry-run & doctor verified");
 
 // 3) Test Stdio JSON-RPC 2.0 protocol (portable fallback mode)
