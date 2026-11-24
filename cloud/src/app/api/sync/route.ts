@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateRequest, getSupabaseAdmin } from "@/lib/supabase";
+import { authenticateRequest, getSupabaseForRequest } from "@/lib/supabase";
 
 export async function GET(req: NextRequest) {
   const auth = await authenticateRequest(req);
@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const db = getSupabaseAdmin();
+  const db = getSupabaseForRequest(req);
   if (!db) {
     return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
   }
@@ -35,7 +35,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const db = getSupabaseAdmin();
+  const db = getSupabaseForRequest(req);
   if (!db) {
     return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
   }

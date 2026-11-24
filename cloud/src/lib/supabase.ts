@@ -17,6 +17,13 @@ export function getSupabaseAnon(): SupabaseClient | null {
   });
 }
 
+export function extractBearerToken(req?: NextRequest): string {
+  const authHeader = req?.headers.get("authorization") || "";
+  return authHeader.toLowerCase().startsWith("bearer ")
+    ? authHeader.slice(7).trim()
+    : "";
+}
+
 export function getSupabaseAdmin(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key =
@@ -25,6 +32,28 @@ export function getSupabaseAdmin(): SupabaseClient | null {
   if (!url || !key) return null;
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
+export function getSupabaseForRequest(req?: NextRequest): SupabaseClient | null {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url) return null;
+
+  if (serviceKey) {
+    return createClient(url, serviceKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+  }
+  if (!anonKey) return null;
+
+  const token = extractBearerToken(req);
+  return createClient(url, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    ...(token
+      ? { global: { headers: { Authorization: `Bearer ${token}` } } }
+      : {}),
   });
 }
 
@@ -49,10 +78,7 @@ export function isAdminEmail(email: string | undefined | null): boolean {
 export async function authenticateRequest(
   req: NextRequest
 ): Promise<AuthContext | null> {
-  const authHeader = req.headers.get("authorization") || "";
-  const token = authHeader.toLowerCase().startsWith("bearer ")
-    ? authHeader.slice(7).trim()
-    : "";
+  const token = extractBearerToken(req);
   if (!token) return null;
 
   const anon = getSupabaseAnon();
@@ -69,15 +95,15 @@ export async function authenticateRequest(
   const avatarUrl = String(meta.avatar_url || meta.picture || "");
 
   let dbAdmin = false;
-  const adminClient = getSupabaseAdmin();
-  if (adminClient) {
-    const { data: prof } = await adminClient
+  const db = getSupabaseForRequest(req);
+  if (db) {
+    const { data: prof } = await db
       .from("profiles")
       .select("is_admin")
       .eq("id", user.id)
       .maybeSingle();
     dbAdmin = Boolean(prof?.is_admin);
-    await adminClient.from("profiles").upsert({
+    await db.from("profiles").upsert({
       id: user.id,
       email,
       display_name: displayName,

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateRequest, getSupabaseAdmin, scrubText } from "@/lib/supabase";
+import { authenticateRequest, getSupabaseForRequest, scrubText } from "@/lib/supabase";
 
 export async function POST(req: NextRequest) {
   const auth = await authenticateRequest(req);
-  const db = getSupabaseAdmin();
+  const db = getSupabaseForRequest(req);
 
   const body = (await req.json()) as {
     title?: string;
@@ -32,9 +32,13 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const { data, error } = await db
+  const id = crypto.randomUUID();
+  const createdAt = new Date().toISOString();
+
+  const { error } = await db
     .from("bug_reports")
     .insert({
+      id,
       user_id: auth?.userId || null,
       user_email: auth?.email || "guest",
       title,
@@ -45,9 +49,8 @@ export async function POST(req: NextRequest) {
       description: scrubbedDesc,
       sanitized_logs: scrubbedLogs,
       diagnostics_json: body.diagnostics || {},
-    })
-    .select("id, created_at")
-    .single();
+      created_at: createdAt,
+    });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -61,5 +64,5 @@ export async function POST(req: NextRequest) {
     metadata: { category: body.category || "general", severity: body.severity || "normal" },
   });
 
-  return NextResponse.json({ ok: true, id: data.id, createdAt: data.created_at }, { status: 201 });
+  return NextResponse.json({ ok: true, id, createdAt }, { status: 201 });
 }

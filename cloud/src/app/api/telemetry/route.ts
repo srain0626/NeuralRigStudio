@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateRequest, getSupabaseAdmin } from "@/lib/supabase";
+import { authenticateRequest, getSupabaseForRequest } from "@/lib/supabase";
 
 export async function POST(req: NextRequest) {
   const auth = await authenticateRequest(req);
-  const db = getSupabaseAdmin();
+  const db = getSupabaseForRequest(req);
 
   const body = (await req.json()) as {
     eventType?: string;

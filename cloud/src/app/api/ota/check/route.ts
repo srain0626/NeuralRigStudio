@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { compareSemVer, getSupabaseAdmin } from "@/lib/supabase";
+import { compareSemVer, getSupabaseForRequest } from "@/lib/supabase";
 
 export async function GET(req: NextRequest) {
   const currentVersion = (req.nextUrl.searchParams.get("currentVersion") || "3.0.0").trim();
   const repo = process.env.GITHUB_REPO || "srain0626/NeuralRigStudio";
-  const db = getSupabaseAdmin();
+  const db = getSupabaseForRequest(req);
 
   if (db) {
     const { data } = await db

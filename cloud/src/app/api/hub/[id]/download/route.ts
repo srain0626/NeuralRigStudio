@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabase";
+import { getSupabaseForRequest } from "@/lib/supabase";
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
   const { id } = await context.params;
-  const db = getSupabaseAdmin();
+  const db = getSupabaseForRequest(req);
   if (!db) {
     return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
   }
@@ -21,11 +21,15 @@ export async function POST(
     return NextResponse.json({ error: "Gear item not found" }, { status: 404 });
   }
 
-  const nextDownloads = Number(existing.downloads || 0) + 1;
-  await db
-    .from("hub_gears")
-    .update({ downloads: nextDownloads })
-    .eq("id", id);
+  const { data: updatedCount, error: rpcErr } = await db.rpc(
+    "increment_hub_gear_downloads",
+    { p_gear_id: id }
+  );
+
+  const nextDownloads =
+    !rpcErr && typeof updatedCount === "number"
+      ? updatedCount
+      : Number(existing.downloads || 0) + 1;
 
   return NextResponse.json({
     ok: true,
