@@ -37,6 +37,10 @@ public sealed class PluginWebBridge : IDisposable
     private bool _wasIdleSettled;
     private float _meterL;
     private float _meterR;
+    private float _inMeterL;
+    private float _inMeterR;
+    private long _inClipHoldUntil;
+    private long _outClipHoldUntil;
     private int _guitarFeedSkip;
 
     public PluginWebBridge(
@@ -161,7 +165,18 @@ public sealed class PluginWebBridge : IDisposable
             _wasIdleSettled = false;
         }
 
-        _kernel.ReadAndResetMeters(out float pkL, out float pkR, out bool clip);
+        _kernel.ReadAndResetIoMeters(out float inPkL, out float inPkR, out bool rawInClip, out float pkL, out float pkR, out bool rawOutClip);
+        long nowTick = Environment.TickCount64;
+        if (rawInClip) _inClipHoldUntil = nowTick + 600;
+        if (rawOutClip) _outClipHoldUntil = nowTick + 600;
+        bool inClip = nowTick < _inClipHoldUntil;
+        bool clip = nowTick < _outClipHoldUntil;
+
+        _inMeterL = inPkL > _inMeterL ? inPkL : _inMeterL * 0.80f;
+        _inMeterR = inPkR > _inMeterR ? inPkR : _inMeterR * 0.80f;
+        if (_inMeterL < 0.0002f) _inMeterL = 0f;
+        if (_inMeterR < 0.0002f) _inMeterR = 0f;
+
         if (pkL > _meterL) _meterL = pkL;
         else _meterL *= 0.80f;
         if (pkR > _meterR) _meterR = pkR;
@@ -173,7 +188,7 @@ public sealed class PluginWebBridge : IDisposable
         var looper = _kernel.Processor.Looper.GetSnapshot();
         var recorder = _kernel.Recorder.GetSnapshot();
         bool looperActive = _kernel.Processor.Looper.State is LooperState.Recording or LooperState.Playing or LooperState.Overdubbing;
-        bool settled = !running && !_guitarAnalyzer.IsActive && !recorder.Recording && !recorder.ReampPlaying && !looperActive && _meterL == 0f && _meterR == 0f && !clip;
+        bool settled = !running && !_guitarAnalyzer.IsActive && !recorder.Recording && !recorder.ReampPlaying && !looperActive && _meterL == 0f && _meterR == 0f && _inMeterL == 0f && _inMeterR == 0f && !clip && !inClip;
         if (settled && _wasIdleSettled)
             return;
         _wasIdleSettled = settled;
@@ -204,6 +219,9 @@ public sealed class PluginWebBridge : IDisposable
             MeterL = MathF.Round(_meterL, 4),
             MeterR = MathF.Round(_meterR, 4),
             Clip = clip,
+            InMeterL = MathF.Round(_inMeterL, 4),
+            InMeterR = MathF.Round(_inMeterR, 4),
+            InClip = inClip,
             GuitarAnalysis = guitarAnalysis,
             Latency = new PluginLatencyDto
             {
@@ -260,6 +278,7 @@ public sealed class PluginWebBridge : IDisposable
                 "updateToneParams" => SerializeEl(UpdateToneParams(payload), PluginJsonContext.Default.PluginOkResDto),
                 "updateWhiteBoxParams" => SerializeEl(UpdateWhiteBoxParams(payload), PluginJsonContext.Default.PluginWhiteBoxResDto),
                 "updateSignalChain" => SerializeEl(UpdateSignalChain(payload), PluginJsonContext.Default.PluginUpdateChainResDto),
+                "setIoGain" => SerializeEl(HandleSetIoGain(payload), PluginJsonContext.Default.PluginIoGainResDto),
                 "saveUserPreset" => SerializeEl(SaveUserPreset(payload), PluginJsonContext.Default.PluginSavedPresetsResDto),
                 "deleteUserPreset" => SerializeEl(DeleteUserPreset(GetStr(payload, "presetId")), PluginJsonContext.Default.PluginSavedPresetsResDto),
                 "selectTone" => SerializeEl(SelectTone(GetStr(payload, "id")), PluginJsonContext.Default.PluginSelectToneResDto),
@@ -342,6 +361,7 @@ public sealed class PluginWebBridge : IDisposable
             CustomCabIrName = _kernel.Processor.CustomCabIrName,
             WhiteBox = _kernel.Processor.WhiteBox.GetParamsSnapshot(),
             SignalChain = _kernel.Processor.Chain.GetConfigSnapshot(),
+            IoGainLock = _settings.IoGainLock,
             SavedPresets = _settings.SavedPresets ?? new List<SignalChainConfigDto>(),
             GuitarProfiles = _settings.GuitarProfiles ?? new List<GuitarProfileDto>(),
             ActiveGuitarProfileId = _settings.ActiveGuitarProfileId ?? "",
@@ -523,6 +543,41 @@ public sealed class PluginWebBridge : IDisposable
         _settings.Save();
         _kernel.Processor.WhiteBox.UpdateParams(wb);
         return new PluginWhiteBoxResDto { Ok = true, WhiteBox = _kernel.Processor.WhiteBox.GetParamsSnapshot() };
+    }
+
+    private PluginIoGainResDto HandleSetIoGain(JsonElement payload)
+    {
+        float? inDb = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("inputGainDb", out var iEl) && iEl.TryGetSingle(out float iVal)
+            ? MathF.Round(Math.Clamp(iVal, -24f, 24f), 2)
+            : null;
+        float? outDb = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("outputGainDb", out var oEl) && oEl.TryGetSingle(out float oVal)
+            ? MathF.Round(Math.Clamp(oVal, -24f, 24f), 2)
+            : null;
+        bool commit = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("commit", out var cEl) && cEl.ValueKind == JsonValueKind.True;
+
+        bool lockChanged = false;
+        if (payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("ioGainLock", out var lEl) &&
+            lEl.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            bool nextLock = lEl.ValueKind == JsonValueKind.True;
+            lockChanged = _settings.IoGainLock != nextLock;
+            _settings.IoGainLock = nextLock;
+        }
+
+        _kernel.SetIoGainFromUi(inDb, outDb);
+        _settings.SignalChain ??= new SignalChainConfigDto();
+        if (inDb.HasValue) _settings.SignalChain.InputGainDb = inDb.Value;
+        if (outDb.HasValue) _settings.SignalChain.OutputGainDb = outDb.Value;
+        if (commit || lockChanged)
+            _settings.Save();
+
+        return new PluginIoGainResDto
+        {
+            Ok = true,
+            InputGainDb = _settings.SignalChain.InputGainDb,
+            OutputGainDb = _settings.SignalChain.OutputGainDb,
+            IoGainLock = _settings.IoGainLock,
+        };
     }
 
     private PluginUpdateChainResDto UpdateSignalChain(JsonElement payload)

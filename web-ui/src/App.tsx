@@ -164,6 +164,13 @@ export default function App() {
   const [chain, setChain] = useState<SignalChainConfigDto>(() =>
     ensurePresetScenes(FACTORY_PRESETS[0])
   )
+  const [ioGainLock, setIoGainLock] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem("neuralrig_io_gain_lock_v1") === "1"
+    } catch {
+      return false
+    }
+  })
   const [savedPresets, setSavedPresets] = useState<SignalChainConfigDto[]>([])
   const [selectedSlot, setSelectedSlot] = useState<number>(2)
 
@@ -288,6 +295,58 @@ export default function App() {
     studioBridge.invoke("paramGesture", req).catch(() => {})
   }
 
+  const handleIoGainBegin = (kind: "inputGain" | "outputGain", valueDb: number) => {
+    handleParamGesture({ phase: "begin", kind, value: valueDb })
+  }
+
+  const handleIoGainChange = (
+    kind: "inputGain" | "outputGain",
+    valueDb: number,
+    opts?: { commit?: boolean; discrete?: boolean }
+  ) => {
+    const clamped = Math.round(Math.max(-24, Math.min(24, valueDb)) * 100) / 100
+    const field = kind === "inputGain" ? "inputGainDb" : "outputGainDb"
+    const commit = Boolean(opts?.commit)
+    const discrete = Boolean(opts?.discrete)
+    setChain((prev) => ({ ...prev, [field]: clamped }))
+    if (!studioBridge.isWebView2) return
+
+    if (isVst3Host) {
+      if (discrete) {
+        handleParamGesture({ phase: "begin", kind, value: clamped })
+        handleParamGesture({ phase: "change", kind, value: clamped })
+        handleParamGesture({ phase: "end", kind, value: clamped })
+      } else {
+        handleParamGesture({ phase: commit ? "end" : "change", kind, value: clamped })
+      }
+      if (commit) {
+        void studioBridge.invoke("setIoGain", { [field]: clamped, commit: true }).catch(() => {})
+      }
+    } else {
+      void studioBridge.invoke("setIoGain", { [field]: clamped, commit }).catch(() => {})
+    }
+  }
+
+  const handleToggleIoGainLock = () => {
+    setIoGainLock((prev) => {
+      const next = !prev
+      try {
+        window.localStorage.setItem("neuralrig_io_gain_lock_v1", next ? "1" : "0")
+      } catch {
+        // ignore
+      }
+      if (studioBridge.isWebView2) {
+        void studioBridge.invoke("setIoGain", { ioGainLock: next, commit: true }).catch(() => {})
+      }
+      toast.info(
+        next
+          ? tx("프리셋 전환 시 Input / Output 게인을 고정 유지합니다.", "I/O gain locked across preset changes.")
+          : tx("프리셋 전환 시 프리셋 기본 I/O 게인을 적용합니다.", "I/O gain follows preset defaults.")
+      )
+      return next
+    })
+  }
+
   const handleToggleHostBpmSync = async () => {
     if (!studioBridge.isWebView2 || !isVst3Host) return
     const nextEnabled = !(dawHostInfo?.hostBpmSync ?? true)
@@ -311,6 +370,8 @@ export default function App() {
   const loadPreset = (preset: SignalChainConfigDto) => {
     const clone: SignalChainConfigDto = ensurePresetScenes({
       ...preset,
+      inputGainDb: ioGainLock ? chain.inputGainDb : preset.inputGainDb,
+      outputGainDb: ioGainLock ? chain.outputGainDb : preset.outputGainDb,
       slots: preset.slots.map((s) => ({
         ...s,
         params: [...s.params],
@@ -524,6 +585,13 @@ export default function App() {
           if (snap.audio.initialCaps) setCaps(snap.audio.initialCaps)
 
           const s = snap.settings
+          const resolvedLock = Boolean(snap.ioGainLock ?? s.ioGainLock)
+          setIoGainLock(resolvedLock)
+          try {
+            window.localStorage.setItem("neuralrig_io_gain_lock_v1", resolvedLock ? "1" : "0")
+          } catch {
+            // ignore
+          }
           const resolvedInKind =
             s.inputKind?.toUpperCase() === "WASAPI" || loadedAsio.length === 0 ? "WASAPI" : "ASIO"
           setInputKind(resolvedInKind)
@@ -1213,6 +1281,10 @@ export default function App() {
         onSelectToneId={setSelectedToneId}
         onCustomCabIrChange={setCustomCabIrName}
         onLog={addLog}
+        ioGainLock={ioGainLock}
+        onToggleIoGainLock={handleToggleIoGainLock}
+        onIoGainBegin={handleIoGainBegin}
+        onIoGainChange={handleIoGainChange}
       />
 
       {/* ── BOTTOM LIQUID GLASS FLOATING DOCK (Audio · Record · Menu) ── */}

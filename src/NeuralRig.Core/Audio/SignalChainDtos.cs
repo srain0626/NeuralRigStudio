@@ -182,8 +182,8 @@ public sealed class SignalChainConfigDto
             MergeCol = Math.Clamp(MergeCol, 0, 7),
             ParallelMix = Math.Clamp(ParallelMix, 0f, 1f),
             TempoBpm = TempoBpm > 1f ? Math.Clamp(TempoBpm, 40f, 280f) : 120f,
-            InputGainDb = Math.Clamp(InputGainDb, -18f, 18f),
-            OutputGainDb = Math.Clamp(OutputGainDb, -18f, 18f),
+            InputGainDb = Math.Clamp(InputGainDb, -24f, 24f),
+            OutputGainDb = Math.Clamp(OutputGainDb, -24f, 24f),
             Slots = new List<ChainSlotDto>(SlotCount),
         };
 

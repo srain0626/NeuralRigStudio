@@ -157,6 +157,14 @@ interface CortexStudioProps {
   onSelectToneId: (id: string) => void
   onCustomCabIrChange: (name: string) => void
   onLog: (msg: string, level?: "info" | "success" | "error") => void
+  ioGainLock?: boolean
+  onToggleIoGainLock?: () => void
+  onIoGainBegin?: (kind: "inputGain" | "outputGain", valueDb: number) => void
+  onIoGainChange?: (
+    kind: "inputGain" | "outputGain",
+    valueDb: number,
+    opts?: { commit?: boolean; discrete?: boolean }
+  ) => void
 }
 
 export const CortexStudio: React.FC<CortexStudioProps> = ({
@@ -200,6 +208,10 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
   onSelectToneId,
   onCustomCabIrChange,
   onLog,
+  ioGainLock = false,
+  onToggleIoGainLock,
+  onIoGainBegin,
+  onIoGainChange,
 }) => {
   const { tx } = useI18n()
 
@@ -253,6 +265,9 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
   const [meterL, setMeterL] = useState(0)
   const [meterR, setMeterR] = useState(0)
   const [clip, setClip] = useState(false)
+  const [inMeterL, setInMeterL] = useState(0)
+  const [inMeterR, setInMeterR] = useState(0)
+  const [inClip, setInClip] = useState(false)
 
   const [backing, setBacking] = useState<BackingTrackStateDto>(
     initialBacking ?? {
@@ -338,6 +353,9 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
         setMeterL(f.meterL || 0)
         setMeterR(f.meterR || 0)
         setClip(Boolean(f.clip))
+        setInMeterL(f.inMeterL || 0)
+        setInMeterR(f.inMeterR || 0)
+        setInClip(Boolean(f.inClip))
       }
       if (f.backing) setBacking(f.backing)
       if (f.looper) setLooper(f.looper)
@@ -1563,11 +1581,8 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                       <button
                         type="button"
                         onDoubleClick={() => {
-                          if (isVst3Host && onParamGesture) {
-                            emitGesture("begin", "inputGain", 0)
-                            emitGesture("change", "inputGain", 0)
-                            emitGesture("end", "inputGain", 0)
-                            onPushChain({ ...chain, inputGainDb: 0 }, false, false, true)
+                          if (onIoGainChange) {
+                            onIoGainChange("inputGain", 0, { commit: true, discrete: true })
                           } else {
                             onPushChain({ ...chain, inputGainDb: 0 }, false)
                           }
@@ -1582,19 +1597,29 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                     </div>
                     <Slider
                       value={[chain.inputGainDb]}
-                      min={-12}
-                      max={12}
+                      min={-24}
+                      max={24}
                       step={0.5}
-                      onPointerDown={() => emitGesture("begin", "inputGain", chain.inputGainDb)}
+                      showCenterTick
+                      onPointerDown={() =>
+                        onIoGainBegin
+                          ? onIoGainBegin("inputGain", chain.inputGainDb)
+                          : emitGesture("begin", "inputGain", chain.inputGainDb)
+                      }
                       onValueChange={([v]) => {
-                        if (isVst3Host && onParamGesture) {
-                          emitGesture("change", "inputGain", v)
-                          onPushChain({ ...chain, inputGainDb: v }, false, false, true)
+                        if (onIoGainChange) {
+                          onIoGainChange("inputGain", v)
                         } else {
                           onPushChain({ ...chain, inputGainDb: v }, false)
                         }
                       }}
-                      onValueCommit={([v]) => emitGesture("end", "inputGain", v)}
+                      onValueCommit={([v]) => {
+                        if (onIoGainChange) {
+                          onIoGainChange("inputGain", v, { commit: true })
+                        } else {
+                          emitGesture("end", "inputGain", v)
+                        }
+                      }}
                     />
                   </div>
 
@@ -1604,11 +1629,8 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                       <button
                         type="button"
                         onDoubleClick={() => {
-                          if (isVst3Host && onParamGesture) {
-                            emitGesture("begin", "outputGain", 0)
-                            emitGesture("change", "outputGain", 0)
-                            emitGesture("end", "outputGain", 0)
-                            onPushChain({ ...chain, outputGainDb: 0 }, false, false, true)
+                          if (onIoGainChange) {
+                            onIoGainChange("outputGain", 0, { commit: true, discrete: true })
                           } else {
                             onPushChain({ ...chain, outputGainDb: 0 }, false)
                           }
@@ -1623,19 +1645,29 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
                     </div>
                     <Slider
                       value={[chain.outputGainDb]}
-                      min={-12}
-                      max={12}
+                      min={-24}
+                      max={24}
                       step={0.5}
-                      onPointerDown={() => emitGesture("begin", "outputGain", chain.outputGainDb)}
+                      showCenterTick
+                      onPointerDown={() =>
+                        onIoGainBegin
+                          ? onIoGainBegin("outputGain", chain.outputGainDb)
+                          : emitGesture("begin", "outputGain", chain.outputGainDb)
+                      }
                       onValueChange={([v]) => {
-                        if (isVst3Host && onParamGesture) {
-                          emitGesture("change", "outputGain", v)
-                          onPushChain({ ...chain, outputGainDb: v }, false, false, true)
+                        if (onIoGainChange) {
+                          onIoGainChange("outputGain", v)
                         } else {
                           onPushChain({ ...chain, outputGainDb: v }, false)
                         }
                       }}
-                      onValueCommit={([v]) => emitGesture("end", "outputGain", v)}
+                      onValueCommit={([v]) => {
+                        if (onIoGainChange) {
+                          onIoGainChange("outputGain", v, { commit: true })
+                        } else {
+                          emitGesture("end", "outputGain", v)
+                        }
+                      }}
                     />
                   </div>
                 </div>
@@ -1661,6 +1693,13 @@ export const CortexStudio: React.FC<CortexStudioProps> = ({
           meterL={meterL}
           meterR={meterR}
           clip={clip}
+          inMeterL={inMeterL}
+          inMeterR={inMeterR}
+          inClip={inClip}
+          ioGainLock={ioGainLock}
+          onToggleIoGainLock={onToggleIoGainLock}
+          onIoGainBegin={onIoGainBegin}
+          onIoGainChange={onIoGainChange}
         />
       </div>
 

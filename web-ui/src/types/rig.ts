@@ -164,6 +164,7 @@ export interface AppSettingsDto {
   customCabIrPath?: string | null
   whiteBox?: WhiteBoxParamsDto
   signalChain?: SignalChainConfigDto
+  ioGainLock?: boolean
   savedPresets?: SignalChainConfigDto[]
   hasChosenAuthMode?: boolean
   hasCompletedTutorial?: boolean
@@ -433,6 +434,7 @@ export interface StudioInitSnapshot {
   customCabIrName?: string
   whiteBox?: WhiteBoxParamsDto
   signalChain?: SignalChainConfigDto
+  ioGainLock?: boolean
   savedPresets?: SignalChainConfigDto[]
   guitarProfiles?: GuitarProfileDto[]
   activeGuitarProfileId?: string
@@ -455,6 +457,9 @@ export interface TelemetryFrame {
   meterL: number
   meterR: number
   clip: boolean
+  inMeterL?: number
+  inMeterR?: number
+  inClip?: boolean
   guitarAnalysis?: GuitarAnalysisLiveStateDto | null
   latency: {
     inMs: number

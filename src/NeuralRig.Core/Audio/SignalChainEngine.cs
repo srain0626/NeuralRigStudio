@@ -692,14 +692,49 @@ public sealed partial class SignalChainEngine
     {
         EnsureApplied();
         var snap = _activeSnapshot;
+        var pend = Volatile.Read(ref _pendingSnapshot);
         if (inputGainDb.HasValue)
-            snap.InputGain = MathF.Pow(10f, Math.Clamp(inputGainDb.Value, -18f, 18f) / 20f);
+        {
+            float lin = MathF.Pow(10f, Math.Clamp(inputGainDb.Value, -24f, 24f) / 20f);
+            snap.InputGain = lin;
+            if (pend != null) pend.InputGain = lin;
+        }
         if (outputGainDb.HasValue)
-            snap.OutputGain = MathF.Pow(10f, Math.Clamp(outputGainDb.Value, -18f, 18f) / 20f);
+        {
+            float lin = MathF.Pow(10f, Math.Clamp(outputGainDb.Value, -24f, 24f) / 20f);
+            snap.OutputGain = lin;
+            if (pend != null) pend.OutputGain = lin;
+        }
         if (parallelMix.HasValue)
             snap.ParallelMix = Math.Clamp(parallelMix.Value, 0f, 1f);
         if (routing.HasValue)
             snap.Routing = routing.Value;
+    }
+
+    /// <summary>UI 슬라이더 드래그용 경량 I/O 게인 갱신 (슬롯/씬 재컴파일·DSP 리셋 없음).</summary>
+    public void SetIoGainFromUi(float? inputGainDb = null, float? outputGainDb = null)
+    {
+        lock (_chainCompileLock)
+        {
+            var act = Volatile.Read(ref _activeSnapshot);
+            var pend = Volatile.Read(ref _pendingSnapshot);
+            if (inputGainDb.HasValue)
+            {
+                float db = MathF.Round(Math.Clamp(inputGainDb.Value, -24f, 24f), 2);
+                float lin = MathF.Pow(10f, db / 20f);
+                act.InputGain = lin;
+                if (pend != null) pend.InputGain = lin;
+                _lastDto.InputGainDb = db;
+            }
+            if (outputGainDb.HasValue)
+            {
+                float db = MathF.Round(Math.Clamp(outputGainDb.Value, -24f, 24f), 2);
+                float lin = MathF.Pow(10f, db / 20f);
+                act.OutputGain = lin;
+                if (pend != null) pend.OutputGain = lin;
+                _lastDto.OutputGainDb = db;
+            }
+        }
     }
 
     public void SetTempoBpmRt(float bpm)
@@ -855,8 +890,8 @@ public sealed partial class SignalChainEngine
         dto.RoutingMode = (int)act.Routing;
         dto.ParallelMix = Math.Clamp(act.ParallelMix, 0f, 1f);
         dto.TempoBpm = Math.Clamp(act.TempoBpm, 40f, 280f);
-        dto.InputGainDb = MathF.Round(Math.Clamp(20f * MathF.Log10(Math.Max(1e-4f, act.InputGain)), -18f, 18f), 4);
-        dto.OutputGainDb = MathF.Round(Math.Clamp(20f * MathF.Log10(Math.Max(1e-4f, act.OutputGain)), -18f, 18f), 4);
+        dto.InputGainDb = MathF.Round(Math.Clamp(20f * MathF.Log10(Math.Max(1e-4f, act.InputGain)), -24f, 24f), 4);
+        dto.OutputGainDb = MathF.Round(Math.Clamp(20f * MathF.Log10(Math.Max(1e-4f, act.OutputGain)), -24f, 24f), 4);
 
         for (int i = 0; i < SlotCount && i < dto.Slots.Count; i++)
         {
@@ -987,8 +1022,8 @@ public sealed partial class SignalChainEngine
                 MergeCol = Math.Clamp(clean.MergeCol, 0, 7),
                 ParallelMix = Math.Clamp(clean.ParallelMix, 0f, 1f),
                 TempoBpm = Math.Clamp(clean.TempoBpm > 1f ? clean.TempoBpm : 120f, 40f, 280f),
-                InputGain = MathF.Pow(10f, Math.Clamp(clean.InputGainDb, -18f, 18f) / 20f),
-                OutputGain = MathF.Pow(10f, Math.Clamp(clean.OutputGainDb, -18f, 18f) / 20f),
+                InputGain = MathF.Pow(10f, Math.Clamp(clean.InputGainDb, -24f, 24f) / 20f),
+                OutputGain = MathF.Pow(10f, Math.Clamp(clean.OutputGainDb, -24f, 24f) / 20f),
             };
 
             int namIdx = 0;
@@ -1660,6 +1695,16 @@ public sealed partial class SignalChainEngine
                 chR[i] *= _smoothInGain;
             }
         }
+
+        float inPkL = 0f, inPkR = 0f;
+        for (int i = 0; i < n; i++)
+        {
+            float al = MathF.Abs(chL[i]);
+            float ar = MathF.Abs(chR[i]);
+            if (al > inPkL) inPkL = al;
+            if (ar > inPkR) inPkR = ar;
+        }
+        host.RecordInputPeakRt(inPkL, inPkR);
 
         if (snap.Routing == ChainRoutingMode.Serial)
         {

@@ -215,6 +215,9 @@ public sealed class PluginTelemetryDataDto
     public float MeterL { get; set; }
     public float MeterR { get; set; }
     public bool Clip { get; set; }
+    public float InMeterL { get; set; }
+    public float InMeterR { get; set; }
+    public bool InClip { get; set; }
     public GuitarAnalysisLiveStateDto? GuitarAnalysis { get; set; }
     public PluginLatencyDto? Latency { get; set; }
     public PluginCountersDto Counters { get; set; } = new();
@@ -236,6 +239,7 @@ public sealed class PluginInitSnapshotDto
     public string CustomCabIrName { get; set; } = "";
     public WhiteBoxParams WhiteBox { get; set; } = new();
     public SignalChainConfigDto SignalChain { get; set; } = new();
+    public bool IoGainLock { get; set; }
     public List<SignalChainConfigDto> SavedPresets { get; set; } = new();
     public List<GuitarProfileDto> GuitarProfiles { get; set; } = new();
     public string ActiveGuitarProfileId { get; set; } = "";
@@ -279,6 +283,14 @@ public sealed class PluginUpdateChainResDto
 {
     public bool Ok { get; set; } = true;
     public SignalChainConfigDto SignalChain { get; set; } = new();
+}
+
+public sealed class PluginIoGainResDto
+{
+    public bool Ok { get; set; } = true;
+    public float InputGainDb { get; set; }
+    public float OutputGainDb { get; set; }
+    public bool IoGainLock { get; set; }
 }
 
 public sealed class PluginWhiteBoxResDto
@@ -501,6 +513,7 @@ public sealed class PluginToneHubCatalogResDto
 [JsonSerializable(typeof(PluginRpcEventDto))]
 [JsonSerializable(typeof(PluginOkResDto))]
 [JsonSerializable(typeof(PluginUpdateChainResDto))]
+[JsonSerializable(typeof(PluginIoGainResDto))]
 [JsonSerializable(typeof(PluginWhiteBoxResDto))]
 [JsonSerializable(typeof(PluginSavedPresetsResDto))]
 [JsonSerializable(typeof(PluginSelectToneResDto))]

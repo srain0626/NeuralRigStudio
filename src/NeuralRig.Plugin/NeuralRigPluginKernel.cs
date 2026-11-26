@@ -561,6 +561,28 @@ public sealed class NeuralRigPluginKernel : IAudioTelemetrySource, IDisposable
         Volatile.Write(ref _peakR, 0f);
     }
 
+    public void ReadAndResetIoMeters(
+        out float inPeakL,
+        out float inPeakR,
+        out bool inClip,
+        out float outPeakL,
+        out float outPeakR,
+        out bool outClip)
+    {
+        _processor.TakeRtMeters(out inPeakL, out inPeakR, out inClip, out bool toneOutClip);
+        ReadAndResetMeters(out outPeakL, out outPeakR, out bool postClip);
+        outClip = postClip || toneOutClip;
+    }
+
+    public void SetIoGainFromUi(float? inputGainDb, float? outputGainDb)
+    {
+        _processor.Chain.SetIoGainFromUi(inputGainDb, outputGainDb);
+        if (inputGainDb.HasValue)
+            WriteNorm((uint)DawParamId.InputGainDb, DawParameterCatalog.PlainToNormalized((uint)DawParamId.InputGainDb, inputGainDb.Value));
+        if (outputGainDb.HasValue)
+            WriteNorm((uint)DawParamId.OutputGainDb, DawParameterCatalog.PlainToNormalized((uint)DawParamId.OutputGainDb, outputGainDb.Value));
+    }
+
     public byte[] SaveStateBytes(
         List<SignalChainConfigDto>? savedPresets = null,
         List<GuitarProfileDto>? guitarProfiles = null,
@@ -627,7 +649,7 @@ public sealed class NeuralRigPluginKernel : IAudioTelemetrySource, IDisposable
             _processor.Mode = (ToneMode)Math.Clamp(env.ToneMode, 0, 6);
             _processor.DriveMultiplier = Math.Clamp(env.DriveMultiplier, 0.2f, 2.2f);
             _processor.WetMix = Math.Clamp(env.WetMix, 0f, 1f);
-            _processor.OutputGainDb = Math.Clamp(env.OutputGainDb, -18f, 18f);
+            _processor.OutputGainDb = Math.Clamp(env.OutputGainDb, -24f, 24f);
             _processor.GateThresholdDb = Math.Clamp(env.GateThresholdDb, -80f, -20f);
             HostBpmSync = env.HostBpmSync;
             TunerMute = env.TunerMute;

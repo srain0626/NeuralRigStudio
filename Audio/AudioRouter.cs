@@ -91,6 +91,7 @@ public sealed class AudioRouter : IAudioTelemetrySource
     private long _pkL;               // double 비트 저장
     private long _pkR;
     private long _clipTick;
+    private long _inClipTick;
     private bool _scratchWarned;
 
     // ── 실시간 AVX2 WaveNet / 4x WhiteBox 톤 프로세서 + Dual-Stream 레코더/리앰퍼 ──
@@ -1102,15 +1103,25 @@ public sealed class AudioRouter : IAudioTelemetrySource
         // 0.5) Dual-Stream Dry DI 무할당 캡처 (ToneProcessor 직전)
         Recorder.CaptureDryRt(sl.AsSpan(0, frames), sr.AsSpan(0, frames), frames);
 
-        // 1) 크로매틱 튜너 / 기타 분석용 드라이 입력 스냅샷
+        // 1) 크로매틱 튜너 / 기타 분석용 드라이 입력 스냅샷 + RT 입력 피크 측정
+        double rawIn0 = 0, rawIn1 = 0;
         int dp = _dryVisPos;
         for (int i = 0; i < frames; i++)
         {
-            _dryVisRing[dp] = 0.5f * (sl[i] + sr[i]);
+            float inL = sl[i];
+            float inR = sr[i];
+            float al = Math.Abs(inL);
+            float ar = Math.Abs(inR);
+            if (al > rawIn0) rawIn0 = al;
+            if (ar > rawIn1) rawIn1 = ar;
+            _dryVisRing[dp] = 0.5f * (inL + inR);
             dp = (dp + 1) & (VisCap - 1);
         }
         Volatile.Write(ref _dryVisPos, dp);
         Volatile.Write(ref _dryTotalWritten, _dryTotalWritten + frames);
+
+        if (rawIn0 >= 0.995 || rawIn1 >= 0.995)
+            Volatile.Write(ref _inClipTick, Environment.TickCount64);
 
         // 2) 실시간 신경망 톤 프로세싱 (Bypass일 때도 루퍼는 계속 동작, 할당 0)
         Tone.Process(sl, sr, frames);
@@ -1148,7 +1159,7 @@ public sealed class AudioRouter : IAudioTelemetrySource
         }
         Interlocked.Exchange(ref _pkL, BitConverter.DoubleToInt64Bits(p0));
         Interlocked.Exchange(ref _pkR, BitConverter.DoubleToInt64Bits(p1));
-        if (p0 >= 0.997 || p1 >= 0.997)
+        if (p0 >= 0.995 || p1 >= 0.995)
             Volatile.Write(ref _clipTick, Environment.TickCount64);
     }
 
@@ -1218,6 +1229,8 @@ public sealed class AudioRouter : IAudioTelemetrySource
         Volatile.Write(ref _dryVisPos, 0);
         Volatile.Write(ref _dryTotalWritten, 0);
         Volatile.Write(ref _tunerMute, 0);
+        Volatile.Write(ref _clipTick, 0);
+        Volatile.Write(ref _inClipTick, 0);
         Volatile.Write(ref _runningFlag, 0);
         if (Recorder.IsRecording)
         {
@@ -1250,10 +1263,28 @@ public sealed class AudioRouter : IAudioTelemetrySource
 
     public (float l, float r, bool clip) TakePeaks()
     {
+        var (_, _, _, outL, outR, outClip) = TakeIoPeaks();
+        return (outL, outR, outClip);
+    }
+
+    public (float inL, float inR, bool inClip, float outL, float outR, bool outClip) TakeIoPeaks()
+    {
+        Tone.TakeRtMeters(out float inL, out float inR, out bool toneInClip, out bool toneOutClip);
+        long now = Environment.TickCount64;
+        if (toneInClip) Volatile.Write(ref _inClipTick, now);
+        if (toneOutClip) Volatile.Write(ref _clipTick, now);
+
         long l = Interlocked.Exchange(ref _pkL, 0);
         long r = Interlocked.Exchange(ref _pkR, 0);
-        bool clip = Environment.TickCount64 - Volatile.Read(ref _clipTick) < 500;
-        return ((float)BitConverter.Int64BitsToDouble(l), (float)BitConverter.Int64BitsToDouble(r), clip);
+        float outL = (float)BitConverter.Int64BitsToDouble(l);
+        float outR = (float)BitConverter.Int64BitsToDouble(r);
+        if (outL >= 0.99f || outR >= 0.99f) Volatile.Write(ref _clipTick, now);
+
+        long inTick = Volatile.Read(ref _inClipTick);
+        long outTick = Volatile.Read(ref _clipTick);
+        bool inClip = inTick > 0 && now - inTick < 600;
+        bool outClip = outTick > 0 && now - outTick < 600;
+        return (inL, inR, inClip, outL, outR, outClip);
     }
 
     public LatencyInfo? GetLatency()

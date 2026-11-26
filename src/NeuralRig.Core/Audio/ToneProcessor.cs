@@ -60,6 +60,10 @@ public sealed class ToneProcessor
     private int _gateHoldSamples;
     private float _compEnv;
     private float _dcX1L, _dcY1L, _dcX1R, _dcY1R;
+    private float _rtInPeakL;
+    private float _rtInPeakR;
+    private int _rtInClipFlag;
+    private int _rtOutClipFlag;
 
     public WhiteBoxAmpEngine WhiteBox { get; } = new();
     public SignalChainEngine Chain { get; } = new();
@@ -183,13 +187,31 @@ public sealed class ToneProcessor
     public float OutputGainDb
     {
         get => Volatile.Read(ref _outGainDb);
-        set => Volatile.Write(ref _outGainDb, Math.Clamp(value, -18f, 18f));
+        set => Volatile.Write(ref _outGainDb, Math.Clamp(value, -24f, 24f));
     }
 
     public float GateThresholdDb
     {
         get => Volatile.Read(ref _gateThreshDb);
         set => Volatile.Write(ref _gateThreshDb, Math.Clamp(value, -80f, -20f));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal void RecordInputPeakRt(float pkL, float pkR)
+    {
+        if (pkL > Volatile.Read(ref _rtInPeakL)) Volatile.Write(ref _rtInPeakL, pkL);
+        if (pkR > Volatile.Read(ref _rtInPeakR)) Volatile.Write(ref _rtInPeakR, pkR);
+        if (pkL >= 0.98f || pkR >= 0.98f) Volatile.Write(ref _rtInClipFlag, 1);
+    }
+
+    public void TakeRtMeters(out float inPeakL, out float inPeakR, out bool inClip, out bool outClip)
+    {
+        inPeakL = Volatile.Read(ref _rtInPeakL);
+        inPeakR = Volatile.Read(ref _rtInPeakR);
+        Volatile.Write(ref _rtInPeakL, 0f);
+        Volatile.Write(ref _rtInPeakR, 0f);
+        inClip = Interlocked.Exchange(ref _rtInClipFlag, 0) == 1;
+        outClip = Interlocked.Exchange(ref _rtOutClipFlag, 0) == 1;
     }
 
     /// <summary>외부 .wav 캐비넷 IR을 로드하여 현재 샘플레이트에 맞게 리샘플·위상정렬·정규화 후 원자적으로 교체한다.</summary>
@@ -328,6 +350,51 @@ public sealed class ToneProcessor
         _compEnv = 0f;
         _dcX1L = _dcY1L = _dcX1R = _dcY1R = 0f;
         _smoothInitialized = false;
+        Volatile.Write(ref _rtInPeakL, 0f);
+        Volatile.Write(ref _rtInPeakR, 0f);
+        Volatile.Write(ref _rtInClipFlag, 0);
+        Volatile.Write(ref _rtOutClipFlag, 0);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void CaptureRawInputPeakRt(ReadOnlySpan<float> chL, ReadOnlySpan<float> chR, int frames)
+    {
+        float pkL = 0f, pkR = 0f;
+        for (int i = 0; i < frames; i++)
+        {
+            float al = MathF.Abs(chL[i]);
+            float ar = MathF.Abs(chR[i]);
+            if (al > pkL) pkL = al;
+            if (ar > pkR) pkR = ar;
+        }
+        RecordInputPeakRt(pkL, pkR);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void FinalizeStereoSampleRt(
+        float outL,
+        float outR,
+        ref float preLimMax,
+        out float finalL,
+        out float finalR)
+    {
+        if (!float.IsFinite(outL)) outL = 0f;
+        if (!float.IsFinite(outR)) outR = 0f;
+
+        float yL = outL - _dcX1L + 0.9995f * _dcY1L;
+        _dcX1L = outL;
+        _dcY1L = yL;
+        float yR = outR - _dcX1R + 0.9995f * _dcY1R;
+        _dcX1R = outR;
+        _dcY1R = yR;
+
+        float aL = MathF.Abs(yL);
+        float aR = MathF.Abs(yR);
+        float m = aL > aR ? aL : aR;
+        if (m > preLimMax) preLimMax = m;
+
+        finalL = SoftKneeCeiling(yL);
+        finalR = SoftKneeCeiling(yR);
     }
 
     /// <summary>
@@ -356,6 +423,7 @@ public sealed class ToneProcessor
 
         if (mode == ToneMode.Bypass)
         {
+            CaptureRawInputPeakRt(chL, chR, frames);
             if (Looper.HasPendingOrActive)
                 Looper.Process(chL, chR, frames, Chain.TempoBpm);
             return;
@@ -366,25 +434,19 @@ public sealed class ToneProcessor
             Chain.Process(chL, chR, frames, this);
             if (Looper.HasPendingOrActive)
                 Looper.Process(chL, chR, frames, Chain.TempoBpm);
+            float preLimMax = 0f;
             for (int i = 0; i < frames; i++)
             {
-                float outL = chL[i];
-                float outR = chR[i];
-                if (!float.IsFinite(outL)) outL = 0f;
-                if (!float.IsFinite(outR)) outR = 0f;
-
-                float yL = outL - _dcX1L + 0.9995f * _dcY1L;
-                _dcX1L = outL;
-                _dcY1L = yL;
-                float yR = outR - _dcX1R + 0.9995f * _dcY1R;
-                _dcX1R = outR;
-                _dcY1R = yR;
-
-                chL[i] = SoftKneeCeiling(yL);
-                chR[i] = SoftKneeCeiling(yR);
+                FinalizeStereoSampleRt(chL[i], chR[i], ref preLimMax, out float finalL, out float finalR);
+                chL[i] = finalL;
+                chR[i] = finalR;
             }
+            if (preLimMax >= 0.985f)
+                Volatile.Write(ref _rtOutClipFlag, 1);
             return;
         }
+
+        CaptureRawInputPeakRt(chL, chR, frames);
 
         if (prof is null && customCab is null && mode != ToneMode.WhiteBoxRig && mode != ToneMode.HybridPreampNam)
         {
@@ -527,6 +589,7 @@ public sealed class ToneProcessor
         }
 
         // 3) 투명 출력 게인 + Wet/Dry 믹스 + 초저역 DC 블로커(fc ~ 3.5Hz) + 0.92 투명 소프트-니 리미터
+        float legacyPreLimMax = 0f;
         for (int i = 0; i < frames; i++)
         {
             _smoothOutGain += paramAlpha * (targetOutGain - _smoothOutGain);
@@ -539,20 +602,12 @@ public sealed class ToneProcessor
             float outL = wet * m + dry * _dryL[i];
             float outR = wet * m + dry * _dryR[i];
 
-            if (!float.IsFinite(outL)) outL = 0f;
-            if (!float.IsFinite(outR)) outR = 0f;
-
-            // 초저역 3.5Hz DC 블로커 (기타 70Hz~10kHz 위상 왜곡 0에 근접)
-            float yL = outL - _dcX1L + 0.9995f * _dcY1L;
-            _dcX1L = outL;
-            _dcY1L = yL;
-            float yR = outR - _dcX1R + 0.9995f * _dcY1R;
-            _dcX1R = outR;
-            _dcY1R = yR;
-
-            chL[i] = SoftKneeCeiling(yL);
-            chR[i] = SoftKneeCeiling(yR);
+            FinalizeStereoSampleRt(outL, outR, ref legacyPreLimMax, out float finalL, out float finalR);
+            chL[i] = finalL;
+            chR[i] = finalR;
         }
+        if (legacyPreLimMax >= 0.985f)
+            Volatile.Write(ref _rtOutClipFlag, 1);
 
         if (Looper.HasPendingOrActive)
         {

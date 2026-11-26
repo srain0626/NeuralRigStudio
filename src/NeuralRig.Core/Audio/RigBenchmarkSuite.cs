@@ -380,8 +380,8 @@ public static class RigBenchmarkSuite
             var l = new float[chunkFrames];
             var r = new float[chunkFrames];
 
-            // Run 16 warmup blocks outside alloc tracking, then reset state and run tracked pass
-            for (int w = 0; w < 8; w++)
+            // Run 40 warmup blocks (> .NET Tier-1 JIT threshold) outside alloc tracking, then reset state and run tracked pass
+            for (int w = 0; w < 40; w++)
             {
                 for (int i = 0; i < chunkFrames; i++) l[i] = r[i] = 0.1f * MathF.Sin(0.05f * i);
                 proc.Process(l, r, chunkFrames);

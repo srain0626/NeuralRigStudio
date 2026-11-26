@@ -251,8 +251,8 @@ public static class DawParameterCatalog
     {
         var list = new List<DawParamDescriptor>(TotalParameterCount)
         {
-            new((uint)DawParamId.InputGainDb, "Input Trim", "Global", "dB", -18f, 18f, 0f, 0),
-            new((uint)DawParamId.OutputGainDb, "Output Gain", "Global", "dB", -18f, 18f, 0f, 0),
+            new((uint)DawParamId.InputGainDb, "Input Trim", "Global", "dB", -24f, 24f, 0f, 0),
+            new((uint)DawParamId.OutputGainDb, "Output Gain", "Global", "dB", -24f, 24f, 0f, 0),
             new((uint)DawParamId.GateThresholdDb, "Noise Gate", "Global", "dB", -80f, -20f, -56f, 0),
             new((uint)DawParamId.DriveMultiplier, "Input Drive", "Global", "x", 0.2f, 2.2f, 1.0f, 0),
             new((uint)DawParamId.WetMix, "Wet Mix", "Global", "%", 0f, 100f, 100f, 0),

@@ -65,6 +65,8 @@ public sealed class RigWebBridge : IDisposable
     private bool _audioBusy;
     private float _meterL;
     private float _meterR;
+    private float _inMeterL;
+    private float _inMeterR;
     private bool _wasIdleSettled;
 
     public RigWebBridge(
@@ -242,7 +244,12 @@ public sealed class RigWebBridge : IDisposable
 
     public void EmitTelemetryTick()
     {
-        var (l, r, clip) = _router.TakePeaks();
+        var (inL, inR, inClip, l, r, clip) = _router.TakeIoPeaks();
+        _inMeterL = Math.Max(inL, _inMeterL * 0.85f);
+        _inMeterR = Math.Max(inR, _inMeterR * 0.85f);
+        if (_inMeterL < 0.0005f) _inMeterL = 0f;
+        if (_inMeterR < 0.0005f) _inMeterR = 0f;
+
         _meterL = Math.Max(l, _meterL * 0.85f);
         _meterR = Math.Max(r, _meterR * 0.85f);
         if (_meterL < 0.0005f) _meterL = 0f;
@@ -253,7 +260,7 @@ public sealed class RigWebBridge : IDisposable
         var recorder = _router.Recorder.GetSnapshot();
         bool running = _router.IsRunning;
         bool looperActive = _router.Tone.Looper.State is LooperState.Recording or LooperState.Playing or LooperState.Overdubbing;
-        bool settled = !running && !backing.Playing && !_guitarAnalyzer.IsActive && !recorder.Recording && !recorder.ReampPlaying && !looperActive && _meterL == 0f && _meterR == 0f && !clip;
+        bool settled = !running && !backing.Playing && !_guitarAnalyzer.IsActive && !recorder.Recording && !recorder.ReampPlaying && !looperActive && _meterL == 0f && _meterR == 0f && _inMeterL == 0f && _inMeterR == 0f && !clip && !inClip;
         if (settled && _wasIdleSettled)
             return;
         _wasIdleSettled = settled;
@@ -282,6 +289,9 @@ public sealed class RigWebBridge : IDisposable
             meterL = MathF.Round(_meterL, 4),
             meterR = MathF.Round(_meterR, 4),
             clip,
+            inMeterL = MathF.Round(_inMeterL, 4),
+            inMeterR = MathF.Round(_inMeterR, 4),
+            inClip,
             guitarAnalysis,
             latency = lat is null ? null : new
             {
@@ -337,6 +347,7 @@ public sealed class RigWebBridge : IDisposable
                 "updateToneParams" => UpdateToneParams(payload),
                 "updateWhiteBoxParams" => UpdateWhiteBoxParams(payload),
                 "updateSignalChain" => UpdateSignalChain(payload),
+                "setIoGain" => SetIoGain(payload),
                 "saveUserPreset" => SaveUserPreset(payload),
                 "deleteUserPreset" => DeleteUserPreset(GetStr(payload, "presetId")),
                 "selectTone" => SelectTone(GetStr(payload, "id")),
@@ -423,6 +434,7 @@ public sealed class RigWebBridge : IDisposable
             customCabIrName = _router.Tone.CustomCabIrName,
             whiteBox = _router.Tone.WhiteBox.GetParamsSnapshot(),
             signalChain = _router.Tone.Chain.GetConfigSnapshot(),
+            ioGainLock = _settings.IoGainLock,
             savedPresets = _settings.SavedPresets ?? new List<SignalChainConfigDto>(),
             guitarProfiles = _settings.GuitarProfiles ?? new List<GuitarProfileDto>(),
             activeGuitarProfileId = _settings.ActiveGuitarProfileId ?? "",
@@ -756,6 +768,41 @@ public sealed class RigWebBridge : IDisposable
         _router.Tone.GateThresholdDb = gateDb;
         SyncVisualizerCabIr();
         return new { ok = true, toneMode = (int)effectiveMode };
+    }
+
+    private object SetIoGain(JsonElement payload)
+    {
+        float? inDb = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("inputGainDb", out var iEl) && iEl.TryGetSingle(out float iVal)
+            ? MathF.Round(Math.Clamp(iVal, -24f, 24f), 2)
+            : null;
+        float? outDb = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("outputGainDb", out var oEl) && oEl.TryGetSingle(out float oVal)
+            ? MathF.Round(Math.Clamp(oVal, -24f, 24f), 2)
+            : null;
+        bool commit = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("commit", out var cEl) && cEl.ValueKind == JsonValueKind.True;
+
+        bool lockChanged = false;
+        if (payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("ioGainLock", out var lEl) &&
+            lEl.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            bool nextLock = lEl.ValueKind == JsonValueKind.True;
+            lockChanged = _settings.IoGainLock != nextLock;
+            _settings.IoGainLock = nextLock;
+        }
+
+        _router.Tone.Chain.SetIoGainFromUi(inDb, outDb);
+        _settings.SignalChain ??= new SignalChainConfigDto();
+        if (inDb.HasValue) _settings.SignalChain.InputGainDb = inDb.Value;
+        if (outDb.HasValue) _settings.SignalChain.OutputGainDb = outDb.Value;
+        if (commit || lockChanged)
+            _settings.Save();
+
+        return new
+        {
+            ok = true,
+            inputGainDb = _settings.SignalChain.InputGainDb,
+            outputGainDb = _settings.SignalChain.OutputGainDb,
+            ioGainLock = _settings.IoGainLock,
+        };
     }
 
     private object UpdateSignalChain(JsonElement payload)

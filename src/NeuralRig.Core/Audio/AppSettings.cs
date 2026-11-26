@@ -48,6 +48,7 @@ public sealed class AppSettings
     public string? CustomCabIrPath { get; set; }
     public WhiteBoxParams WhiteBox { get; set; } = new();
     public SignalChainConfigDto SignalChain { get; set; } = new();
+    public bool IoGainLock { get; set; }
     public List<SignalChainConfigDto> SavedPresets { get; set; } = new();
     public List<GuitarProfileDto> GuitarProfiles { get; set; } = new();
     public string? ActiveGuitarProfileId { get; set; }

@@ -1248,9 +1248,9 @@ public sealed class AntigravityToneArchitect
         if (root.TryGetProperty("tempoBpm", out var tbEl) && tbEl.TryGetSingle(out float tbf))
             dto.TempoBpm = Math.Clamp(tbf, 40f, 280f);
         if (root.TryGetProperty("inputGainDb", out var igEl) && igEl.TryGetSingle(out float igf))
-            dto.InputGainDb = Math.Clamp(igf, -18f, 18f);
+            dto.InputGainDb = Math.Clamp(igf, -24f, 24f);
         if (root.TryGetProperty("outputGainDb", out var ogEl) && ogEl.TryGetSingle(out float ogf))
-            dto.OutputGainDb = Math.Clamp(ogf, -18f, 18f);
+            dto.OutputGainDb = Math.Clamp(ogf, -24f, 24f);
 
         if (root.TryGetProperty("slots", out var slotsEl) && slotsEl.ValueKind == JsonValueKind.Array)
         {
