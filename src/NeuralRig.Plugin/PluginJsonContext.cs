@@ -68,7 +68,7 @@ public sealed class Vst3ClassInfoDto
     public string Vendor { get; set; } = "NeuralRig Audio";
 
     [JsonPropertyName("Version")]
-    public string Version { get; set; } = "3.1.0";
+    public string Version { get; set; } = "3.2.0";
 
     [JsonPropertyName("SDKVersion")]
     public string SdkVersion { get; set; } = "VST 3.7.11";
@@ -92,7 +92,7 @@ public sealed class Vst3ModuleInfoDto
     public string Name { get; set; } = "NeuralRig Studio";
 
     [JsonPropertyName("Version")]
-    public string Version { get; set; } = "3.1.0";
+    public string Version { get; set; } = "3.2.0";
 
     [JsonPropertyName("Factory Info")]
     public Vst3FactoryInfoDto FactoryInfo { get; set; } = new();
@@ -251,7 +251,7 @@ public sealed class PluginInitSnapshotDto
     public PluginMidiSnapshotDto Midi { get; set; } = new();
     public CustomDeviceSpecDto[] CustomDevices { get; set; } = Array.Empty<CustomDeviceSpecDto>();
     public bool IsAudioRunning { get; set; }
-    public string AppVersion { get; set; } = "3.1.0";
+    public string AppVersion { get; set; } = "3.2.0";
     public CloudStateDto CloudState { get; set; } = new();
 }
 
@@ -425,8 +425,24 @@ public sealed class PluginLogEventDto
 public sealed class PluginCustomDevicesChangedDto
 {
     public CustomDeviceSpecDto[] Devices { get; set; } = Array.Empty<CustomDeviceSpecDto>();
+    public CustomDeviceSpecDto[] CustomDevices { get; set; } = Array.Empty<CustomDeviceSpecDto>();
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CustomDeviceSpecDto? AddedDevice { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Summary { get; set; }
+}
+
+public sealed class PluginCommunityHubResDto
+{
+    public CommunityGearItemDto[] Items { get; set; } = Array.Empty<CommunityGearItemDto>();
+    public string Source { get; set; } = "local-offline";
+}
+
+public sealed class PluginInstallCommunityGearResDto
+{
+    public bool Ok { get; set; } = true;
+    public CustomDeviceSpecDto AddedDevice { get; set; } = new();
+    public CustomDeviceSpecDto[] CustomDevices { get; set; } = Array.Empty<CustomDeviceSpecDto>();
 }
 
 public sealed class PluginDawParamSyncEventDto
@@ -532,6 +548,10 @@ public sealed class PluginToneHubCatalogResDto
 [JsonSerializable(typeof(PluginImportNrigResDto))]
 [JsonSerializable(typeof(PluginLogEventDto))]
 [JsonSerializable(typeof(PluginCustomDevicesChangedDto))]
+[JsonSerializable(typeof(PluginCommunityHubResDto))]
+[JsonSerializable(typeof(PluginInstallCommunityGearResDto))]
+[JsonSerializable(typeof(CommunityGearItemDto))]
+[JsonSerializable(typeof(CommunityGearItemDto[]))]
 [JsonSerializable(typeof(PluginDawParamSyncEventDto))]
 [JsonSerializable(typeof(PluginSanitizedLogsDto))]
 [JsonSerializable(typeof(PluginToneHubInstallResDto))]

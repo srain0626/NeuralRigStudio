@@ -8,9 +8,10 @@ namespace NeuralRigSetup;
 internal static class Program
 {
     private const string AppName = "NeuralRig Studio";
-    private const string AppVersion = "3.1.0";
+    private const string AppVersion = "3.2.0";
     private const string Publisher = "Ray Kim (NeuralRig Audio)";
     private const string UninstallKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\NeuralRigStudio";
+    private const string InstallerPrefsKeyPath = @"Software\NeuralRigStudio\Installer";
     private const string ResourceName = "NeuralRigSetup.payload.zip";
 
     [STAThread]
@@ -18,7 +19,10 @@ internal static class Program
     {
         ApplicationConfiguration.Initialize();
 
-        bool silent = args.Any(a => a.Equals("--silent", StringComparison.OrdinalIgnoreCase) || a.Equals("/S", StringComparison.OrdinalIgnoreCase));
+        bool silent = args.Any(a =>
+            a.Equals("--silent", StringComparison.OrdinalIgnoreCase) ||
+            a.Equals("/S", StringComparison.OrdinalIgnoreCase) ||
+            a.Equals("/SILENT", StringComparison.OrdinalIgnoreCase));
         bool relaunch = args.Any(a => a.Equals("--relaunch", StringComparison.OrdinalIgnoreCase));
         bool uninstall = args.Any(a => a.Equals("--uninstall", StringComparison.OrdinalIgnoreCase));
 
@@ -33,18 +37,141 @@ internal static class Program
         return RunInstall(installDir, silent, relaunch);
     }
 
+    private static (bool installVst3, bool installClap) LoadInstallerPrefs()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(InstallerPrefsKeyPath);
+            if (key == null) return (true, true);
+            bool vst3 = Convert.ToInt32(key.GetValue("InstallVst3", 1)) != 0;
+            bool clap = Convert.ToInt32(key.GetValue("InstallClap", 1)) != 0;
+            return (vst3, clap);
+        }
+        catch
+        {
+            return (true, true);
+        }
+    }
+
+    private static void SaveInstallerPrefs(bool installVst3, bool installClap)
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(InstallerPrefsKeyPath);
+            key?.SetValue("InstallVst3", installVst3 ? 1 : 0, RegistryValueKind.DWord);
+            key?.SetValue("InstallClap", installClap ? 1 : 0, RegistryValueKind.DWord);
+        }
+        catch
+        {
+            // Registry preference persistence is non-fatal
+        }
+    }
+
+    private static bool ShowInstallOptionsDialog(string installDir, ref bool installVst3, ref bool installClap)
+    {
+        using var form = new Form
+        {
+            Text = $"{AppName} v{AppVersion} Setup",
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MaximizeBox = false,
+            MinimizeBox = false,
+            StartPosition = FormStartPosition.CenterScreen,
+            ClientSize = new Size(520, 290),
+            Font = new Font("Segoe UI", 9.5f),
+        };
+
+        var lblHeader = new Label
+        {
+            Text = $"{AppName} v{AppVersion}\r\nInstall path: {installDir}",
+            Location = new Point(20, 16),
+            Size = new Size(480, 44),
+        };
+
+        var chkApp = new CheckBox
+        {
+            Text = "Desktop App & MCP Server (NeuralRigStudio.exe, NeuralRigMcp.exe)",
+            Checked = true,
+            Enabled = false,
+            Location = new Point(22, 74),
+            Size = new Size(476, 26),
+        };
+
+        var chkVst3 = new CheckBox
+        {
+            Text = @"VST3 Plugin (%LOCALAPPDATA%\Programs\Common\VST3\NeuralRigStudio.vst3)",
+            Checked = installVst3,
+            Location = new Point(22, 108),
+            Size = new Size(476, 26),
+        };
+
+        var chkClap = new CheckBox
+        {
+            Text = @"CLAP Plugin (%LOCALAPPDATA%\Programs\Common\CLAP\NeuralRigStudio)",
+            Checked = installClap,
+            Location = new Point(22, 142),
+            Size = new Size(476, 26),
+        };
+
+        var lblNote = new Label
+        {
+            Text = "Start Menu & Desktop shortcuts and Add/Remove Programs uninstall entry are included.\r\nClose open DAWs before upgrading VST3/CLAP plugins.",
+            ForeColor = Color.DimGray,
+            Location = new Point(20, 180),
+            Size = new Size(480, 38),
+        };
+
+        var btnInstall = new Button
+        {
+            Text = "Install",
+            DialogResult = DialogResult.OK,
+            Location = new Point(316, 236),
+            Size = new Size(88, 32),
+        };
+
+        var btnCancel = new Button
+        {
+            Text = "Cancel",
+            DialogResult = DialogResult.Cancel,
+            Location = new Point(412, 236),
+            Size = new Size(88, 32),
+        };
+
+        form.Controls.AddRange(new Control[] { lblHeader, chkApp, chkVst3, chkClap, lblNote, btnInstall, btnCancel });
+        form.AcceptButton = btnInstall;
+        form.CancelButton = btnCancel;
+
+        if (form.ShowDialog() != DialogResult.OK)
+            return false;
+
+        installVst3 = chkVst3.Checked;
+        installClap = chkClap.Checked;
+        return true;
+    }
+
+    private static void CopyDirectoryRecursive(string sourceDir, string destDir)
+    {
+        Directory.CreateDirectory(destDir);
+        foreach (string file in Directory.GetFiles(sourceDir))
+        {
+            string targetFile = Path.Combine(destDir, Path.GetFileName(file));
+            File.Copy(file, targetFile, overwrite: true);
+        }
+        foreach (string subDir in Directory.GetDirectories(sourceDir))
+        {
+            string targetSub = Path.Combine(destDir, Path.GetFileName(subDir));
+            CopyDirectoryRecursive(subDir, targetSub);
+        }
+    }
+
     private static int RunInstall(string installDir, bool silent, bool relaunch)
     {
+        var (installVst3, installClap) = LoadInstallerPrefs();
         if (!silent)
         {
-            var confirm = MessageBox.Show(
-                $"{AppName} v{AppVersion}을(를) 다음 경로에 설치합니다:\n\n{installDir}\n\n" +
-                "(NeuralRigStudio.exe, NeuralRigMcp.exe, 시작 메뉴/바탕화면 바로가기 포함)\n\n계속하시겠습니까?",
-                $"{AppName} Setup",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Information);
-            if (confirm != DialogResult.Yes) return 1;
+            if (!ShowInstallOptionsDialog(installDir, ref installVst3, ref installClap))
+                return 1;
         }
+        SaveInstallerPrefs(installVst3, installClap);
 
         try
         {
@@ -72,6 +199,39 @@ internal static class Program
 
             Directory.CreateDirectory(installDir);
             ZipFile.ExtractToDirectory(stream, installDir, overwriteFiles: true);
+
+            var pluginWarnings = new List<string>();
+            string commonProg = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Common");
+            if (installVst3)
+            {
+                string srcVst3 = Path.Combine(installDir, "Plugins", "VST3", "NeuralRigStudio.vst3");
+                if (Directory.Exists(srcVst3))
+                {
+                    try
+                    {
+                        CopyDirectoryRecursive(srcVst3, Path.Combine(commonProg, "VST3", "NeuralRigStudio.vst3"));
+                    }
+                    catch (Exception ex)
+                    {
+                        pluginWarnings.Add($"VST3 복사 보류 (DAW 실행 중 가능): {ex.Message}");
+                    }
+                }
+            }
+            if (installClap)
+            {
+                string srcClap = Path.Combine(installDir, "Plugins", "CLAP", "NeuralRigStudio");
+                if (Directory.Exists(srcClap))
+                {
+                    try
+                    {
+                        CopyDirectoryRecursive(srcClap, Path.Combine(commonProg, "CLAP", "NeuralRigStudio"));
+                    }
+                    catch (Exception ex)
+                    {
+                        pluginWarnings.Add($"CLAP 복사 보류 (DAW 실행 중 가능): {ex.Message}");
+                    }
+                }
+            }
 
             string mainExe = Path.Combine(installDir, "NeuralRigStudio.exe");
             string selfCopy = Path.Combine(installDir, "NeuralRigSetup.exe");
@@ -118,11 +278,14 @@ internal static class Program
             }
             else if (!silent && File.Exists(mainExe))
             {
+                string warnText = pluginWarnings.Count > 0
+                    ? "\n\n[참고]\n" + string.Join("\n", pluginWarnings)
+                    : "";
                 var launch = MessageBox.Show(
-                    $"{AppName} v{AppVersion} 설치가 완료되었습니다!\n\n지금 바로 실행하시겠습니까?",
+                    $"{AppName} v{AppVersion} 설치가 완료되었습니다!{warnText}\n\n지금 바로 실행하시겠습니까?",
                     $"{AppName} Setup",
                     MessageBoxButtons.YesNo,
-                    MessageBoxIcon.Information);
+                    pluginWarnings.Count > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
                 if (launch == DialogResult.Yes)
                     Process.Start(new ProcessStartInfo { FileName = mainExe, UseShellExecute = true });
             }
@@ -158,6 +321,16 @@ internal static class Program
         }
 
         try { Registry.CurrentUser.DeleteSubKeyTree(UninstallKeyPath, throwOnMissingSubKey: false); } catch { }
+        try { Registry.CurrentUser.DeleteSubKeyTree(InstallerPrefsKeyPath, throwOnMissingSubKey: false); } catch { }
+        try
+        {
+            string commonProg = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Common");
+            string vst3Dir = Path.Combine(commonProg, "VST3", "NeuralRigStudio.vst3");
+            if (Directory.Exists(vst3Dir)) Directory.Delete(vst3Dir, recursive: true);
+            string clapDir = Path.Combine(commonProg, "CLAP", "NeuralRigStudio");
+            if (Directory.Exists(clapDir)) Directory.Delete(clapDir, recursive: true);
+        }
+        catch { }
         try
         {
             string desk = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), $"{AppName}.lnk");

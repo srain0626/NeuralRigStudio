@@ -2603,7 +2603,60 @@ static void RunWhiteBoxVerification()
                 if (!File.Exists(pkg.Vst3ModuleInfoPath) || !File.Exists(pkg.ClapPluginPath) || !File.Exists(pkg.DefaultRigPath))
                     throw new Exception("DawPluginExporter output missing expected .vst3 / .clap artifacts!");
 
-                Console.WriteLine($"[PASS] VST3/CLAP NativeAOT-Ready Plugins (160 Params, Host BPM=140/144, Sample-Accurate Automation, State Diff={stateDiff:E1}): {clapMs:F4} ms/block, CLAP={cAlloc} B / VST3={vAlloc} B");
+                // 3c) v3.2 Quantitative Gate: Dynamic PDC, Tail Samples, MIDI CC/PC + Host PPQ Transport Sync (0 B RT Alloc)
+                using (var v32Kernel = new NeuralRigPluginKernel())
+                {
+                    v32Kernel.Activate(sr, frames);
+                    var pChain = new SignalChainConfigDto();
+                    v32Kernel.LoadChainConfig(pChain);
+                    int lat0 = v32Kernel.GetLatencySamples();
+                    int tail0 = v32Kernel.GetTailSamples();
+                    if (lat0 != 0 || tail0 < sr * 4)
+                        throw new Exception($"v3.2 PDC/Tail default mismatch: lat={lat0}, tail={tail0}");
+
+                    int pitchIdx = pChain.Slots.FindIndex(s => string.IsNullOrWhiteSpace(s.ModelId));
+                    if (pitchIdx >= 0)
+                    {
+                        pChain.Slots[pitchIdx].ModelId = "pitch_capo";
+                        pChain.Slots[pitchIdx].Enabled = true;
+                        v32Kernel.LoadChainConfig(pChain);
+                        int latPitch = v32Kernel.GetLatencySamples();
+                        if (latPitch != 1024)
+                            throw new Exception($"v3.2 Pitch PDC expected 1024, got {latPitch}");
+                    }
+
+                    foreach (var sl in pChain.Slots)
+                    {
+                        if (sl.ModelId.StartsWith("dly_", StringComparison.OrdinalIgnoreCase) ||
+                            sl.ModelId.StartsWith("rev_", StringComparison.OrdinalIgnoreCase))
+                            sl.Enabled = false;
+                    }
+                    v32Kernel.LoadChainConfig(pChain);
+                    int tailBypassed = v32Kernel.GetTailSamples();
+                    if (tailBypassed != 0)
+                        throw new Exception($"v3.2 Bypassed Tail expected 0, got {tailBypassed}");
+
+                    for (int w = 0; w < 16; w++)
+                    {
+                        for (int i = 0; i < frames; i++) outL[i] = outR[i] = 0.2f * MathF.Sin(2f * MathF.PI * 220f * i / sr);
+                        v32Kernel.EnqueueMidiEventRt(0xB0, 11, 96, 16);
+                        v32Kernel.ProcessRt(outL, outR, frames, 132.0, true, w * (frames / (double)sr) * (132.0 / 60.0), true);
+                    }
+
+                    long v32Alloc0 = GC.GetAllocatedBytesForCurrentThread();
+                    for (int k = 0; k < 200; k++)
+                    {
+                        for (int i = 0; i < frames; i++) outL[i] = outR[i] = 0.2f * MathF.Sin(2f * MathF.PI * 220f * i / sr);
+                        v32Kernel.EnqueueMidiEventRt(0xB0, 11, (byte)(32 + (k % 90)), 16);
+                        v32Kernel.EnqueueMidiEventRt(0xC0, (byte)(k & 3), 0, 32);
+                        v32Kernel.ProcessRt(outL, outR, frames, 132.0, true, 4.0 + k * (frames / (double)sr) * (132.0 / 60.0), true);
+                    }
+                    long v32Alloc = GC.GetAllocatedBytesForCurrentThread() - v32Alloc0;
+                    if (v32Alloc != 0)
+                        throw new Exception($"v3.2 MIDI+Transport RT path allocated {v32Alloc} B!");
+                }
+
+                Console.WriteLine($"[PASS] VST3/CLAP NativeAOT-Ready Plugins (160 Params, Host BPM=140/144, MIDI+PPQ+PDC+Tail, State Diff={stateDiff:E1}): {clapMs:F4} ms/block, CLAP={cAlloc} B / VST3={vAlloc} B / v3.2 MIDI+PPQ=0 B");
             }
         }
         finally

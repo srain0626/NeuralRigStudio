@@ -54,6 +54,7 @@ public sealed class NeuralRigPluginKernel : IAudioTelemetrySource, IDisposable
 
     public ToneProcessor Processor => _processor;
     public DualStreamRecorder Recorder => _recorder;
+    public string HostFormat { get; set; } = "VST3";
     public bool IsRunning => Volatile.Read(ref _isActive) == 1;
     public int EffectiveSampleRate => Volatile.Read(ref _sampleRate);
     public int MaxBlockSize => Volatile.Read(ref _maxBlockSize);
@@ -256,6 +257,48 @@ public sealed class NeuralRigPluginKernel : IAudioTelemetrySource, IDisposable
         return DawParameterCatalog.FormatPlainValue(paramId, plain, desc.Unit, onLabel, offLabel);
     }
 
+    public int GetLatencySamples() => _processor.Chain.GetLatencySamples();
+
+    public int GetTailSamples() => _processor.Chain.GetTailSamples();
+
+    public bool TryResolveMidiControllerParam(int ccNumber, out uint paramId)
+    {
+        if (ccNumber is 1 or 4 or 11)
+        {
+            int exprSlot = _processor.Chain.FindExpressionTargetSlot();
+            paramId = exprSlot >= 0
+                ? DawParameterCatalog.SlotKnobParamId(exprSlot, 0)
+                : (uint)DawParamId.DriveMultiplier;
+            return true;
+        }
+        if (ccNumber == 7)
+        {
+            paramId = (uint)DawParamId.OutputGainDb;
+            return true;
+        }
+        if (ccNumber == 130)
+        {
+            paramId = (uint)DawParamId.ActiveScene;
+            return true;
+        }
+        paramId = 0;
+        return false;
+    }
+
+    public void EnqueueMidiEventRt(byte status, byte data1, byte data2, int sampleOffset = 0)
+    {
+        byte msgType = (byte)(status & 0xF0);
+        if (msgType == 0xB0)
+        {
+            if (TryResolveMidiControllerParam(data1 & 0x7F, out uint paramId))
+                EnqueueParamChange(paramId, Math.Clamp((data2 & 0x7F) / 127f, 0f, 1f), sampleOffset);
+        }
+        else if (msgType == 0xC0)
+        {
+            EnqueueParamChange((uint)DawParamId.ActiveScene, Math.Clamp((data1 & 7) / 7f, 0f, 1f), sampleOffset);
+        }
+    }
+
     public void EnqueueParamChange(uint paramId, float norm01, int sampleOffset = 0)
     {
         if (paramId >= DawParameterCatalog.TotalParameterCount) return;
@@ -305,6 +348,16 @@ public sealed class NeuralRigPluginKernel : IAudioTelemetrySource, IDisposable
 
     /// <summary>실시간 오디오 콜백 (힙 할당 0 B).</summary>
     public void ProcessRt(Span<float> left, Span<float> right, int frames, double hostTempoBpm = 0.0)
+        => ProcessRt(left, right, frames, hostTempoBpm, isPlaying: false, ppqPosition: 0.0, hasPpq: false);
+
+    public void ProcessRt(
+        Span<float> left,
+        Span<float> right,
+        int frames,
+        double hostTempoBpm,
+        bool isPlaying,
+        double ppqPosition,
+        bool hasPpq)
     {
         if (frames <= 0) return;
         int n = Math.Min(frames, Math.Min(left.Length, right.Length));
@@ -326,6 +379,8 @@ public sealed class NeuralRigPluginKernel : IAudioTelemetrySource, IDisposable
                 }
             }
         }
+
+        _processor.Chain.SyncHostTransportRt(isPlaying, ppqPosition, hasPpq, n);
 
         int evCount;
         AcquireEvLock();

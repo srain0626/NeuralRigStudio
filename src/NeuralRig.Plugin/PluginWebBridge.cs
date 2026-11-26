@@ -304,6 +304,8 @@ public sealed class PluginWebBridge : IDisposable
                 "getToneHubCatalog" => SerializeEl(GetToneHubCatalog(), PluginJsonContext.Default.PluginToneHubCatalogResDto),
                 "installToneHubItem" => SerializeEl(InstallToneHubItem(payload), PluginJsonContext.Default.PluginToneHubInstallResDto),
                 "installToneHubUrl" => SerializeEl(await InstallToneHubUrlAsync(payload), PluginJsonContext.Default.PluginImportNrigResDto),
+                "getCommunityHub" => SerializeEl(await GetCommunityHubAsync(payload), PluginJsonContext.Default.PluginCommunityHubResDto),
+                "installCommunityGear" => SerializeEl(await InstallCommunityGearAsync(payload), PluginJsonContext.Default.PluginInstallCommunityGearResDto),
                 "runBenchmarkSuite" => SerializeEl(RunBenchmarkSuite(payload), PluginJsonContext.Default.RigBenchmarkReportDto),
                 "updateOnboardingState" => SerializeEl(UpdateOnboardingState(payload), PluginJsonContext.Default.PluginOkResDto),
                 "openExternalUrl" => SerializeEl(OpenExternalUrl(GetStr(payload, "url")), PluginJsonContext.Default.PluginOkResDto),
@@ -313,7 +315,7 @@ public sealed class PluginWebBridge : IDisposable
                     Logs = LogSanitizer.GetRecentLogsText(250),
                     PendingCount = 0,
                 }, PluginJsonContext.Default.PluginSanitizedLogsDto),
-                _ => throw new InvalidOperationException($"VST3 플러그인 모드에서 지원되지 않는 액션: {action}"),
+                _ => throw new InvalidOperationException($"플러그인 모드에서 지원되지 않는 액션: {action}"),
             };
 
             if (reqId != null)
@@ -341,17 +343,51 @@ public sealed class PluginWebBridge : IDisposable
             }
             else
             {
-                EmitLog($"[VST3 브리지 오류] {ex.Message}");
+                EmitLog($"[플러그인 브리지 오류] {ex.Message}");
             }
         }
+    }
+
+    private async Task<PluginCommunityHubResDto> GetCommunityHubAsync(JsonElement payload)
+    {
+        string cat = GetStr(payload, "category") ?? "all";
+        string q = GetStr(payload, "query") ?? "";
+        string sort = GetStr(payload, "sort") ?? "downloads";
+        var (items, source) = await _cloud.GetCommunityHubAsync(_settings, cat, q, sort);
+        return new PluginCommunityHubResDto { Items = items, Source = source };
+    }
+
+    private async Task<PluginInstallCommunityGearResDto> InstallCommunityGearAsync(JsonElement payload)
+    {
+        var item = JsonSerializer.Deserialize(payload.GetRawText(), PluginJsonContext.Default.CommunityGearItemDto)
+            ?? throw new InvalidOperationException("Invalid community gear payload.");
+
+        var installed = await _cloud.InstallCommunityGearAsync(_settings, item);
+        AntigravityToneArchitect.RegisterCustomDevice(installed);
+        var allDevices = CustomDeviceRegistry.GetAll();
+        EmitEvent("customDevicesChanged", new PluginCustomDevicesChangedDto
+        {
+            Devices = allDevices,
+            CustomDevices = allDevices,
+            AddedDevice = installed,
+            Summary = $"커뮤니티 기어 설치: {installed.OriginalName}",
+        }, PluginJsonContext.Default.PluginCustomDevicesChangedDto);
+        EmitLog($"[Community Hub] '{installed.OriginalName}' 설치 및 SPICE 검증 완료");
+        return new PluginInstallCommunityGearResDto
+        {
+            Ok = true,
+            AddedDevice = installed,
+            CustomDevices = allDevices,
+        };
     }
 
     private PluginInitSnapshotDto BuildInitSnapshot()
     {
         var active = _kernel.Processor.ActiveProfile;
+        string fmtLower = string.Equals(_kernel.HostFormat, "CLAP", StringComparison.OrdinalIgnoreCase) ? "clap" : "vst3";
         return new PluginInitSnapshotDto
         {
-            HostMode = "vst3",
+            HostMode = fmtLower,
             DawHost = BuildDawHostInfo(),
             Settings = _settings,
             Presets = Presets,
@@ -381,7 +417,7 @@ public sealed class PluginWebBridge : IDisposable
     private PluginDawHostInfoDto BuildDawHostInfo() => new()
     {
         IsPluginHost = true,
-        Format = "VST3",
+        Format = _kernel.HostFormat,
         SampleRate = _kernel.EffectiveSampleRate,
         MaxBlockSize = _kernel.MaxBlockSize,
         ParameterCount = DawParameterCatalog.TotalParameterCount,

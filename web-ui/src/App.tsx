@@ -106,7 +106,7 @@ export default function App() {
   const [otaOpen, setOtaOpen] = useState(false)
   const [otaInfo, setOtaInfo] = useState<OtaCheckResultDto | null>(null)
   const [adminOpen, setAdminOpen] = useState(false)
-  const [appVersion, setAppVersion] = useState("3.1.0")
+  const [appVersion, setAppVersion] = useState("3.2.0")
   const [hasCompletedTutorial, setHasCompletedTutorial] = useState(false)
   const [cloudState, setCloudState] = useState<CloudStateDto>({
     mode: "unselected",
@@ -567,12 +567,17 @@ export default function App() {
       studioBridge
         .invoke<StudioInitSnapshot>("init")
         .then((snap) => {
-          const hostIsVst3 =
-            snap.hostMode === "vst3" ||
-            Boolean(snap.dawHost?.isPluginHost) ||
-            studioBridge.isVst3Host
-          studioBridge.setHostMode(hostIsVst3 ? "vst3" : "standalone")
-          setIsVst3Host(hostIsVst3)
+          const rawHostMode =
+            snap.hostMode === "clap"
+              ? "clap"
+              : snap.hostMode === "vst3" || Boolean(snap.dawHost?.isPluginHost) || studioBridge.isVst3Host
+                ? studioBridge.hostMode === "clap"
+                  ? "clap"
+                  : "vst3"
+                : "standalone"
+          const hostIsPlugin = rawHostMode === "vst3" || rawHostMode === "clap"
+          studioBridge.setHostMode(rawHostMode)
+          setIsVst3Host(hostIsPlugin)
           if (snap.dawHost) setDawHostInfo(snap.dawHost)
 
           const loadedAsio = snap.audio.asioDrivers || []
@@ -630,9 +635,9 @@ export default function App() {
             firstSignInUtcRef.current = s.firstGoogleSignInUtc ?? null
             hasShownSponsorRef.current = Boolean(s.hasShownSponsorPrompt)
           }
-          const tutDone = Boolean(s.hasCompletedTutorial) || hostIsVst3
+          const tutDone = Boolean(s.hasCompletedTutorial) || hostIsPlugin
           setHasCompletedTutorial(tutDone)
-          if (!hostIsVst3) {
+          if (!hostIsPlugin) {
             if (!s.hasChosenAuthMode && snap.cloudState?.mode === "unselected") {
               setAuthDailyPrompt(false)
               setAuthOpen(true)
@@ -1216,7 +1221,8 @@ export default function App() {
               >
                 <span className="size-1.5 rounded-full bg-signal-ok" />
                 <span>
-                  VST3 PLUGIN · {((dawHostInfo?.sampleRate || 48000) / 1000).toFixed(1)} kHz ·{" "}
+                  {(dawHostInfo?.format || "VST3").toUpperCase()} PLUGIN ·{" "}
+                  {((dawHostInfo?.sampleRate || 48000) / 1000).toFixed(1)} kHz ·{" "}
                   {Math.round(chain.tempoBpm ?? 120)} BPM{" "}
                   {dawHostInfo?.hostBpmSync !== false ? "SYNC" : "FREE"}
                 </span>

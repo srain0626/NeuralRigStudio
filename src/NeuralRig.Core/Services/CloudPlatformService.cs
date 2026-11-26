@@ -7,8 +7,10 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using NeuralRigStudio.Audio;
 using NeuralRigStudio.Audio.Spice;
+using NeuralRigStudio.Serialization;
 
 namespace NeuralRigStudio.Services;
 
@@ -73,8 +75,67 @@ public sealed class QueuedBugReportDto
     public string AppVersion { get; set; } = OtaUpdateService.CurrentVersion;
     public string Description { get; set; } = "";
     public string SanitizedLogs { get; set; } = "";
-    public Dictionary<string, object?> Diagnostics { get; set; } = new();
+    public Dictionary<string, string> Diagnostics { get; set; } = new();
     public string CreatedAt { get; set; } = "";
+}
+
+public sealed class CloudSyncSettingsPayload
+{
+    public string InputKind { get; set; } = "ASIO";
+    public int ChannelMode { get; set; }
+    public int InputChannelOffset { get; set; }
+    public int AsioInBufferSize { get; set; }
+    public string OutputKind { get; set; } = "WASAPI";
+    public bool WasapiExclusive { get; set; }
+    public int PresetIndex { get; set; }
+    public int ToneMode { get; set; }
+    public float ToneDrivePct { get; set; }
+    public float ToneMixPct { get; set; }
+    public float ToneGainDb { get; set; }
+    public float ToneGateDb { get; set; }
+}
+
+public sealed class CloudSyncPutPayload
+{
+    public CloudSyncSettingsPayload Settings { get; set; } = new();
+    public List<SignalChainConfigDto> Presets { get; set; } = new();
+    public List<GuitarProfileDto> GuitarProfiles { get; set; } = new();
+    public CustomDeviceSpecDto[] CustomDevices { get; set; } = Array.Empty<CustomDeviceSpecDto>();
+}
+
+public sealed class CommunityGearUploadPayload
+{
+    public string Name { get; set; } = "";
+    public string ShortName { get; set; } = "";
+    public string OriginalName { get; set; } = "";
+    public string[] Aliases { get; set; } = Array.Empty<string>();
+    public string Category { get; set; } = "drive";
+    public string Summary { get; set; } = "";
+    public string SchematicSourceUrl { get; set; } = "";
+    public string[] Tags { get; set; } = Array.Empty<string>();
+    public CustomDeviceSpecDto? Spec { get; set; }
+}
+
+public sealed class BugReportSubmitPayload
+{
+    public string Title { get; set; } = "";
+    public string Category { get; set; } = "general";
+    public string Severity { get; set; } = "normal";
+    public string AppVersion { get; set; } = "";
+    public string Description { get; set; } = "";
+    public string SanitizedLogs { get; set; } = "";
+    public Dictionary<string, string> Diagnostics { get; set; } = new();
+}
+
+public sealed class AdminBugPatchPayload
+{
+    public string Id { get; set; } = "";
+    public string Status { get; set; } = "";
+}
+
+public sealed class RefreshTokenPayload
+{
+    public string RefreshToken { get; set; } = "";
 }
 
 /// <summary>
@@ -91,19 +152,6 @@ public sealed class CloudPlatformService
     private static readonly HttpClient SharedHttp = new()
     {
         Timeout = TimeSpan.FromSeconds(25),
-    };
-
-    private static readonly JsonSerializerOptions JsonOpts = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-    };
-
-    private static readonly JsonSerializerOptions PrettyJsonOpts = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = true,
     };
 
     private CloudAuthSession? _session;
@@ -331,31 +379,31 @@ public sealed class CloudPlatformService
         var (baseUrl, _) = RequireAuthenticatedEndpoint(settings);
 
         // 1) Push local state first (uploading active settings, presets, guitar profiles, custom SPICE gear)
-        var putPayload = new
+        var putPayload = new CloudSyncPutPayload
         {
-            settings = new
+            Settings = new CloudSyncSettingsPayload
             {
-                settings.InputKind,
-                settings.ChannelMode,
-                settings.InputChannelOffset,
-                settings.AsioInBufferSize,
-                settings.OutputKind,
-                settings.WasapiExclusive,
-                settings.PresetIndex,
-                settings.ToneMode,
-                settings.ToneDrivePct,
-                settings.ToneMixPct,
-                settings.ToneGainDb,
-                settings.ToneGateDb,
+                InputKind = settings.InputKind,
+                ChannelMode = settings.ChannelMode,
+                InputChannelOffset = settings.InputChannelOffset,
+                AsioInBufferSize = settings.AsioInBufferSize,
+                OutputKind = settings.OutputKind,
+                WasapiExclusive = settings.WasapiExclusive,
+                PresetIndex = settings.PresetIndex,
+                ToneMode = settings.ToneMode,
+                ToneDrivePct = settings.ToneDrivePct,
+                ToneMixPct = settings.ToneMixPct,
+                ToneGainDb = settings.ToneGainDb,
+                ToneGateDb = settings.ToneGateDb,
             },
-            presets = settings.SavedPresets ?? new List<SignalChainConfigDto>(),
-            guitarProfiles = settings.GuitarProfiles ?? new List<GuitarProfileDto>(),
-            customDevices = localCustomDevices,
+            Presets = settings.SavedPresets ?? new List<SignalChainConfigDto>(),
+            GuitarProfiles = settings.GuitarProfiles ?? new List<GuitarProfileDto>(),
+            CustomDevices = localCustomDevices,
         };
 
         using (var resp = await SendAuthenticatedAsync(
                    settings,
-                   token => BuildAuthRequest(HttpMethod.Put, $"{baseUrl}/api/sync", token, putPayload),
+                   token => BuildAuthRequest(HttpMethod.Put, $"{baseUrl}/api/sync", token, putPayload, NeuralRigJsonContext.Default.CloudSyncPutPayload),
                    ct))
         {
             string body = await resp.Content.ReadAsStringAsync(ct);
@@ -365,7 +413,7 @@ public sealed class CloudPlatformService
             using var doc = JsonDocument.Parse(body);
             if (doc.RootElement.TryGetProperty("user", out var uEl))
             {
-                var updatedUser = JsonSerializer.Deserialize<CloudUserDto>(uEl.GetRawText(), JsonOpts);
+                var updatedUser = JsonSerializer.Deserialize(uEl.GetRawText(), NeuralRigJsonContext.Default.CloudUserDto);
                 if (updatedUser != null)
                 {
                     lock (_lock)
@@ -396,11 +444,11 @@ public sealed class CloudPlatformService
                     List<CustomDeviceSpecDto>? remoteDevices = null;
 
                     if (snap.TryGetProperty("presets_json", out var prEl) && prEl.ValueKind == JsonValueKind.Array)
-                        remotePresets = JsonSerializer.Deserialize<List<SignalChainConfigDto>>(prEl.GetRawText(), JsonOpts);
+                        remotePresets = JsonSerializer.Deserialize(prEl.GetRawText(), NeuralRigJsonContext.Default.ListSignalChainConfigDto);
                     if (snap.TryGetProperty("guitar_profiles_json", out var gpEl) && gpEl.ValueKind == JsonValueKind.Array)
-                        remoteGuitars = JsonSerializer.Deserialize<List<GuitarProfileDto>>(gpEl.GetRawText(), JsonOpts);
+                        remoteGuitars = JsonSerializer.Deserialize(gpEl.GetRawText(), NeuralRigJsonContext.Default.ListGuitarProfileDto);
                     if (snap.TryGetProperty("custom_devices_json", out var cdEl) && cdEl.ValueKind == JsonValueKind.Array)
-                        remoteDevices = JsonSerializer.Deserialize<List<CustomDeviceSpecDto>>(cdEl.GetRawText(), JsonOpts);
+                        remoteDevices = JsonSerializer.Deserialize(cdEl.GetRawText(), NeuralRigJsonContext.Default.ListCustomDeviceSpecDto);
 
                     mergeRemoteData(remotePresets, remoteGuitars, remoteDevices);
                 }
@@ -431,7 +479,8 @@ public sealed class CloudPlatformService
                     using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
                     if (doc.RootElement.TryGetProperty("items", out var itemsEl))
                     {
-                        var items = JsonSerializer.Deserialize<CommunityGearItemDto[]>(itemsEl.GetRawText(), JsonOpts) ?? Array.Empty<CommunityGearItemDto>();
+                        var items = JsonSerializer.Deserialize(itemsEl.GetRawText(), NeuralRigJsonContext.Default.CommunityGearItemDtoArray)
+                            ?? Array.Empty<CommunityGearItemDto>();
                         return (items, "cloud");
                     }
                 }
@@ -481,22 +530,22 @@ public sealed class CloudPlatformService
         var (baseUrl, _) = RequireAuthenticatedEndpoint(settings);
         ValidateCustomDeviceSpecSafety(spec);
 
-        var payload = new
+        var payload = new CommunityGearUploadPayload
         {
-            name = spec.OriginalName?.Length > 0 ? spec.OriginalName : spec.Name,
-            shortName = spec.ShortName,
-            originalName = spec.OriginalName,
-            aliases = spec.Aliases ?? Array.Empty<string>(),
-            category = spec.Category,
-            summary = string.IsNullOrWhiteSpace(summary) ? spec.SchematicSummary : summary,
-            schematicSourceUrl = spec.SchematicSourceUrl,
-            tags,
-            spec,
+            Name = (spec.OriginalName?.Length > 0 ? spec.OriginalName : spec.Name) ?? "",
+            ShortName = spec.ShortName ?? "",
+            OriginalName = spec.OriginalName ?? "",
+            Aliases = spec.Aliases ?? Array.Empty<string>(),
+            Category = spec.Category ?? "drive",
+            Summary = (string.IsNullOrWhiteSpace(summary) ? spec.SchematicSummary : summary) ?? "",
+            SchematicSourceUrl = spec.SchematicSourceUrl ?? "",
+            Tags = tags ?? Array.Empty<string>(),
+            Spec = spec,
         };
 
         using var resp = await SendAuthenticatedAsync(
             settings,
-            token => BuildAuthRequest(HttpMethod.Post, $"{baseUrl}/api/hub", token, payload),
+            token => BuildAuthRequest(HttpMethod.Post, $"{baseUrl}/api/hub", token, payload, NeuralRigJsonContext.Default.CommunityGearUploadPayload),
             ct);
         string raw = await resp.Content.ReadAsStringAsync(ct);
         if (!resp.IsSuccessStatusCode)
@@ -522,7 +571,7 @@ public sealed class CloudPlatformService
                 {
                     using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
                     if (doc.RootElement.TryGetProperty("spec", out var specEl))
-                        spec = JsonSerializer.Deserialize<CustomDeviceSpecDto>(specEl.GetRawText(), JsonOpts) ?? spec;
+                        spec = JsonSerializer.Deserialize(specEl.GetRawText(), NeuralRigJsonContext.Default.CustomDeviceSpecDto) ?? spec;
                 }
             }
             catch
@@ -569,7 +618,7 @@ public sealed class CloudPlatformService
         string category,
         string severity,
         string description,
-        Dictionary<string, object?> diagnostics,
+        Dictionary<string, string> diagnostics,
         CancellationToken ct = default)
     {
         string cleanTitle = LogSanitizer.Scrub(title).Trim();
@@ -673,16 +722,23 @@ public sealed class CloudPlatformService
                 }
             }
 
-            using var req = BuildAuthRequest(HttpMethod.Post, $"{baseUrl}/api/bugs", token, new
+            var payload = new BugReportSubmitPayload
             {
-                title = entry.Title,
-                category = entry.Category,
-                severity = entry.Severity,
-                appVersion = entry.AppVersion,
-                description = entry.Description,
-                sanitizedLogs = entry.SanitizedLogs,
-                diagnostics = entry.Diagnostics,
-            });
+                Title = entry.Title,
+                Category = entry.Category,
+                Severity = entry.Severity,
+                AppVersion = entry.AppVersion,
+                Description = entry.Description,
+                SanitizedLogs = entry.SanitizedLogs,
+                Diagnostics = entry.Diagnostics,
+            };
+
+            using var req = BuildAuthRequest(
+                HttpMethod.Post,
+                $"{baseUrl}/api/bugs",
+                token,
+                payload,
+                NeuralRigJsonContext.Default.BugReportSubmitPayload);
             using var resp = await SharedHttp.SendAsync(req, ct);
             return resp.IsSuccessStatusCode;
         }
@@ -715,9 +771,10 @@ public sealed class CloudPlatformService
         var (baseUrl, session) = RequireAuthenticatedEndpoint(settings);
         if (!session.User.IsAdmin) throw new InvalidOperationException("Admin privilege required.");
 
+        var payload = new AdminBugPatchPayload { Id = id, Status = status };
         using var resp = await SendAuthenticatedAsync(
             settings,
-            token => BuildAuthRequest(HttpMethod.Patch, $"{baseUrl}/api/admin/bugs", token, new { id, status }),
+            token => BuildAuthRequest(HttpMethod.Patch, $"{baseUrl}/api/admin/bugs", token, payload, NeuralRigJsonContext.Default.AdminBugPatchPayload),
             ct);
         string raw = await resp.Content.ReadAsStringAsync(ct);
         if (!resp.IsSuccessStatusCode)
@@ -731,9 +788,10 @@ public sealed class CloudPlatformService
         var (baseUrl, session) = RequireAuthenticatedEndpoint(settings);
         if (!session.User.IsAdmin) throw new InvalidOperationException("Admin privilege required.");
 
+        string rawPayloadJson = payload.GetRawText();
         using var resp = await SendAuthenticatedAsync(
             settings,
-            token => BuildAuthRequest(HttpMethod.Post, $"{baseUrl}/api/admin/releases", token, payload),
+            token => BuildAuthRawJsonRequest(HttpMethod.Post, $"{baseUrl}/api/admin/releases", token, rawPayloadJson),
             ct);
         string raw = await resp.Content.ReadAsStringAsync(ct);
         if (!resp.IsSuccessStatusCode)
@@ -830,7 +888,12 @@ public sealed class CloudPlatformService
             HttpResponseMessage resp;
             try
             {
-                using var req = BuildAuthRequest(HttpMethod.Post, $"{baseUrl}/api/auth/refresh", null, new { refreshToken });
+                using var req = BuildAuthRequest(
+                    HttpMethod.Post,
+                    $"{baseUrl}/api/auth/refresh",
+                    null,
+                    new RefreshTokenPayload { RefreshToken = refreshToken },
+                    NeuralRigJsonContext.Default.RefreshTokenPayload);
                 resp = await SharedHttp.SendAsync(req, ct);
             }
             catch (HttpRequestException)
@@ -869,7 +932,7 @@ public sealed class CloudPlatformService
 
                 CloudUserDto? updatedUser = null;
                 if (root.TryGetProperty("user", out var uEl) && uEl.ValueKind == JsonValueKind.Object)
-                    updatedUser = JsonSerializer.Deserialize<CloudUserDto>(uEl.GetRawText(), JsonOpts);
+                    updatedUser = JsonSerializer.Deserialize(uEl.GetRawText(), NeuralRigJsonContext.Default.CloudUserDto);
 
                 lock (_lock)
                 {
@@ -969,16 +1032,35 @@ public sealed class CloudPlatformService
         }
     }
 
-    private static HttpRequestMessage BuildAuthRequest(HttpMethod method, string url, string? bearerToken, object? body = null)
+    private static HttpRequestMessage BuildAuthRequest(HttpMethod method, string url, string? bearerToken)
     {
         var req = new HttpRequestMessage(method, url);
         if (!string.IsNullOrWhiteSpace(bearerToken))
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
-        if (body != null)
-        {
-            string json = JsonSerializer.Serialize(body, JsonOpts);
-            req.Content = new StringContent(json, Encoding.UTF8, "application/json");
-        }
+        return req;
+    }
+
+    private static HttpRequestMessage BuildAuthRequest<T>(
+        HttpMethod method,
+        string url,
+        string? bearerToken,
+        T body,
+        JsonTypeInfo<T> typeInfo)
+    {
+        var req = BuildAuthRequest(method, url, bearerToken);
+        string json = JsonSerializer.Serialize(body, typeInfo);
+        req.Content = new StringContent(json, Encoding.UTF8, "application/json");
+        return req;
+    }
+
+    private static HttpRequestMessage BuildAuthRawJsonRequest(
+        HttpMethod method,
+        string url,
+        string? bearerToken,
+        string rawJson)
+    {
+        var req = BuildAuthRequest(method, url, bearerToken);
+        req.Content = new StringContent(rawJson, Encoding.UTF8, "application/json");
         return req;
     }
 
@@ -1002,7 +1084,7 @@ public sealed class CloudPlatformService
         {
             if (_session == null) return;
             Directory.CreateDirectory(AppDataDir);
-            byte[] plain = JsonSerializer.SerializeToUtf8Bytes(_session, JsonOpts);
+            byte[] plain = JsonSerializer.SerializeToUtf8Bytes(_session, NeuralRigJsonContext.Default.CloudAuthSession);
             using var aes = Aes.Create();
             aes.Key = DeriveLocalKey();
             aes.GenerateIV();
@@ -1036,7 +1118,7 @@ public sealed class CloudPlatformService
             using var cs = new CryptoStream(ms, aes.CreateDecryptor(), CryptoStreamMode.Read);
             using var outMs = new MemoryStream();
             cs.CopyTo(outMs);
-            _session = JsonSerializer.Deserialize<CloudAuthSession>(outMs.ToArray(), JsonOpts);
+            _session = JsonSerializer.Deserialize(outMs.ToArray(), NeuralRigJsonContext.Default.CloudAuthSession);
         }
         catch
         {
@@ -1049,7 +1131,7 @@ public sealed class CloudPlatformService
         try
         {
             Directory.CreateDirectory(AppDataDir);
-            File.WriteAllText(BugOutboxPath, JsonSerializer.Serialize(_bugOutbox, PrettyJsonOpts));
+            File.WriteAllText(BugOutboxPath, JsonSerializer.Serialize(_bugOutbox, NeuralRigIndentedJsonContext.Default.ListQueuedBugReportDto));
         }
         catch { }
     }
@@ -1059,7 +1141,7 @@ public sealed class CloudPlatformService
         try
         {
             if (!File.Exists(BugOutboxPath)) return;
-            var list = JsonSerializer.Deserialize<List<QueuedBugReportDto>>(File.ReadAllText(BugOutboxPath), JsonOpts);
+            var list = JsonSerializer.Deserialize(File.ReadAllText(BugOutboxPath), NeuralRigJsonContext.Default.ListQueuedBugReportDto);
             if (list != null) _bugOutbox.AddRange(list);
         }
         catch { }

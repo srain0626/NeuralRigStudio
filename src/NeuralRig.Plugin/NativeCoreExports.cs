@@ -73,7 +73,7 @@ internal sealed unsafe class NativePluginSession : IDisposable
 /// </summary>
 public static unsafe class NativeCoreExports
 {
-    private const int AbiVersion = 1;
+    private const int AbiVersion = 2;
 
     private static NativePluginSession? Unwrap(nint handle)
     {
@@ -131,6 +131,16 @@ public static unsafe class NativeCoreExports
     public static void NrsSetParentHwnd(nint handle, nint hwnd)
         => Unwrap(handle)?.Bridge.SetParentHwnd(hwnd);
 
+    [UnmanagedCallersOnly(EntryPoint = "nrs_set_host_format", CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static void NrsSetHostFormat(nint handle, byte* formatUtf8)
+    {
+        var session = Unwrap(handle);
+        if (session == null || formatUtf8 == null) return;
+        string? fmt = Marshal.PtrToStringUTF8((nint)formatUtf8);
+        if (!string.IsNullOrWhiteSpace(fmt))
+            session.Kernel.HostFormat = fmt.Trim();
+    }
+
     [UnmanagedCallersOnly(EntryPoint = "nrs_activate", CallConvs = new[] { typeof(CallConvCdecl) })]
     public static void NrsActivate(nint handle, int sampleRate, int maxBlockSize)
         => Unwrap(handle)?.Kernel.Activate(sampleRate, maxBlockSize);
@@ -139,20 +149,19 @@ public static unsafe class NativeCoreExports
     public static void NrsDeactivate(nint handle)
         => Unwrap(handle)?.Kernel.Deactivate();
 
-    [UnmanagedCallersOnly(EntryPoint = "nrs_process", CallConvs = new[] { typeof(CallConvCdecl) })]
-    public static void NrsProcess(
-        nint handle,
+    private static void ProcessBufferInternal(
+        NativePluginSession session,
         float* inL,
         float* inR,
         float* outL,
         float* outR,
         int numSamples,
         double hostBpm,
-        byte hasHostBpm)
+        byte hasHostBpm,
+        byte isPlaying,
+        double ppqPosition,
+        byte hasPpq)
     {
-        var session = Unwrap(handle);
-        if (session == null) return;
-
         if (numSamples <= 0 || outL == null || outR == null)
         {
             session.Kernel.FlushPendingParamsNoAudio();
@@ -171,8 +180,75 @@ public static unsafe class NativeCoreExports
         else if (inR == null)
             sl.CopyTo(sr);
 
-        session.Kernel.ProcessRt(sl, sr, numSamples, hasHostBpm != 0 ? hostBpm : 0.0);
+        session.Kernel.ProcessRt(
+            sl,
+            sr,
+            numSamples,
+            hasHostBpm != 0 ? hostBpm : 0.0,
+            isPlaying != 0,
+            ppqPosition,
+            hasPpq != 0);
     }
+
+    [UnmanagedCallersOnly(EntryPoint = "nrs_process", CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static void NrsProcess(
+        nint handle,
+        float* inL,
+        float* inR,
+        float* outL,
+        float* outR,
+        int numSamples,
+        double hostBpm,
+        byte hasHostBpm)
+    {
+        var session = Unwrap(handle);
+        if (session == null) return;
+        ProcessBufferInternal(session, inL, inR, outL, outR, numSamples, hostBpm, hasHostBpm, 0, 0.0, 0);
+    }
+
+    [UnmanagedCallersOnly(EntryPoint = "nrs_process_ex", CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static void NrsProcessEx(
+        nint handle,
+        float* inL,
+        float* inR,
+        float* outL,
+        float* outR,
+        int numSamples,
+        double hostBpm,
+        byte hasHostBpm,
+        byte isPlaying,
+        double ppqPosition,
+        byte hasPpq)
+    {
+        var session = Unwrap(handle);
+        if (session == null) return;
+        ProcessBufferInternal(session, inL, inR, outL, outR, numSamples, hostBpm, hasHostBpm, isPlaying, ppqPosition, hasPpq);
+    }
+
+    [UnmanagedCallersOnly(EntryPoint = "nrs_get_latency_samples", CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static int NrsGetLatencySamples(nint handle)
+        => Unwrap(handle)?.Kernel.GetLatencySamples() ?? 0;
+
+    [UnmanagedCallersOnly(EntryPoint = "nrs_get_tail_samples", CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static int NrsGetTailSamples(nint handle)
+        => Unwrap(handle)?.Kernel.GetTailSamples() ?? 0;
+
+    [UnmanagedCallersOnly(EntryPoint = "nrs_get_midi_cc_param", CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static int NrsGetMidiCcParam(nint handle, int ccNumber, uint* outParamId)
+    {
+        var session = Unwrap(handle);
+        if (session == null || outParamId == null) return 0;
+        if (session.Kernel.TryResolveMidiControllerParam(ccNumber, out uint pid))
+        {
+            *outParamId = pid;
+            return 1;
+        }
+        return 0;
+    }
+
+    [UnmanagedCallersOnly(EntryPoint = "nrs_midi_event", CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static void NrsMidiEvent(nint handle, byte status, byte data1, byte data2, int sampleOffset)
+        => Unwrap(handle)?.Kernel.EnqueueMidiEventRt(status, data1, data2, sampleOffset);
 
     [UnmanagedCallersOnly(EntryPoint = "nrs_get_param_count", CallConvs = new[] { typeof(CallConvCdecl) })]
     public static int NrsGetParamCount() => DawParameterCatalog.TotalParameterCount;

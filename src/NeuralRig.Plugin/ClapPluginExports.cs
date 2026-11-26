@@ -96,7 +96,7 @@ public static class ClapNativeMetadata
     public const string PluginId = "com.neuralrig.studio.vstclap";
     public const string PluginName = "NeuralRig Studio";
     public const string Vendor = "NeuralRig Audio";
-    public const string Version = "2.0.0";
+    public const string Version = "3.2.0";
     public const string Description = "AVX2/FMA Neural Amp Modeler (WaveNet/LSTM/ConvNet) + 4x WhiteBox 2x8 Multi-FX";
     public static readonly string[] Features = { "audio-effect", "guitar", "amp-simulator", "multi-effects", "stereo" };
 }

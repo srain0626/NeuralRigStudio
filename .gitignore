@@ -21,8 +21,10 @@ packages/*/node_modules/
 packages/*/*.tgz
 dist-release/
 dist-vst3/
+dist-clap/
 *.tsbuildinfo
 *.zip
+*.tgz
 
 .vercel
 .env*

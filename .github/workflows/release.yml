@@ -9,7 +9,7 @@ on:
       version:
         description: "Release SemVer (without leading v)"
         required: true
-        default: "3.0.0"
+        default: "3.2.0"
 
 permissions:
   contents: write
@@ -53,22 +53,46 @@ jobs:
           dotnet build NeuralRigStudio.sln -c Release
           & ".\tools\RigBench\bin\Release\net10.0-windows\RigBench.exe"
 
-      - name: Test & Pack neuralrig-mcp
+      - name: Test neuralrig-mcp
         shell: pwsh
         run: |
           node packages/neuralrig-mcp/test/verify-mcp.mjs
-          New-Item -ItemType Directory -Force -Path dist-release | Out-Null
-          npm pack ./packages/neuralrig-mcp --pack-destination dist-release
 
       - name: Verify Next.js Cloud Build
         run: |
           npm --prefix cloud ci
           npm --prefix cloud run build
 
-      - name: Build Windows Installer & Standalone Single-File EXE
+      - name: Build Installer, Standalone EXE, VST3 & CLAP Plugins
         shell: pwsh
         run: |
-          powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 -Version "${{ steps.ver.outputs.version }}"
+          powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 -Version "${{ steps.ver.outputs.version }}" -NoGuiVerify
+
+      - name: Sign Windows Executables (Optional Authenticode)
+        if: secrets.WINDOWS_CODESIGN_PFX_BASE64 != ''
+        shell: pwsh
+        env:
+          PFX_B64: ${{ secrets.WINDOWS_CODESIGN_PFX_BASE64 }}
+          PFX_PASS: ${{ secrets.WINDOWS_CODESIGN_PASSWORD }}
+        run: |
+          $pfxPath = Join-Path $env:RUNNER_TEMP "codesign.pfx"
+          [System.IO.File]::WriteAllBytes($pfxPath, [System.Convert]::FromBase64String($env:PFX_B64))
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter "signtool.exe" |
+            Where-Object { $_.FullName -match "\\x64\\signtool\.exe$" } |
+            Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $signtool) { throw "signtool.exe not found" }
+          foreach ($exe in Get-ChildItem "dist-release\*.exe") {
+            & $signtool sign /f $pfxPath /p $env:PFX_PASS /fd SHA256 /tr "http://timestamp.digicert.com" /td SHA256 $exe.FullName
+            if ($LASTEXITCODE -ne 0) { throw "signtool failed for $($exe.Name)" }
+          }
+          Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
+          $sumFile = "dist-release\SHA256SUMS.txt"
+          $targets = Get-ChildItem "dist-release" -File | Where-Object { $_.Extension -in ".exe", ".zip", ".tgz" } | Sort-Object Name
+          $lines = $targets | ForEach-Object {
+            $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$h  $($_.Name)"
+          }
+          $lines | Set-Content -Path $sumFile -Encoding UTF8
 
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -77,5 +101,6 @@ jobs:
           generate_release_notes: true
           files: |
             dist-release/*.exe
+            dist-release/*.zip
             dist-release/*.tgz
             dist-release/SHA256SUMS.txt

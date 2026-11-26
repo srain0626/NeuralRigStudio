@@ -2573,18 +2573,18 @@ public sealed class RigWebBridge : IDisposable
         string severity = GetStr(payload, "severity") ?? "normal";
         string description = GetStr(payload, "description") ?? "";
 
-        var diag = new Dictionary<string, object?>
+        var diag = new Dictionary<string, string>
         {
             ["appVersion"] = OtaUpdateService.CurrentVersion,
             ["osVersion"] = Environment.OSVersion.VersionString,
-            ["cpuCount"] = Environment.ProcessorCount,
-            ["avx2Supported"] = System.Runtime.Intrinsics.X86.Avx2.IsSupported,
-            ["fmaSupported"] = System.Runtime.Intrinsics.X86.Fma.IsSupported,
-            ["isAudioRunning"] = _router.IsRunning,
-            ["inputKind"] = _settings.InputKind,
-            ["outputKind"] = _settings.OutputKind,
-            ["sampleRate"] = _router.EffectiveSampleRate,
-            ["customDeviceCount"] = CustomDeviceRegistry.GetAll().Length,
+            ["cpuCount"] = Environment.ProcessorCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["avx2Supported"] = System.Runtime.Intrinsics.X86.Avx2.IsSupported ? "true" : "false",
+            ["fmaSupported"] = System.Runtime.Intrinsics.X86.Fma.IsSupported ? "true" : "false",
+            ["isAudioRunning"] = _router.IsRunning ? "true" : "false",
+            ["inputKind"] = _settings.InputKind ?? "",
+            ["outputKind"] = _settings.OutputKind ?? "",
+            ["sampleRate"] = _router.EffectiveSampleRate.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["customDeviceCount"] = CustomDeviceRegistry.GetAll().Length.ToString(System.Globalization.CultureInfo.InvariantCulture),
         };
 
         var result = await _cloud.SubmitBugReportAsync(_settings, title, category, severity, description, diag);

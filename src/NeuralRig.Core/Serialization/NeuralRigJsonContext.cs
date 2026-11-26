@@ -98,6 +98,13 @@ public sealed class NamFileExportDto
 [JsonSerializable(typeof(CommunityGearItemDto[]))]
 [JsonSerializable(typeof(QueuedBugReportDto))]
 [JsonSerializable(typeof(List<QueuedBugReportDto>))]
+[JsonSerializable(typeof(Dictionary<string, string>))]
+[JsonSerializable(typeof(CloudSyncSettingsPayload))]
+[JsonSerializable(typeof(CloudSyncPutPayload))]
+[JsonSerializable(typeof(CommunityGearUploadPayload))]
+[JsonSerializable(typeof(BugReportSubmitPayload))]
+[JsonSerializable(typeof(AdminBugPatchPayload))]
+[JsonSerializable(typeof(RefreshTokenPayload))]
 [JsonSerializable(typeof(OtaCheckResultDto))]
 [JsonSerializable(typeof(string))]
 public sealed partial class NeuralRigJsonContext : JsonSerializerContext
@@ -124,6 +131,7 @@ public sealed partial class NeuralRigJsonContext : JsonSerializerContext
 [JsonSerializable(typeof(List<CustomDeviceSpecDto>))]
 [JsonSerializable(typeof(List<SpiceComponentModelDto>))]
 [JsonSerializable(typeof(List<QueuedBugReportDto>))]
+[JsonSerializable(typeof(Dictionary<string, string>))]
 public sealed partial class NeuralRigIndentedJsonContext : JsonSerializerContext
 {
 }

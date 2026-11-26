@@ -33,9 +33,15 @@ struct NativeCoreApi
     void* (__cdecl* create)(WebSendCallback webSendCb, HostParamCallback hostParamCb, void* userData){nullptr};
     void(__cdecl* destroy)(void* handle){nullptr};
     void(__cdecl* set_parent_hwnd)(void* handle, void* hwnd){nullptr};
+    void(__cdecl* set_host_format)(void* handle, const char* formatUtf8){nullptr};
     void(__cdecl* activate)(void* handle, int32_t sampleRate, int32_t maxBlockSize){nullptr};
     void(__cdecl* deactivate)(void* handle){nullptr};
     void(__cdecl* process)(void* handle, float* inL, float* inR, float* outL, float* outR, int32_t numSamples, double hostBpm, uint8_t hasHostBpm){nullptr};
+    void(__cdecl* process_ex)(void* handle, float* inL, float* inR, float* outL, float* outR, int32_t numSamples, double hostBpm, uint8_t hasHostBpm, uint8_t isPlaying, double ppqPosition, uint8_t hasPpq){nullptr};
+    int32_t(__cdecl* get_latency_samples)(void* handle){nullptr};
+    int32_t(__cdecl* get_tail_samples)(void* handle){nullptr};
+    int32_t(__cdecl* get_midi_cc_param)(void* handle, int32_t ccNumber, uint32_t* outParamId){nullptr};
+    void(__cdecl* midi_event)(void* handle, uint8_t status, uint8_t data1, uint8_t data2, int32_t sampleOffset){nullptr};
     int32_t(__cdecl* get_param_count)(){nullptr};
     int32_t(__cdecl* get_param_info)(void* handle, uint32_t paramId, NrsParamInfoNative* outInfo){nullptr};
     double(__cdecl* get_param_normalized)(void* handle, uint32_t paramId){nullptr};
@@ -52,7 +58,10 @@ struct NativeCoreApi
     bool isLoaded() const
     {
         return module != nullptr && abi_version != nullptr && create != nullptr && destroy != nullptr &&
-               activate != nullptr && deactivate != nullptr && process != nullptr &&
+               set_host_format != nullptr && activate != nullptr && deactivate != nullptr &&
+               process != nullptr && process_ex != nullptr &&
+               get_latency_samples != nullptr && get_tail_samples != nullptr &&
+               get_midi_cc_param != nullptr && midi_event != nullptr &&
                get_param_count != nullptr && get_param_info != nullptr &&
                get_param_normalized != nullptr && set_param_normalized != nullptr &&
                param_norm_to_plain != nullptr && param_plain_to_norm != nullptr &&
@@ -108,9 +117,15 @@ inline NativeCoreApi& GetNativeCoreApi()
         load(out.create, "nrs_create");
         load(out.destroy, "nrs_destroy");
         load(out.set_parent_hwnd, "nrs_set_parent_hwnd");
+        load(out.set_host_format, "nrs_set_host_format");
         load(out.activate, "nrs_activate");
         load(out.deactivate, "nrs_deactivate");
         load(out.process, "nrs_process");
+        load(out.process_ex, "nrs_process_ex");
+        load(out.get_latency_samples, "nrs_get_latency_samples");
+        load(out.get_tail_samples, "nrs_get_tail_samples");
+        load(out.get_midi_cc_param, "nrs_get_midi_cc_param");
+        load(out.midi_event, "nrs_midi_event");
         load(out.get_param_count, "nrs_get_param_count");
         load(out.get_param_info, "nrs_get_param_info");
         load(out.get_param_normalized, "nrs_get_param_normalized");
@@ -124,7 +139,7 @@ inline NativeCoreApi& GetNativeCoreApi()
         load(out.web_post_message, "nrs_web_post_message");
         load(out.poll_ui, "nrs_poll_ui");
 
-        if (!out.isLoaded() || out.abi_version() != 1)
+        if (!out.isLoaded() || out.abi_version() != 2)
         {
             FreeLibrary(out.module);
             out.module = nullptr;

@@ -5,6 +5,7 @@
 ## C# Core DSP (`src/NeuralRig.Core/Audio/`)
 | Component | Path | Key Types / Entry Points |
 |:---|:---|:---|
+| Master roadmap | `docs/ROADMAP.md` | v1.1–v3.1.0 shipped baseline & v3.2–v4.0 plan |
 | Core tone host | `src/NeuralRig.Core/Audio/ToneProcessor.cs` | `ToneProcessor`, `Prepare`, `Process`, `LoadCustomCabIrFromSamples`, `SoftKneeCeiling` |
 | 2x8 Matrix engine | `src/NeuralRig.Core/Audio/SignalChainEngine.cs` & `.Blocks.cs` | `SignalChainEngine`, `UpdateChain`, `BlockOp`, `ProcessCustomSpice` |
 | Chain & preset DTOs | `src/NeuralRig.Core/Audio/SignalChainDtos.cs` | `SignalChainConfigDto` (`SlotCount=16`), `ChainSlotDto`, `SceneSnapshotDto` |

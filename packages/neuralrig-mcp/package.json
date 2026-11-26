@@ -1,6 +1,6 @@
 {
   "name": "neuralrig-mcp",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "Universal MCP server and multi-AI provider installer for NeuralRig Studio (75+ pedals/amps/cabs, MNA SPICE schematic solver, live audio bridge)",
   "type": "module",
   "license": "MIT",

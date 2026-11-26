@@ -74,9 +74,18 @@ constexpr int32 kIsBypass = 1 << 4;
 constexpr int32 kUnicodeFactoryFlag = 1 << 4; // PFactoryInfo::kUnicode = 0x10
 constexpr uint32 kSimpleModeSupported = 1u << 1;
 
+constexpr uint32 kNeedProjectTimeMusic = 1u << 2;
 constexpr uint32 kNeedTempo = 1u << 6;
 constexpr uint32 kNeedTransportState = 1u << 10;
+constexpr uint32 kPlaying = 1u << 1;
+constexpr uint32 kProjectTimeMusicValid = 1u << 9;
 constexpr uint32 kTempoValid = 1u << 10;
+
+constexpr int16 kCtrlModWheel = 1;
+constexpr int16 kCtrlFoot = 4;
+constexpr int16 kCtrlVolume = 7;
+constexpr int16 kCtrlExpression = 11;
+constexpr int16 kCtrlProgramChange = 130;
 
 constexpr int32 kIBSeekSet = 0;
 constexpr int32 kIBSeekCur = 1;
@@ -138,6 +147,8 @@ constexpr GuidBytes kIComponentHandlerIid = MakeVst3Uid(0x93A0BEA3u, 0x0BD045DBu
 constexpr GuidBytes kIEditControllerIid = MakeVst3Uid(0xDCD7BBE3u, 0x7742448Du, 0xA874AACCu, 0x979C759Eu);
 constexpr GuidBytes kIParamValueQueueIid = MakeVst3Uid(0x01263A18u, 0xED074F6Fu, 0x98C9D356u, 0x4686F9BAu);
 constexpr GuidBytes kIParameterChangesIid = MakeVst3Uid(0xA4779663u, 0x0BB64A56u, 0xB44384A8u, 0x466FEB9Du);
+constexpr GuidBytes kIEventListIid = MakeVst3Uid(0x3A2C4214u, 0x346349FEu, 0xB2C4F397u, 0xB9695A44u);
+constexpr GuidBytes kIMidiMappingIid = MakeVst3Uid(0xDF0FF9F7u, 0x49B74669u, 0xB63AB732u, 0x7ADBF5E5u);
 
 // NeuralRig Studio Processor / SingleComponentEffect CID: A73E91C4-52D8-4B6E-91F0-C38E4B72D101
 constexpr GuidBytes kNeuralRigProcessorCid = MakeVst3Uid(0xA73E91C4u, 0x52D84B6Eu, 0x91F0C38Eu, 0x4B72D101u);
@@ -277,7 +288,54 @@ struct ProcessContext
     int32 samplesToNextClock;
 };
 
+struct NoteOnEvent
+{
+    int16 channel;
+    int16 pitch;
+    float tuning;
+    float velocity;
+    int32 length;
+    int32 noteId;
+};
+
+struct LegacyMIDICCOutEvent
+{
+    uint8 controlNumber;
+    int8 channel;
+    int8 value;
+    int8 value2;
+};
+
+struct Event
+{
+    int32 busIndex;
+    int32 sampleOffset;
+    double ppqPosition;
+    uint16 flags;
+
+    enum EventFlags : uint16
+    {
+        kIsLive = 1 << 0,
+    };
+
+    enum EventTypes : uint16
+    {
+        kNoteOnEvent = 0,
+        kNoteOffEvent = 1,
+        kLegacyMIDICCOutEvent = 65535,
+    };
+
+    uint16 type;
+    union
+    {
+        NoteOnEvent noteOn;
+        LegacyMIDICCOutEvent midiCCOut;
+        uint8 raw[64];
+    };
+};
+
 class IParameterChanges;
+class IEventList;
 
 struct ProcessData
 {
@@ -290,8 +348,8 @@ struct ProcessData
     AudioBusBuffers* outputs;
     IParameterChanges* inputParameterChanges;
     IParameterChanges* outputParameterChanges;
-    void* inputEvents;
-    void* outputEvents;
+    IEventList* inputEvents;
+    IEventList* outputEvents;
     ProcessContext* processContext;
 };
 
@@ -443,6 +501,24 @@ public:
     virtual int32 SMTG_CALLCONV getParameterCount() = 0;
     virtual IParamValueQueue* SMTG_CALLCONV getParameterData(int32 index) = 0;
     virtual IParamValueQueue* SMTG_CALLCONV addParameterData(const ParamID& id, int32& index) = 0;
+};
+
+class IEventList : public FUnknown
+{
+public:
+    virtual int32 SMTG_CALLCONV getEventCount() = 0;
+    virtual tresult SMTG_CALLCONV getEvent(int32 index, Event& e) = 0;
+    virtual tresult SMTG_CALLCONV addEvent(Event& e) = 0;
+};
+
+class IMidiMapping : public FUnknown
+{
+public:
+    virtual tresult SMTG_CALLCONV getMidiControllerAssignment(
+        int32 busIndex,
+        int16 channel,
+        int16 midiControllerNumber,
+        ParamID& id) = 0;
 };
 
 } // namespace nrs::vst3

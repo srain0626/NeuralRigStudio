@@ -12,7 +12,7 @@ export default async function HomePage() {
   const repo = process.env.GITHUB_REPO || "srain0626/NeuralRigStudio";
 
   let release: LiveReleaseSnapshot = {
-    version: "3.0.0",
+    version: "3.2.0",
     installerUrl: "",
     standaloneExeUrl: "",
     releasePageUrl: `https://github.com/${repo}/releases`,
@@ -42,7 +42,7 @@ export default async function HomePage() {
           const sorted = [...relRows].sort((a, b) => compareSemVer(b.version, a.version));
           const latest = sorted[0];
           release = {
-            version: latest.version || "3.0.0",
+            version: latest.version || "3.2.0",
             installerUrl: latest.installer_url || "",
             standaloneExeUrl: latest.standalone_exe_url || "",
             releasePageUrl: `https://github.com/${repo}/releases/latest`,

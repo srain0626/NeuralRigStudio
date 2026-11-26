@@ -500,8 +500,8 @@ export const ToneHubModal: React.FC<ToneHubModalProps> = ({
                   </Badge>
                   <HelpHint
                     content={tx(
-                      `0 B RT 할당 DSP · .nrig 상태 저장 · 32개 샘플 정확도 오토메이션 · CLAP ID: ${dawInfo?.clapId || "com.neuralrig.studio.vstclap"}`,
-                      `0-alloc DSP · .nrig state · 32 sample-accurate parameters · CLAP ID: ${dawInfo?.clapId || "com.neuralrig.studio.vstclap"}`
+                      `0 B RT 할당 DSP · .nrig 상태 저장 · 160개 샘플 정확도 오토메이션 · CLAP ID: ${dawInfo?.clapId || "com.neuralrig.studio.vstclap"}`,
+                      `0-alloc DSP · .nrig state · 160 sample-accurate parameters · CLAP ID: ${dawInfo?.clapId || "com.neuralrig.studio.vstclap"}`
                     )}
                   />
                 </div>

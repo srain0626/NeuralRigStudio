@@ -3,7 +3,7 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
-    <Version>3.1.0</Version>
+    <Version>3.2.0</Version>
     <Authors>Ray Kim</Authors>
     <Company>NeuralRig Audio</Company>
     <Copyright>Copyright (c) 2026 Ray Kim</Copyright>
@@ -12,7 +12,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ForceDesignerDpiUnaware>false</ForceDesignerDpiUnaware>
-    <DefaultItemExcludes>$(DefaultItemExcludes);src\**;tools\**;web-ui\**;wwwroot\**;cloud\**;packages\**;installer\**;scripts\**;dist-release\**;dist-vst3\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);src\**;tools\**;web-ui\**;wwwroot\**;cloud\**;packages\**;installer\**;scripts\**;dist-release\**;dist-vst3\**;dist-clap\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>

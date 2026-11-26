@@ -237,16 +237,83 @@ private:
     int32 count_{0};
 };
 
-std::wstring GetArgOrDefaultVst3Path(int argc, char** argv)
+class HostEventList final : public IEventList
 {
-    if (argc >= 2 && argv[1] && argv[1][0] != '\0')
+public:
+    tresult SMTG_CALLCONV queryInterface(const TUID _iid, void** obj) override
     {
-        int n = MultiByteToWideChar(CP_UTF8, 0, argv[1], -1, nullptr, 0);
-        std::wstring ws(static_cast<size_t>(n > 0 ? n - 1 : 0), L'\0');
-        if (n > 1) MultiByteToWideChar(CP_UTF8, 0, argv[1], -1, ws.data(), n);
-        return ws;
+        if (!obj) return kInvalidArgument;
+        if (UidEqual(_iid, kFUnknownIid) || UidEqual(_iid, kIEventListIid))
+        {
+            *obj = static_cast<IEventList*>(this);
+            addRef();
+            return kResultOk;
+        }
+        *obj = nullptr;
+        return kNoInterface;
     }
-    return L"dist-vst3\\NeuralRigStudio.vst3\\Contents\\x86_64-win\\NeuralRigStudio.vst3";
+
+    uint32 SMTG_CALLCONV addRef() override { return ++ref_; }
+    uint32 SMTG_CALLCONV release() override { return --ref_; }
+
+    void clear() { events_.clear(); }
+
+    void addLegacyCc(uint8 ctrlNum, int8 val, int32 offset)
+    {
+        Event ev{};
+        ev.busIndex = 0;
+        ev.sampleOffset = offset;
+        ev.ppqPosition = 0.0;
+        ev.flags = Event::kIsLive;
+        ev.type = Event::kLegacyMIDICCOutEvent;
+        ev.midiCCOut.controlNumber = ctrlNum;
+        ev.midiCCOut.channel = 0;
+        ev.midiCCOut.value = val;
+        ev.midiCCOut.value2 = 0;
+        events_.push_back(ev);
+    }
+
+    int32 SMTG_CALLCONV getEventCount() override { return static_cast<int32>(events_.size()); }
+
+    tresult SMTG_CALLCONV getEvent(int32 index, Event& e) override
+    {
+        if (index < 0 || index >= static_cast<int32>(events_.size()))
+            return kInvalidArgument;
+        e = events_[static_cast<size_t>(index)];
+        return kResultOk;
+    }
+
+    tresult SMTG_CALLCONV addEvent(Event& e) override
+    {
+        events_.push_back(e);
+        return kResultOk;
+    }
+
+private:
+    uint32 ref_{1};
+    std::vector<Event> events_;
+};
+
+std::wstring GetArgOrDefaultVst3Path(int argc, char** argv, bool& noGui)
+{
+    noGui = false;
+    std::wstring pathArg;
+    for (int i = 1; i < argc; i++)
+    {
+        if (!argv[i] || argv[i][0] == '\0') continue;
+        if (std::strcmp(argv[i], "--no-gui") == 0)
+        {
+            noGui = true;
+            continue;
+        }
+        if (pathArg.empty())
+        {
+            int n = MultiByteToWideChar(CP_UTF8, 0, argv[i], -1, nullptr, 0);
+            pathArg.assign(static_cast<size_t>(n > 0 ? n - 1 : 0), L'\0');
+            if (n > 1) MultiByteToWideChar(CP_UTF8, 0, argv[i], -1, pathArg.data(), n);
+        }
+    }
+    return pathArg.empty() ? L"dist-vst3\\NeuralRigStudio.vst3\\Contents\\x86_64-win\\NeuralRigStudio.vst3" : pathArg;
 }
 
 LRESULT CALLBACK TestHostWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -275,7 +342,8 @@ int main(int argc, char** argv)
 {
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
-    std::wstring vst3Path = GetArgOrDefaultVst3Path(argc, argv);
+    bool noGui = false;
+    std::wstring vst3Path = GetArgOrDefaultVst3Path(argc, argv, noGui);
     wprintf(L"[Vst3HostVerify] Loading: %s\n", vst3Path.c_str());
 
     HMODULE mod = LoadLibraryExW(vst3Path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
@@ -343,9 +411,11 @@ int main(int argc, char** argv)
     IAudioProcessor* procA = nullptr;
     IEditController* ctrlA = nullptr;
     IProcessContextRequirements* reqA = nullptr;
+    IMidiMapping* midiA = nullptr;
     if (compA->queryInterface(kIAudioProcessorIid.b, reinterpret_cast<void**>(&procA)) != kResultOk ||
         compA->queryInterface(kIEditControllerIid.b, reinterpret_cast<void**>(&ctrlA)) != kResultOk ||
-        compA->queryInterface(kIProcessContextRequirementsIid.b, reinterpret_cast<void**>(&reqA)) != kResultOk)
+        compA->queryInterface(kIProcessContextRequirementsIid.b, reinterpret_cast<void**>(&reqA)) != kResultOk ||
+        compA->queryInterface(kIMidiMappingIid.b, reinterpret_cast<void**>(&midiA)) != kResultOk)
     {
         fprintf(stderr, "FAIL: SingleComponentEffect COM queryInterface failed\n");
         return 9;
@@ -354,21 +424,46 @@ int main(int argc, char** argv)
     FUnknown* unkComp = nullptr;
     FUnknown* unkProc = nullptr;
     FUnknown* unkCtrl = nullptr;
+    FUnknown* unkMidi = nullptr;
     compA->queryInterface(kFUnknownIid.b, reinterpret_cast<void**>(&unkComp));
     procA->queryInterface(kFUnknownIid.b, reinterpret_cast<void**>(&unkProc));
     ctrlA->queryInterface(kFUnknownIid.b, reinterpret_cast<void**>(&unkCtrl));
-    if (unkComp == nullptr || unkComp != unkProc || unkComp != unkCtrl)
+    midiA->queryInterface(kFUnknownIid.b, reinterpret_cast<void**>(&unkMidi));
+    if (unkComp == nullptr || unkComp != unkProc || unkComp != unkCtrl || unkComp != unkMidi)
     {
-        fprintf(stderr, "FAIL: COM FUnknown identity mismatch (%p vs %p vs %p)\n", unkComp, unkProc, unkCtrl);
+        fprintf(stderr, "FAIL: COM FUnknown identity mismatch (%p vs %p vs %p vs %p)\n", unkComp, unkProc, unkCtrl, unkMidi);
         return 10;
     }
     unkComp->release();
     unkProc->release();
     unkCtrl->release();
+    unkMidi->release();
 
-    if ((reqA->getProcessContextRequirements() & kNeedTempo) == 0)
+    // Verify MIDI kEvent Input Bus + IMidiMapping + ProcessContextRequirements
+    BusInfo evBus{};
+    if (compA->getBusCount(kEvent, kInput) != 1 ||
+        compA->getBusInfo(kEvent, kInput, 0, evBus) != kResultOk ||
+        compA->activateBus(kEvent, kInput, 0, 1) != kResultOk)
     {
-        fprintf(stderr, "FAIL: kNeedTempo not reported in IProcessContextRequirements\n");
+        fprintf(stderr, "FAIL: VST3 kEvent MIDI input bus verification failed\n");
+        return 11;
+    }
+
+    ParamID exprPid = 0xFFFFFFFFu;
+    ParamID pcPid = 0xFFFFFFFFu;
+    if (midiA->getMidiControllerAssignment(0, 0, kCtrlExpression, exprPid) != kResultTrue ||
+        midiA->getMidiControllerAssignment(0, 0, kCtrlProgramChange, pcPid) != kResultTrue ||
+        pcPid != 5)
+    {
+        fprintf(stderr, "FAIL: IMidiMapping verification failed (expr=%u, pc=%u)\n", exprPid, pcPid);
+        return 11;
+    }
+
+    uint32 reqFlags = reqA->getProcessContextRequirements();
+    if ((reqFlags & (kNeedTempo | kNeedTransportState | kNeedProjectTimeMusic)) !=
+        (kNeedTempo | kNeedTransportState | kNeedProjectTimeMusic))
+    {
+        fprintf(stderr, "FAIL: Missing ProcessContextRequirements flags (got=0x%X)\n", reqFlags);
         return 11;
     }
 
@@ -413,6 +508,15 @@ int main(int argc, char** argv)
         return 15;
     }
 
+    uint32 initLatency = procA->getLatencySamples();
+    uint32 initTail = procA->getTailSamples();
+    if (initLatency > 4096 || initTail > 48000u * 12u)
+    {
+        fprintf(stderr, "FAIL: Out-of-range latency/tail from processor (lat=%u, tail=%u)\n", initLatency, initTail);
+        return 15;
+    }
+    printf("[Vst3HostVerify] Latency/Tail OK: lat=%u, tail=%u\n", initLatency, initTail);
+
     constexpr int kFrames = 256;
     std::vector<float> inL(kFrames), inR(kFrames), outL(kFrames), outR(kFrames);
     float* inPtrs[2] = {inL.data(), inR.data()};
@@ -420,10 +524,11 @@ int main(int argc, char** argv)
     AudioBusBuffers inBus{2, 0, {inPtrs}};
     AudioBusBuffers outBus{2, 0, {outPtrs}};
     ProcessContext pCtx{};
-    pCtx.state = kTempoValid;
+    pCtx.state = kTempoValid | kPlaying | kProjectTimeMusicValid;
     pCtx.tempo = 142.0;
 
     HostParamChanges pChanges;
+    HostEventList evList;
     double sumSq = 0.0;
     for (int blk = 0; blk < 1000; blk++)
     {
@@ -434,10 +539,13 @@ int main(int argc, char** argv)
             inR[i] = s;
         }
         pChanges.clear();
+        evList.clear();
+        pCtx.projectTimeMusic = (static_cast<double>(blk) * kFrames / 48000.0) * (142.0 / 60.0);
         if (blk == 100) pChanges.setSingle(0, 64, 0.65);  // InputGainDb sample-accurate automation
         if (blk == 200) pChanges.setSingle(26, 128, 0.72); // Slot 02 Knob 0
+        if (blk == 250) evList.addLegacyCc(static_cast<uint8>(kCtrlExpression), 84, 32);
 
-        ProcessData pData{kRealtime, kSample32, kFrames, 1, 1, &inBus, &outBus, &pChanges, nullptr, nullptr, nullptr, &pCtx};
+        ProcessData pData{kRealtime, kSample32, kFrames, 1, 1, &inBus, &outBus, &pChanges, nullptr, &evList, nullptr, &pCtx};
         if (procA->process(pData) != kResultOk)
         {
             fprintf(stderr, "FAIL: process() failed at block %d\n", blk);
@@ -507,13 +615,14 @@ int main(int argc, char** argv)
         return 22;
     }
     pChanges.clear();
+    evList.clear();
     for (int i = 0; i < kFrames; i++)
     {
         float s = 0.25f * std::sinf(2.0f * 3.14159265f * 220.0f * static_cast<float>(i) / 48000.0f);
         inL[i] = s;
         inR[i] = s;
     }
-    ProcessData pDataB{kRealtime, kSample32, kFrames, 1, 1, &inBus, &outBus, &pChanges, nullptr, nullptr, nullptr, &pCtx};
+    ProcessData pDataB{kRealtime, kSample32, kFrames, 1, 1, &inBus, &outBus, &pChanges, nullptr, &evList, nullptr, &pCtx};
     if (procB->process(pDataB) != kResultOk)
     {
         fprintf(stderr, "FAIL: compB process failed\n");
@@ -542,64 +651,68 @@ int main(int argc, char** argv)
     compB->terminate();
     compB->release();
 
-    // Real Win32 HWND + WebView2 IPlugView Test
-    WNDCLASSEXW wc{};
-    wc.cbSize = sizeof(wc);
-    wc.lpfnWndProc = &TestHostWndProc;
-    wc.hInstance = GetModuleHandleW(nullptr);
-    wc.lpszClassName = L"Vst3HostVerifyWindow";
-    RegisterClassExW(&wc);
-
-    HWND hostHwnd = CreateWindowExW(
-        0,
-        wc.lpszClassName,
-        L"VST3 Host Verify",
-        WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, 1280, 780,
-        nullptr, nullptr, wc.hInstance, nullptr);
-
-    IPlugView* view = ctrlA->createView(kPlugViewEditor);
-    if (!view || view->isPlatformTypeSupported(kPlatformTypeHWND) != kResultOk)
+    if (!noGui)
     {
-        fprintf(stderr, "FAIL: createView('editor') or HWND support failed\n");
-        return 23;
+        // Real Win32 HWND + WebView2 IPlugView Test
+        WNDCLASSEXW wc{};
+        wc.cbSize = sizeof(wc);
+        wc.lpfnWndProc = &TestHostWndProc;
+        wc.hInstance = GetModuleHandleW(nullptr);
+        wc.lpszClassName = L"Vst3HostVerifyWindow";
+        RegisterClassExW(&wc);
+
+        HWND hostHwnd = CreateWindowExW(
+            0,
+            wc.lpszClassName,
+            L"VST3 Host Verify",
+            WS_OVERLAPPEDWINDOW,
+            CW_USEDEFAULT, CW_USEDEFAULT, 1280, 780,
+            nullptr, nullptr, wc.hInstance, nullptr);
+
+        IPlugView* view = ctrlA->createView(kPlugViewEditor);
+        if (!view || view->isPlatformTypeSupported(kPlatformTypeHWND) != kResultOk)
+        {
+            fprintf(stderr, "FAIL: createView('editor') or HWND support failed\n");
+            return 23;
+        }
+
+        HostPlugFrame plugFrame;
+        view->setFrame(&plugFrame);
+        ViewRect initRect{};
+        view->getSize(&initRect);
+        if (initRect.getWidth() != 1280 || initRect.getHeight() != 780)
+        {
+            fprintf(stderr, "FAIL: Unexpected initial view rect %dx%d\n", initRect.getWidth(), initRect.getHeight());
+            return 24;
+        }
+
+        if (view->attached(hostHwnd, kPlatformTypeHWND) != kResultOk)
+        {
+            fprintf(stderr, "FAIL: view->attached(HWND) failed\n");
+            return 25;
+        }
+
+        ShowWindow(hostHwnd, SW_SHOWNA);
+        PumpMessagesForMs(2500);
+
+        ViewRect resized{0, 0, 1120, 700};
+        if (view->onSize(&resized) != kResultOk)
+        {
+            fprintf(stderr, "FAIL: view->onSize failed\n");
+            return 26;
+        }
+        PumpMessagesForMs(500);
+
+        view->removed();
+        view->setFrame(nullptr);
+        view->release();
+        DestroyWindow(hostHwnd);
     }
-
-    HostPlugFrame plugFrame;
-    view->setFrame(&plugFrame);
-    ViewRect initRect{};
-    view->getSize(&initRect);
-    if (initRect.getWidth() != 1280 || initRect.getHeight() != 780)
-    {
-        fprintf(stderr, "FAIL: Unexpected initial view rect %dx%d\n", initRect.getWidth(), initRect.getHeight());
-        return 24;
-    }
-
-    if (view->attached(hostHwnd, kPlatformTypeHWND) != kResultOk)
-    {
-        fprintf(stderr, "FAIL: view->attached(HWND) failed\n");
-        return 25;
-    }
-
-    ShowWindow(hostHwnd, SW_SHOWNA);
-    PumpMessagesForMs(2500);
-
-    ViewRect resized{0, 0, 1120, 700};
-    if (view->onSize(&resized) != kResultOk)
-    {
-        fprintf(stderr, "FAIL: view->onSize failed\n");
-        return 26;
-    }
-    PumpMessagesForMs(500);
-
-    view->removed();
-    view->setFrame(nullptr);
-    view->release();
-    DestroyWindow(hostHwnd);
 
     ctrlA->setComponentHandler(nullptr);
     procA->setProcessing(0);
     compA->setActive(0);
+    midiA->release();
     reqA->release();
     procA->release();
     ctrlA->release();
@@ -612,7 +725,8 @@ int main(int argc, char** argv)
     FreeLibrary(mod);
     CoUninitialize();
 
-    printf("[PASS] Vst3HostVerify: 160 params, 1000 RT blocks (RMS=%.4f, Tempo=%.1f BPM), State round-trip (%zu B), Real HWND+WebView2 GUI 1280x780->1120x700 OK\n",
-           rms, tempoPlain, stateStream.size());
+    printf("[PASS] Vst3HostVerify: 160 params, MIDI+IMidiMapping, PDC=%u, Tail=%u, 1000 RT blocks (RMS=%.4f, Tempo=%.1f BPM), State round-trip (%zu B), %s\n",
+           initLatency, initTail, rms, tempoPlain, stateStream.size(),
+           noGui ? "Headless (--no-gui) OK" : "Real HWND+WebView2 GUI 1280x780->1120x700 OK");
     return 0;
 }

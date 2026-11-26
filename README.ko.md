@@ -8,84 +8,98 @@
 
 <br />
 
-[![Release](https://img.shields.io/badge/release-v3.0.0-18181b?style=flat-square&labelColor=09090b)](https://github.com/srain0626/NeuralRigStudio/releases)
-[![npm](https://img.shields.io/badge/npm-neuralrig--mcp%20v3.0.0-18181b?style=flat-square&labelColor=09090b)](https://www.npmjs.com/package/neuralrig-mcp)
+[![Release](https://img.shields.io/badge/release-v3.2.0-18181b?style=flat-square&labelColor=09090b)](https://github.com/srain0626/NeuralRigStudio/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20x64-18181b?style=flat-square&labelColor=09090b)](#빠른-시작)
+[![Plugins](https://img.shields.io/badge/plugins-VST3%20%7C%20CLAP%20v1.2-18181b?style=flat-square&labelColor=09090b)](#daw-플러그인-vst3--clap-v12)
 [![License](https://img.shields.io/badge/license-MIT-52525b?style=flat-square&labelColor=09090b)](LICENSE)
 
-[English](README.md) · **한국어 (Korean)** · [공식 웹](https://neuralrigstudio.seltum.xyz)
+[English](README.md) · **한국어 (Korean)** · [로드맵](docs/ROADMAP.md) · [공식 웹](https://neuralrigstudio.seltum.xyz)
 
-[빠른 시작](#빠른-시작) · [범용 오디오 · 프리셋](#범용-오디오-인터페이스--첫인상-프리셋) · [새 페달·앰프 제작 & npx MCP](#새-페달-앰프-캐비넷-추가-및-다중-ai-mcp-연동) · [벤치마크](#벤치마크-스위트) · [클라우드 · 허브 · OTA](#클라우드-동기화-기어-허브-버그-리포트-ota) · [소스 빌드](#소스-빌드)
+[빠른 시작](#빠른-시작) · [범용 오디오 · 프리셋](#범용-오디오-인터페이스--첫인상-프리셋) · [DAW 플러그인](#daw-플러그인-vst3--clap-v12) · [커스텀 SPICE & MCP](#새-페달-앰프-캐비넷-추가-및-다중-ai-mcp-연동) · [벤치마크](#벤치마크-스위트) · [클라우드 · OTA](#클라우드-동기화-기어-허브-버그-리포트-ota) · [소스 빌드](#소스-빌드)
 
 </div>
 
 ---
 
-**NeuralRig Studio**는 순수 네이티브 C#(`.NET 10`, `AVX2`/`FMA`) 기반 실시간 기타 멀티 이펙트, MNA SPICE 회로 시뮬레이터, Neural Amp Modeler(`.nam`) 워크스테이션입니다.
+**NeuralRig Studio**는 네이티브 C#(`.NET 10`, `AVX2`/`FMA`), C++20, React 19 + WebView2로 작성된 실시간 기타 멀티 이펙트, MNA SPICE 회로 시뮬레이터, Neural Amp Modeler(`.nam`) 호스트 및 VST3/CLAP DAW 플러그인입니다.
 
-모든 DSP 연산(4x HIIR 폴리페이즈 오버샘플링, Newton-Raphson 반도체/다이오드 솔버, Norman Koren 12AX7 진공관 모델, KCL 패시브 톤스택, 16,384탭 Zero-Latency Partitioned FFT 컨볼버, `WaveNet`/`LSTM`/`ConvNet` SIMD 추론)이 오디오 콜백 스레드 **`0 B` 힙 할당** 제약 아래 네이티브로 실행됩니다.
+모든 DSP 커널은 백그라운드 Python 런타임 없이 네이티브 관리/NativeAOT 오디오 스레드에서 실행되며, 4x HIIR 폴리페이즈 오버샘플링, Newton-Raphson 반도체/다이오드 솔버, Norman Koren 12AX7 진공관 모델, KCL 패시브 톤스택, 16,384탭 Zero-Latency Partitioned FFT 컨볼버, `Vector256<float>` 기반 `WaveNet`/`LSTM`/`ConvNet` 추론 전 구간에서 **콜백 블록당 `0 B` 힙 할당**을 보장합니다.
 
-> 메인테이너: **Ray Kim** (`38514329+srain0626@users.noreply.github.com`) · AI 에이전트 문서 인덱스: [AGENTS.md](AGENTS.md) · [llms.txt](llms.txt) · [docs/INDEX.md](docs/INDEX.md)
+> 메인테이너: **Ray Kim** (`38514329+srain0626@users.noreply.github.com`) · 문서 인덱스: [AGENTS.md](AGENTS.md) · [docs/INDEX.md](docs/INDEX.md) · [docs/ROADMAP.md](docs/ROADMAP.md)
 
 ---
 
 ## 빠른 시작
 
-### 방법 1: Windows 인스톨러 (`Setup.exe`)
-1. [GitHub Releases](https://github.com/srain0626/NeuralRigStudio/releases)에서 `NeuralRigStudio-v3.0.0-Setup-win-x64.exe`를 내려받아 실행합니다.
-2. `%LOCALAPPDATA%\Programs\NeuralRigStudio` 경로에 `NeuralRigStudio.exe`와 `NeuralRigMcp.exe`가 함께 설치되며 시작 메뉴·바탕화면 바로가기 및 표준 제거 메뉴가 등록됩니다.
+### 방법 1: 통합 Windows 인스톨러 (`Setup.exe`)
+1. [GitHub Releases](https://github.com/srain0626/NeuralRigStudio/releases)에서 `NeuralRigStudio-v3.2.0-Setup-win-x64.exe`를 내려받아 실행합니다.
+2. 설치 옵션 창에서 데스크톱 앱과 DAW 플러그인을 함께 설치할 수 있습니다:
+   - `%LOCALAPPDATA%\Programs\NeuralRigStudio`: `NeuralRigStudio.exe`, `NeuralRigMcp.exe`
+   - `%LOCALAPPDATA%\Programs\Common\VST3\NeuralRigStudio.vst3` (선택, 기본 체크)
+   - `%LOCALAPPDATA%\Programs\Common\CLAP\NeuralRigStudio` (선택, 기본 체크)
+   - 시작 메뉴·바탕화면 바로가기, `HKCU\Software\NeuralRigStudio\Installer` 무인 OTA 설정 저장 및 표준 제거 지원
 
-### 방법 2: 무설치 단일 실행 파일 (`.exe`)
-1. `NeuralRigStudio-v3.0.0-win-x64-standalone.exe`를 내려받아 원하는 폴더에서 바로 실행합니다.
-2. 별도 런타임이나 외부 폴더 없이 첫 실행 시 웹 UI 번들을 `%LOCALAPPDATA%\NeuralRigStudio\wwwroot_bundle`에 자동 준비합니다.
+### 방법 2: 무설치 포터블 & 플러그인 단독 압축판
+- **단일 실행 파일**: `NeuralRigStudio-v3.2.0-win-x64-standalone.exe`를 내려받아 바로 실행합니다(첫 실행 시 웹 UI 번들을 `%LOCALAPPDATA%\NeuralRigStudio\wwwroot_bundle`에 자동 준비).
+- **DAW 플러그인 압축판**: `NeuralRigStudio-v3.2.0-VST3-win-x64.zip` 또는 `NeuralRigStudio-v3.2.0-CLAP-win-x64.zip`을 각각 시스템/사용자 VST3, CLAP 경로에 압축 해제해 사용할 수 있습니다.
 
 ### 최초 실행 흐름
-1. **Google 로그인 또는 게스트 모드 선택**: 첫 실행 시 Google 로그인(클라우드 설정 동기화·커뮤니티 기어 허브) 또는 **게스트 / 오프라인 모드** 중 하나를 선택합니다. 게스트 모드에서도 모든 오디오 DSP, 프리셋, AI 톤 아키텍트, SPICE 엔진은 제한 없이 동작합니다.
-2. **인터랙티브 UI 튜토리얼 · 5종 섀시 테마**: 6단계 가이드가 오디오 인터페이스 연결, 8종 대표 프리셋, 2×8 시그널 체인, AI 톤/DI 프로파일러, 새 페달 생성, 벤치마크 실행 방법을 차례로 안내합니다. 모든 UI 창은 5종 하드웨어 섀시 마감 테마(`Putty`, `Carbon`, `Zine`, `Field`, `Cobalt`)와 한/영 전환을 동일하게 따르며 상단 **GUIDE** 버튼으로 언제든 다시 열 수 있습니다.
-3. **기타 입력 연결**: 상단 **Audio I/O**에서 사용 중인 ASIO 인터페이스(Focusrite, Steinberg, Audient, Behringer, Roland, Line 6, Valeton 등) 또는 드라이버리스 WASAPI 라인 인풋(모노 `Ch 1..N` / 스테레오 페어)을 선택하세요.
+1. **Google 로그인 또는 게스트 모드 선택**: Google 로그인(클라우드 설정 동기화·커뮤니티 기어 허브) 또는 **게스트 / 오프라인 모드**를 선택합니다. 게스트 모드에서도 로컬 DSP, 프리셋, AI 톤 아키텍트, SPICE 엔진은 제한 없이 동작합니다.
+2. **가이드 · 5종 섀시 테마**: 6단계 가이드가 오디오 인터페이스 연결, 8종 대표 프리셋, 2×8 시그널 체인, AI 톤/DI 프로파일러, 새 페달 생성, 벤치마크 실행 순서를 안내합니다. 모든 UI는 5종 하드웨어 섀시 테마(`Putty`, `Carbon`, `Zine`, `Field`, `Cobalt`)와 한/영 전환을 따르며 상단 **GUIDE** 버튼으로 다시 열 수 있습니다.
+3. **기타 연결 및 게인 스테이징**: 상단 **Audio I/O**에서 ASIO 드라이버 또는 WASAPI 장치(모노/스테레오 채널 매핑)를 고르고, 헤더 **IN/OUT** 게인 슬라이더 및 클립 홀드 미터로 헤드룸을 맞출 수 있습니다.
 
 ---
 
 ## 범용 오디오 인터페이스 · 첫인상 프리셋
 
-`AudioRouter`는 특정 하드웨어에 종속되지 않고 범용 오디오 인터페이스를 우선 자동 감지합니다:
+`AudioRouter`는 특정 하드웨어에 종속되지 않는 4가지 범용 오디오 토폴로지를 지원합니다:
 - **ASIO 풀듀플렉스 직결 (`AsioDirectDuplex`)**: 단일 ASIO 인터페이스의 입출력을 직접 구동합니다.
-- **ASIO 입력 → 락프리 링 버퍼 → WASAPI 출력 (`Wasapi`)**: 외장 오디오 인터페이스로 입력받고 PC 스피커/헤드폰으로 모니터할 때 MMCSS `"Pro Audio"` 우선순위로 `4ms / 8ms / 16ms / 32ms` 지연 프로파일을 선택할 수 있습니다.
-- **드라이버리스 WASAPI 입력 (`WASAPI`)**: 전용 ASIO 드라이버 없이도 Windows APO(음성 노이즈 억제/AGC)를 우회해 순수 기타 DI 입력을 받고, `44.1kHz ↔ 48kHz` 무할당 리샘플 브리지로 출력 장치와 동기화합니다.
+- **ASIO 입력 -> 락프리 링 버퍼 -> WASAPI 출력 (`Wasapi`)**: 외장 ASIO 인터페이스로 기타를 입력받고 PC 스피커/헤드폰으로 모니터할 때 MMCSS `"Pro Audio"` 우선순위로 `4ms / 8ms / 16ms / 32ms` 지연 프로파일을 선택합니다.
+- **드라이버리스 WASAPI 입력 (`WASAPI`)**: 전용 ASIO 드라이버 없이도 Windows Raw APO(음성 노이즈 억제/AGC)를 우회하고 `44.1kHz <-> 48kHz` 무할당 리샘플 브리지로 출력 장치와 동기화합니다.
+- **듀얼 ASIO (`AsioOut`)**: 입력과 출력 ASIO 장치를 분리해 사용합니다.
 
-초기 실행 직후 바로 테스트할 수 있는 8개 쇼케이스 프리셋(`1A`–`2D`):
+초기 실행 직후 테스트할 수 있는 8개 쇼케이스 프리셋(`1A`–`2D`):
 
 | 뱅크 | 프리셋명 | 시그널 체인 구성 |
 |:---|:---|:---|
-| `1A` | **Velvet Neo-Soul Clean** | SP Comp → Jan Ray → US Blackface Twin + 1x12 Jensen → DC-2W → Spring |
-| `1B` | **Golden Edge of Breakup** | Orange Squeezer → TS808 + Klon → Brit 1Star → Alnico Blue → Plate |
-| `1C` | **Brit 800 Arena Crunch** | Adaptive Gate → SD-1 Boost → JCM800 2203 → 1960BV V30 → Hall |
-| `1D` | **Tokyo Anime Pop-Rock** | SP Comp → BD-2 → Parallel JC-120 + AC30 Split → DD-3T 점8분음표 → Hall |
-| `2A` | **Tight Modern Djent** | Gate → TS808 Boost → 5150 III Red → Mesa 4x12 + GE-7 미드 컷 |
-| `2B` | **Cathedral Shimmer Wash** | SP Comp → AC30 → Alnico Blue → CE-2 → TimeLine Tape → blueSky Shimmer |
-| `2C` | **LA Hot-Rod Brown Lead** | Gate → EP Booster → BE-100 Brown Eye → 1960BV V30 → Analog BBD Delay |
-| `2D` | **Psychedelic '68 Fuzz** | Cry Baby Wah → Ge AC128 Fuzz Face → Plexi 100 → Uni-Vibe → Spring |
+| `1A` | **Velvet Neo-Soul Clean** | SP Comp -> Jan Ray -> US Blackface Twin + 1x12 Jensen -> DC-2W -> Spring |
+| `1B` | **Golden Edge of Breakup** | Orange Squeezer -> TS808 + Klon -> Brit 1Star -> Alnico Blue -> Plate |
+| `1C` | **Brit 800 Arena Crunch** | Adaptive Gate -> SD-1 Boost -> JCM800 2203 -> 1960BV V30 -> Hall |
+| `1D` | **Tokyo Anime Pop-Rock** | SP Comp -> BD-2 -> Parallel JC-120 + AC30 Split -> DD-3T 점8분음표 -> Hall |
+| `2A` | **Tight Modern Djent** | Gate -> TS808 Boost -> 5150 III Red -> Mesa 4x12 + GE-7 미드 컷 |
+| `2B` | **Cathedral Shimmer Wash** | SP Comp -> AC30 -> Alnico Blue -> CE-2 -> TimeLine Tape -> blueSky Shimmer |
+| `2C` | **LA Hot-Rod Brown Lead** | Gate -> EP Booster -> BE-100 Brown Eye -> 1960BV V30 -> Analog BBD Delay |
+| `2D` | **Psychedelic '68 Fuzz** | Cry Baby Wah -> Ge AC128 Fuzz Face -> Plexi 100 -> Uni-Vibe -> Spring |
 
-검색창과 AI MCP에서는 저작권 안전 가칭(`Green Screamer 808` 등)뿐 아니라 원래 모델명(`TS808`, `SD-1`, `JCM800`)과 한글 명칭으로도 즉시 매칭됩니다.
+카탈로그 검색창과 AI MCP에서는 저작권 안전 가칭(`Green Screamer 808` 등)뿐 아니라 원래 모델명(`TS808`, `SD-1`, `JCM800`)과 한글 명칭으로도 매칭됩니다.
+
+---
+
+## DAW 플러그인 (VST3 & CLAP v1.2)
+
+네이티브 C++20 셸이 Win32 자식 `HWND` + WebView2 UI를 호스팅하고 `NativeCore` AOT DLL(`IL2026`/`IL3050` 경고 0개)과 ABI v2로 통신합니다:
+- **160개 오토메이션 파라미터**: 인/아웃풋 게인(`-24..+24 dB`), 드라이브/믹스, Scene A-H(`0..7`), 호스트 템포(`40..280 BPM`), 16슬롯 바이패스 및 노브 제어.
+- **MIDI & 트랜스포트 동기화**: `CC#1`/`CC#4`/`CC#11`(Wah/Whammy 익스프레션 또는 Drive), `CC#7`(아웃풋 게인), `PC#`(씬 전환) 및 호스트 PPQ 재생 위치 기반 LFO/모듈레이션 위상 정렬(`?host=vst3` / `?host=clap`).
+- **동적 PDC · Tail 보고**: `PitchCapo`/`PitchWhammy`/`PitchOctaver` 활성 시 `1024` 샘플 지연 보상(미사용 시 `0`)과 활성 딜레이/리버브 잔향 길이(Tail)를 DAW에 정확히 전달합니다.
+- **상태 왕복 검증**: `Vst3HostVerify.exe` 및 `ClapHostVerify.exe`로 `.nrig` 상태 저장/복원, 실시간 오디오 처리, 실제 WebView2 리사이징을 검증합니다.
 
 ---
 
 ## 새 페달, 앰프, 캐비넷 추가 및 다중 AI MCP 연동
 
-기본 75종+ 카탈로그 외에 원하는 장비가 있다면 AI 에이전트를 통해 실제 회로도 기반으로 직접 추가할 수 있습니다.
+1. 상단 **CRAFT** 버튼에서 단계별 파이프라인, 프롬프트, AI 클라이언트별 MCP 설정을 확인할 수 있습니다.
+2. `neuralrig-mcp`를 Claude Desktop, Claude Code, Cursor, Windsurf, OpenAI Codex CLI, Gemini CLI, Antigravity에 설치하세요:
+   ```bash
+   # GitHub Release 배포 .tgz 압축판 기준
+   npm install -g ./neuralrig-mcp-3.2.0.tgz
+   neuralrig-mcp install --client all
 
-1. 상단 **CRAFT** 버튼을 열면 단계별 제작 파이프라인, 복사 가능한 프롬프트, AI 클라이언트별 MCP 설정을 확인할 수 있습니다.
-2. npm 공식 레지스트리에 배포된 [`neuralrig-mcp`](https://www.npmjs.com/package/neuralrig-mcp)를 아래 명령 한 줄로 Claude Desktop, Claude Code, Cursor, Windsurf, OpenAI Codex CLI, Gemini CLI, Antigravity에 자동 등록하세요:
-   ```bash
-   npx -y neuralrig-mcp install --client all
-   ```
-   설치 및 스튜디오 파이프 연결 점검:
-   ```bash
-   npx -y neuralrig-mcp doctor
+   # 스튜디오 Named Pipe 연결 점검
+   neuralrig-mcp doctor
    ```
 3. **실제 회로도 기반 5단계 생성 파이프라인**:
-   - AI가 `neuralrig_get_spice_guide` 스키마를 조회 → 웹에서 실제 회로도/반도체 데이터시트 리서치(자료가 없으면 추측하지 않고 없다고 답변) → 부족한 소자를 `neuralrig_register_spice_model`로 등록 → `neuralrig_simulate_spice`로 `.OP`/`.AC`/`.TRAN` 및 `0 B` RT 검증 통과 → `neuralrig_commit_spice_device`로 스튜디오에 즉시 핫로드.
-4. **외부 `.nam` / `.wav` IR / `.nrig` 파일**: 스튜디오 창 위로 파일을 드래그 앤 드롭하면 즉시 로드됩니다.
+   - AI가 `neuralrig_get_spice_guide` 스키마 조회 -> 실제 회로도/반도체 데이터시트 조사(자료 없으면 추측 대신 중단) -> 부족한 소자를 `neuralrig_register_spice_model`로 등록 -> `neuralrig_simulate_spice`로 `.OP`/`.AC`/`.TRAN` 및 `0 B` RT 검증 -> `neuralrig_commit_spice_device`로 즉시 핫로드.
+4. **외부 `.nam` / `.wav` IR / `.nrig` 파일**: 스튜디오 창에 파일을 드래그 앤 드롭하면 즉시 로드됩니다.
 
 상세 MCP 도구 명세는 [docs/MCP_INTEGRATION.md](docs/MCP_INTEGRATION.md)를 참고하세요.
 
@@ -93,58 +107,51 @@
 
 ## 벤치마크 스위트
 
-상단 **BENCH** 버튼 또는 `RigBench.exe`로 내 PC 환경의 정량 지표를 즉시 측정할 수 있습니다:
-- **하드웨어 유사도 검증 (스위트 평균 `98.2%` 실측 통과)**:
-  - `Ibanez TS808` MNA SPICE `.AC` `720Hz` 미드 험프 (`100Hz` 대비 `+10.3dB`, `97.6%`)
-  - `BOSS SD-1` 비대칭 3-다이오드 2차 배음(`H2=-23.6dBc`) vs 대칭 `TS808` (`-120.0dBc`, `99.2%`)
-  - `Fuzz Face (AC128)` MNA 바이어스 및 배음 밀도 (`98.5%`)
-  - `Fender '65 Twin Reverb (12AX7 + FMV 5-5-5)` `650Hz` 미드 스쿱 `-9.7dB` (`95.9%`)
-  - `NAM WaveNet Feather` `64fr` vs `256fr` 블록 경계 일치율 (`ESR=0.00E+000`, `100.0%`)
-- **지연시간 · RT 데드라인**: `64` / `128` / `256` 프레임(@ 48kHz) 기준 단일 페달 `0.0237ms`, 6-블록 리그 `0.0509ms`, 듀얼 앰프 병렬 리그 `0.0678ms`, MNA SPICE `0.1855ms`(`13.9% CPU`) 모두 `64fr` 버짓(`1.333ms`) 내 **`RT alloc: 0 B`** 통과.
-- **16슬롯 멀티체인 스트레스**: 16슬롯 직렬 풀체인, 16슬롯 병렬 듀얼 앰프 매트릭스, 4단 하이게인 캐스케이드(`SoftKneeCeiling`), MNA SPICE(x2)+8192탭 FFT 캐비넷 IR 체인 모두 무할당·유한 출력 통과.
+상단 **BENCH** 버튼 또는 `RigBench.exe`로 내 PC 환경의 정량 지표를 측정할 수 있습니다(`RigBenchmarkSuite.cs`):
+- **하드웨어 유사도 검증 (스위트 평균 `98.2%`)**: TS808 `720Hz` 미드 험프(`97.6%`), SD-1 비대칭 H2 vs TS808(`99.2%`), Fuzz Face AC128 바이어스(`98.5%`), '65 Twin Reverb 12AX7 + FMV 톤스택(`95.9%`), NAM WaveNet 블록 경계 일치율(`100.0%`).
+- **지연시간 · RT 데드라인 · v3.2 DAW 검증**: `64` / `128` / `256` 프레임(@ 48kHz) 기준 `64fr` 버짓(`1.333ms`) 내 처리 및 오디오 콜백, 파라미터 오토메이션, MIDI CC/PC, PPQ 동기화, PDC/Tail 계산 전 구간 **`0 B` RT 할당** 통과.
+- **16슬롯 멀티체인 스트레스**: 16슬롯 직렬/병렬 듀얼 앰프 매트릭스, 4단 하이게인(`SoftKneeCeiling`), MNA SPICE(x2)+8192탭 FFT 캐비넷 IR 체인 검증.
 
 ---
 
 ## 클라우드 동기화, 기어 허브, 버그 리포트, OTA
 
-공개 라이브 백엔드는 `cloud/` (Vercel Next.js, 공식 주소 [neuralrigstudio.seltum.xyz](https://neuralrigstudio.seltum.xyz) + Supabase PostgreSQL/Google Auth)로 구성되며 데스크톱 앱과 연동됩니다:
-- **별도 설정 없는 고정 엔드포인트**: 데스크톱 앱은 내부 고정 주소(`https://neuralrigstudio.seltum.xyz`, `CloudPlatformService.DefaultCloudBaseUrl`)에 자동 연결되며 UI에 서버 URL을 노출하거나 변경을 요구하지 않습니다.
-- **오프라인 우선 설계**: 게스트 모드에서는 네트워크나 Supabase 설정 없이도 모든 로컬 DSP·프리셋·SPICE 제작·VST3/CLAP 내보내기 기능이 완전히 동작합니다.
-- **Google 로그인 & 설정 동기화**: 루프백 OAuth로 Google 계정에 연결해 저장 프리셋, 기타 DI 프로필, 커스텀 SPICE 기어를 클라우드에 동기화합니다.
-- **커뮤니티 기어 허브 (`HUB · VST3 → SPICE 기어 허브`)**: 사용자가 생성한 SPICE 페달·앰프·캐비넷을 업로드하고, 설치 전 로컬 `SpiceAnalyzer` 물리/무할당 검증을 거쳐 안전하게 받아 적용합니다.
-- **자동 로그 버그 제보 (`BUG`)**: `LogSanitizer`가 OS 사용자명, 홈 경로, 토큰을 자동 마스킹한 최근 로그와 오디오 진단 정보를 첨부해 서버로 전송하며 오프라인일 경우 로컬 큐에 보관 후 재연결 시 자동 발송합니다.
-- **선택 / 강제 OTA 업데이트**: 선택 업데이트는 사용자가 보류(`나중에`)할 수 있지만, `forceUpdate` 정책 또는 `minSupportedVersion` 미만 버전은 차단 모달이 표시되어 업데이트를 완료해야 계속 이용할 수 있습니다.
-- **인앱 어드민 콘솔 (`ADMIN`)**: 관리자 Google 계정(`NEURALRIG_ADMIN_EMAILS` 또는 `profiles.is_admin`)으로 로그인하면 서비스 애널리틱스, 익명화 로그 기반 버그 트리아지, OTA 선택/강제 업데이트 정책 패널이 열립니다.
+선택형 클라우드 백엔드는 `cloud/` (Vercel Next.js, 공식 주소 [neuralrigstudio.seltum.xyz](https://neuralrigstudio.seltum.xyz) + Supabase PostgreSQL/Google Auth)로 구성됩니다:
+- **오프라인 우선**: 게스트 모드에서 네트워크 없이도 로컬 DSP, 프리셋, SPICE 제작, VST3/CLAP 실행, `.nrig` 번들 및 벤치마크가 모두 동작합니다.
+- **Google 로그인 & 기어 허브 (`HUB · VST3 -> GEAR HUB`)**: 루프백 OAuth(`http://127.0.0.1:<port>/callback`)로 설정/프로필을 동기화하고 커뮤니티 SPICE 기어를 `SpiceAnalyzer` 검증 후 1클릭 설치할 수 있습니다. (원격 기어 업로드 영구 저장에는 `cloud/`의 Supabase 설정이 필요합니다.)
+- **익명화 버그 제보 (`BUG`) & OTA (`OtaUpdateService`)**: `LogSanitizer`로 사용자명, 홈 경로, 호스트명, 토큰을 제거해 전송하며 오프라인 큐(`%AppData%\NeuralRigStudio\bug_reports_outbox.json`)와 선택/강제 OTA를 지원합니다.
+- **인앱 어드민 콘솔 (`ADMIN`)**: `NEURALRIG_ADMIN_EMAILS` / `profiles.is_admin` 계정에서 활성화됩니다.
 
-포크(Fork) 환경에서 자체 클라우드를 운영하려면 [cloud/.env.example](cloud/.env.example)을 참고해 `cloud/.env.local`과 Vercel 환경 변수를 설정하고, Supabase에 마이그레이션 3종([001_neuralrig_cloud.sql](cloud/supabase/migrations/001_neuralrig_cloud.sql), [002_rls_zero_service_role_and_rpc.sql](cloud/supabase/migrations/002_rls_zero_service_role_and_rpc.sql), [003_fix_app_releases_anon_policy.sql](cloud/supabase/migrations/003_fix_app_releases_anon_policy.sql) — Service Role 키 없는 사용자 JWT 전달형 RLS)을 순서대로 적용한 뒤 `CloudPlatformService.DefaultCloudBaseUrl`을 배포 주소로 변경하여 빌드하세요.
+포크 환경 자체 배포 시 [cloud/.env.example](cloud/.env.example)을 `cloud/.env.local`로 복사하고 [cloud/supabase/migrations](cloud/supabase/migrations)의 `001`~`003` 마이그레이션을 순서대로 적용한 뒤 Vercel(`Root Directory: cloud`)에 배포하고 `CloudPlatformService.DefaultCloudBaseUrl`을 갱신해 빌드하세요.
 
 ---
 
 ## 소스 빌드
 
-필수 도구: **.NET 10 SDK** (`net10.0-windows` 포함), **Node.js 20+**.
+필수 도구: **.NET 10 SDK** (`net10.0-windows` 포함), **Node.js 20+**, **Visual Studio 2022 C++ Build Tools**, **WebView2 NuGet 패키지**(`dotnet build`로 자동 복원).
 
-```bash
+```powershell
 # 1. React 웹 UI 빌드 (wwwroot/ 생성)
 npm --prefix web-ui install
 npm --prefix web-ui run build
 
-# 2. 솔루션 Release 빌드 및 MCP 서버 퍼블리시
+# 2. 솔루션 Release 빌드, MCP 퍼블리시, RigBench 정량 검증 (RT alloc: 0 B)
 dotnet build NeuralRigStudio.sln -c Release
 dotnet publish tools/NeuralRigMcp/NeuralRigMcp.csproj -c Release -r win-x64 --self-contained false -o bin/Release/net10.0-windows/win-x64/publish
+.\tools\RigBench\bin\Release\net10.0-windows\RigBench.exe
 
-# 3. 정량 DSP/SPICE/플랫폼 검증 실행 (RT alloc: 0 B 필수)
-./tools/RigBench/bin/Release/net10.0-windows/RigBench.exe
-```
+# 3. MCP 검증 및 Next.js 클라우드 빌드 검증
+node packages/neuralrig-mcp/test/verify-mcp.mjs
+npm --prefix cloud ci
+npm --prefix cloud run build
 
-릴리즈 배포 파일(`NeuralRigStudio-v3.0.0-Setup-win-x64.exe`, `NeuralRigStudio-v3.0.0-win-x64-standalone.exe`, `SHA256SUMS.txt`) 일괄 생성:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1
+# 4. v3.2.0 릴리즈 아티팩트 일괄 생성 (Setup, Standalone, VST3.zip, CLAP.zip, MCP .tgz, SHA256SUMS.txt)
+powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 -Version 3.2.0
+# C++ 툴체인 없이 데스크톱/단일 실행 파일만 빌드하려면 -SkipPlugins 추가
 ```
 
 ## 기여 및 보안
 
 - 기여 가이드: [CONTRIBUTING.md](CONTRIBUTING.md)
 - 보안 취약점 제보 및 PII 처리 정책: [SECURITY.md](SECURITY.md)
-- 라이선스: [MIT License](LICENSE) — Copyright (c) 2026 Ray Kim
+- 라이선스: [MIT License](LICENSE), Copyright (c) 2026 Ray Kim

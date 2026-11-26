@@ -2,7 +2,9 @@
 param(
     [switch]$Install,
     [switch]$SkipWebUi,
-    [switch]$SkipVerify
+    [switch]$SkipVerify,
+    [switch]$NoGuiVerify,
+    [switch]$SkipNativeCore
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,11 +29,14 @@ try {
 
     # 2) Publish .NET 10 NativeAOT Core DLL (NeuralRig.NativeCore.dll)
     $NativeCoreDir = Join-Path $RepoRoot "obj\vst3-nativecore"
-    Write-Host "[2/6] Publishing .NET 10 NativeAOT NeuralRig.NativeCore.dll..." -ForegroundColor Yellow
-    dotnet publish "src\NeuralRig.Plugin\NeuralRig.Plugin.csproj" -c Release -r win-x64 -p:PublishAot=true -p:NativeLib=Shared -o $NativeCoreDir
-    if ($LASTEXITCODE -ne 0) { throw "NativeAOT publish failed ($LASTEXITCODE)" }
-
     $NativeCoreDll = Join-Path $NativeCoreDir "NeuralRig.NativeCore.dll"
+    if ($SkipNativeCore -and (Test-Path $NativeCoreDll)) {
+        Write-Host "[2/6] Reusing existing NativeAOT NeuralRig.NativeCore.dll (-SkipNativeCore)" -ForegroundColor DarkGray
+    } else {
+        Write-Host "[2/6] Publishing .NET 10 NativeAOT NeuralRig.NativeCore.dll..." -ForegroundColor Yellow
+        dotnet publish "src\NeuralRig.Plugin\NeuralRig.Plugin.csproj" -c Release -r win-x64 -p:PublishAot=true -p:NativeLib=Shared -o $NativeCoreDir
+        if ($LASTEXITCODE -ne 0) { throw "NativeAOT publish failed ($LASTEXITCODE)" }
+    }
     if (-not (Test-Path $NativeCoreDll)) { throw "Missing published DLL: $NativeCoreDll" }
 
     # 3) Locate Visual Studio C++20 Toolchain & WebView2 Static SDK
@@ -91,7 +96,7 @@ cl.exe /nologo /std:c++20 /O2 /EHsc /MD /DNDEBUG /DUNICODE /D_UNICODE /DNOMINMAX
     $ModuleInfoJson = @'
 {
   "Name": "NeuralRig Studio",
-  "Version": "3.1.0",
+  "Version": "3.2.0",
   "Factory Info": {
     "Vendor": "NeuralRig Audio",
     "URL": "https://neuralrig.studio",
@@ -108,7 +113,7 @@ cl.exe /nologo /std:c++20 /O2 /EHsc /MD /DNDEBUG /DUNICODE /D_UNICODE /DNOMINMAX
       "Category": "Audio Module Class",
       "Name": "NeuralRig Studio",
       "Vendor": "NeuralRig Audio",
-      "Version": "3.1.0",
+      "Version": "3.2.0",
       "SDKVersion": "VST 3.7.11",
       "Sub Categories": [
         "Fx",
@@ -139,7 +144,11 @@ cl.exe /nologo /std:c++20 /O2 /EHsc /MD /DNDEBUG /DUNICODE /D_UNICODE /DNOMINMAX
         cmd.exe /c "`"$VerifyBat`""
         if ($LASTEXITCODE -ne 0) { throw "Vst3HostVerify compilation failed ($LASTEXITCODE)" }
 
-        & $VerifyExe $Vst3Out
+        if ($NoGuiVerify) {
+            & $VerifyExe $Vst3Out "--no-gui"
+        } else {
+            & $VerifyExe $Vst3Out
+        }
         if ($LASTEXITCODE -ne 0) { throw "Vst3HostVerify verification failed ($LASTEXITCODE)" }
     } else {
         Write-Host "[5/6] Skipping Vst3HostVerify (-SkipVerify)" -ForegroundColor DarkGray

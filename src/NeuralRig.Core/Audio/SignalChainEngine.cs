@@ -655,6 +655,8 @@ public sealed partial class SignalChainEngine
 
     private int _sampleRate = 44100;
     private int _maxFrames = 2048;
+    private bool _lastHostPlaying;
+    private double _lastHostPpq;
 
     private float[] _parL = Array.Empty<float>();
     private float[] _parR = Array.Empty<float>();
@@ -682,6 +684,108 @@ public sealed partial class SignalChainEngine
     public int ActiveScene => ReadLatestSnapshot().ActiveScene;
     public ChainRoutingMode RoutingMode => ReadLatestSnapshot().Routing;
     public float ParallelMix => ReadLatestSnapshot().ParallelMix;
+
+    public int GetLatencySamples()
+    {
+        var snap = ReadLatestSnapshot();
+        for (int i = 0; i < SlotCount; i++)
+        {
+            ref var sl = ref snap.Slots[i];
+            if (sl.Enabled && sl.Op is BlockOp.PitchCapo or BlockOp.PitchWhammy or BlockOp.PitchOctaver)
+                return PolyPitchEngine.FftSize;
+        }
+        return 0;
+    }
+
+    public int GetTailSamples()
+    {
+        var snap = ReadLatestSnapshot();
+        float maxTailSec = 0f;
+        for (int i = 0; i < SlotCount; i++)
+        {
+            ref var sl = ref snap.Slots[i];
+            if (!sl.Enabled) continue;
+            switch (sl.Op)
+            {
+                case BlockOp.RevSpring:
+                case BlockOp.RevHall:
+                case BlockOp.RevPlate:
+                case BlockOp.RevBlueSky:
+                    maxTailSec = MathF.Max(maxTailSec, sl.P0 > 7f || sl.P0 > 70f ? 8.0f : 6.0f);
+                    break;
+                case BlockOp.RevBossRv6:
+                    maxTailSec = MathF.Max(maxTailSec, sl.P2 > 70f ? 8.0f : 6.0f);
+                    break;
+                case BlockOp.DlyAnalog:
+                case BlockOp.DlyBossDm2w:
+                case BlockOp.DlyDigital:
+                case BlockOp.DlyBossDd3t:
+                case BlockOp.DlyTimeLine:
+                    maxTailSec = MathF.Max(maxTailSec, 4.0f);
+                    break;
+            }
+        }
+        return maxTailSec > 0f ? (int)Math.Round(maxTailSec * Math.Max(44100, _sampleRate)) : 0;
+    }
+
+    public int FindExpressionTargetSlot()
+    {
+        var snap = ReadLatestSnapshot();
+        for (int i = 0; i < SlotCount; i++)
+        {
+            ref var sl = ref snap.Slots[i];
+            if (sl.Enabled && sl.Op is BlockOp.EqCryBaby or BlockOp.PitchWhammy)
+                return i;
+        }
+        return -1;
+    }
+
+    public void SyncHostTransportRt(bool isPlaying, double ppqPosition, bool hasPpq, int frames = 0)
+    {
+        EnsureApplied();
+        double expectedAdv = frames > 0
+            ? ((double)frames / Math.Max(8000, _sampleRate)) * (_activeSnapshot.TempoBpm / 60.0)
+            : 0.0;
+        bool jumped = hasPpq && isPlaying &&
+            ((ppqPosition - _lastHostPpq) < -0.02 ||
+             Math.Abs((ppqPosition - _lastHostPpq) - expectedAdv) > 0.25);
+
+        if ((isPlaying && !_lastHostPlaying) || jumped)
+        {
+            var snap = _activeSnapshot;
+            for (int i = 0; i < SlotCount; i++)
+            {
+                ref var sl = ref snap.Slots[i];
+                if (!sl.Enabled) continue;
+                if (sl.Op is BlockOp.ModCe2 or BlockOp.ModBossDc2w or BlockOp.ModBossBf2
+                    or BlockOp.ModSmallClone or BlockOp.ModUniVibe or BlockOp.ModPhase90 or BlockOp.ModTremolo)
+                {
+                    if (sl.SyncDiv > 0 && hasPpq)
+                    {
+                        double beatsPerCycle = sl.SyncDiv switch
+                        {
+                            1 => 1.0,
+                            2 => 0.75,
+                            3 => 0.5,
+                            4 => 1.0 / 3.0,
+                            5 => 0.25,
+                            _ => 1.0,
+                        };
+                        double frac = (ppqPosition / beatsPerCycle) % 1.0;
+                        if (frac < 0.0) frac += 1.0;
+                        _states[i].LfoPhase = (float)(frac * (2.0 * Math.PI));
+                    }
+                    else if (!hasPpq || Math.Abs(ppqPosition) < 0.25)
+                    {
+                        _states[i].LfoPhase = 0f;
+                    }
+                }
+            }
+        }
+
+        _lastHostPlaying = isPlaying;
+        if (hasPpq) _lastHostPpq = ppqPosition;
+    }
 
     /// <summary>DAW 오토메이션 및 실시간 MIDI용 무할당 RT 파라미터 갱신 API (힙 할당 0 B).</summary>
     public void SetGlobalParamsRt(

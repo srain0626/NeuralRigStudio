@@ -83,6 +83,7 @@ class NeuralRigVst3Plugin final
     , public EditControllerBridge
     , public IAudioProcessor
     , public IProcessContextRequirements
+    , public IMidiMapping
 {
 public:
     NeuralRigVst3Plugin() = default;
@@ -128,6 +129,12 @@ public:
         if (UidEqual(_iid, kIEditControllerIid))
         {
             *obj = static_cast<IEditController*>(static_cast<EditControllerBridge*>(this));
+            addRef();
+            return kResultOk;
+        }
+        if (UidEqual(_iid, kIMidiMappingIid))
+        {
+            *obj = static_cast<IMidiMapping*>(this);
             addRef();
             return kResultOk;
         }
@@ -180,12 +187,29 @@ public:
     {
         if (type == kAudio && (dir == kInput || dir == kOutput))
             return 1;
+        if (type == kEvent && dir == kInput)
+            return 1;
         return 0;
     }
 
     tresult SMTG_CALLCONV getBusInfo(MediaType type, BusDirection dir, int32 index, BusInfo& bus) override
     {
-        if (type != kAudio || index != 0 || (dir != kInput && dir != kOutput))
+        if (index != 0)
+            return kInvalidArgument;
+
+        if (type == kEvent && dir == kInput)
+        {
+            std::memset(&bus, 0, sizeof(bus));
+            bus.mediaType = kEvent;
+            bus.direction = kInput;
+            bus.channelCount = 16;
+            CopyWideToUtf16(bus.name, 128, L"MIDI In");
+            bus.busType = kMain;
+            bus.flags = kDefaultActive;
+            return kResultOk;
+        }
+
+        if (type != kAudio || (dir != kInput && dir != kOutput))
             return kInvalidArgument;
 
         std::memset(&bus, 0, sizeof(bus));
@@ -199,11 +223,15 @@ public:
     }
 
     tresult SMTG_CALLCONV getRoutingInfo(RoutingInfo&, RoutingInfo&) override { return kNotImplemented; }
-    tresult SMTG_CALLCONV activateBus(MediaType type, BusDirection, int32 index, TBool state) override
+    tresult SMTG_CALLCONV activateBus(MediaType type, BusDirection dir, int32 index, TBool state) override
     {
-        if (type != kAudio || index != 0) return kInvalidArgument;
-        (void)state;
-        return kResultOk;
+        if (index != 0) return kInvalidArgument;
+        if (type == kAudio || (type == kEvent && dir == kInput))
+        {
+            (void)state;
+            return kResultOk;
+        }
+        return kInvalidArgument;
     }
 
     tresult SMTG_CALLCONV setActive(TBool state) override
@@ -286,7 +314,13 @@ public:
         return symbolicSampleSize == kSample32 ? kResultOk : kResultFalse;
     }
 
-    uint32 SMTG_CALLCONV getLatencySamples() override { return 0; }
+    uint32 SMTG_CALLCONV getLatencySamples() override
+    {
+        auto& api = nrs::core::GetNativeCoreApi();
+        if (!coreHandle_ || !api.isLoaded()) return 0;
+        int32_t lat = api.get_latency_samples(coreHandle_);
+        return lat > 0 ? static_cast<uint32>(lat) : 0u;
+    }
 
     tresult SMTG_CALLCONV setupProcessing(ProcessSetup& setup) override
     {
@@ -324,17 +358,49 @@ public:
             }
         }
 
+        if (data.inputEvents)
+        {
+            int32 numEvents = data.inputEvents->getEventCount();
+            for (int32 i = 0; i < numEvents; i++)
+            {
+                Event ev{};
+                if (data.inputEvents->getEvent(i, ev) == kResultOk &&
+                    ev.type == Event::kLegacyMIDICCOutEvent)
+                {
+                    uint8 ctrl = ev.midiCCOut.controlNumber;
+                    uint8 val = static_cast<uint8>(ev.midiCCOut.value);
+                    if (ctrl == kCtrlProgramChange)
+                        api.midi_event(coreHandle_, 0xC0, val, 0, ev.sampleOffset);
+                    else
+                        api.midi_event(coreHandle_, 0xB0, ctrl, val, ev.sampleOffset);
+                }
+            }
+        }
+
         double hostBpm = 0.0;
         uint8_t hasHostBpm = 0;
-        if (data.processContext && (data.processContext->state & kTempoValid) != 0)
+        uint8_t isPlaying = 0;
+        double ppqPosition = 0.0;
+        uint8_t hasPpq = 0;
+        if (data.processContext)
         {
-            hostBpm = data.processContext->tempo;
-            hasHostBpm = 1;
+            if ((data.processContext->state & kTempoValid) != 0)
+            {
+                hostBpm = data.processContext->tempo;
+                hasHostBpm = 1;
+            }
+            if ((data.processContext->state & kPlaying) != 0)
+                isPlaying = 1;
+            if ((data.processContext->state & kProjectTimeMusicValid) != 0)
+            {
+                ppqPosition = data.processContext->projectTimeMusic;
+                hasPpq = 1;
+            }
         }
 
         if (data.numSamples <= 0 || data.numOutputs <= 0 || !data.outputs || !data.outputs[0].channelBuffers32)
         {
-            api.process(coreHandle_, nullptr, nullptr, nullptr, nullptr, 0, hostBpm, hasHostBpm);
+            api.process_ex(coreHandle_, nullptr, nullptr, nullptr, nullptr, 0, hostBpm, hasHostBpm, isPlaying, ppqPosition, hasPpq);
             return kResultOk;
         }
 
@@ -352,16 +418,22 @@ public:
         float* outR = outCh >= 2 ? data.outputs[0].channelBuffers32[1] : outL;
         data.outputs[0].silenceFlags = 0;
 
-        api.process(coreHandle_, inL, inR, outL, outR, data.numSamples, hostBpm, hasHostBpm);
+        api.process_ex(coreHandle_, inL, inR, outL, outR, data.numSamples, hostBpm, hasHostBpm, isPlaying, ppqPosition, hasPpq);
         return kResultOk;
     }
 
-    uint32 SMTG_CALLCONV getTailSamples() override { return 0; }
+    uint32 SMTG_CALLCONV getTailSamples() override
+    {
+        auto& api = nrs::core::GetNativeCoreApi();
+        if (!coreHandle_ || !api.isLoaded()) return 0;
+        int32_t tail = api.get_tail_samples(coreHandle_);
+        return tail > 0 ? static_cast<uint32>(tail) : 0u;
+    }
 
     // IProcessContextRequirements
     uint32 SMTG_CALLCONV getProcessContextRequirements() override
     {
-        return kNeedTempo | kNeedTransportState;
+        return kNeedTempo | kNeedTransportState | kNeedProjectTimeMusic;
     }
 
     // IEditController
@@ -483,6 +555,28 @@ public:
         return view;
     }
 
+    // IMidiMapping
+    tresult SMTG_CALLCONV getMidiControllerAssignment(
+        int32 busIndex,
+        int16 channel,
+        int16 midiControllerNumber,
+        ParamID& id) override
+    {
+        (void)channel;
+        if (busIndex != 0 || !coreHandle_)
+            return kResultFalse;
+        auto& api = nrs::core::GetNativeCoreApi();
+        if (!api.isLoaded())
+            return kResultFalse;
+        uint32_t mappedId = 0;
+        if (api.get_midi_cc_param(coreHandle_, static_cast<int32_t>(midiControllerNumber), &mappedId) != 0)
+        {
+            id = static_cast<ParamID>(mappedId);
+            return kResultTrue;
+        }
+        return kResultFalse;
+    }
+
 private:
     static void __cdecl StaticWebSendCallback(void* userData, const char* utf8Json, int32_t len)
     {
@@ -519,6 +613,8 @@ private:
         auto& api = nrs::core::GetNativeCoreApi();
         if (!api.isLoaded()) return false;
         coreHandle_ = api.create(&StaticWebSendCallback, &StaticHostParamCallback, this);
+        if (coreHandle_)
+            api.set_host_format(coreHandle_, "VST3");
         return coreHandle_ != nullptr;
     }
 
@@ -627,7 +723,7 @@ public:
         info->classFlags = kSimpleModeSupported;
         CopyAsciiToChar8(info->subCategories, sizeof(info->subCategories), "Fx");
         CopyAsciiToChar8(info->vendor, sizeof(info->vendor), "NeuralRig Audio");
-        CopyAsciiToChar8(info->version, sizeof(info->version), "3.1.0");
+        CopyAsciiToChar8(info->version, sizeof(info->version), "3.2.0");
         CopyAsciiToChar8(info->sdkVersion, sizeof(info->sdkVersion), "VST 3.7.11");
         return kResultOk;
     }
@@ -643,7 +739,7 @@ public:
         info->classFlags = kSimpleModeSupported;
         CopyAsciiToChar8(info->subCategories, sizeof(info->subCategories), "Fx");
         CopyWideToUtf16(info->vendor, 64, L"NeuralRig Audio");
-        CopyWideToUtf16(info->version, 64, L"3.1.0");
+        CopyWideToUtf16(info->version, 64, L"3.2.0");
         CopyWideToUtf16(info->sdkVersion, 64, L"VST 3.7.11");
         return kResultOk;
     }
