@@ -94,7 +94,7 @@ const JSON_LD = {
       description: SITE_DESCRIPTION,
       applicationCategory: "MultimediaApplication",
       operatingSystem: "Windows",
-      softwareVersion: "3.0.0",
+      softwareVersion: "3.1.0",
       inLanguage: ["ko", "en"],
       isAccessibleForFree: true,
       offers: {

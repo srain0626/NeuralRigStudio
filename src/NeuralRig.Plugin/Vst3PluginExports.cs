@@ -35,7 +35,7 @@ public static class Vst3PluginMetadata
     public const string SubCategories = "Fx|Guitar|AmpSim";
     public const string Name = "NeuralRig Studio";
     public const string Vendor = "NeuralRig Audio";
-    public const string Version = "3.0.0.0";
+    public const string Version = "3.1.0.0";
 }
 
 /// <summary>

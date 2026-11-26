@@ -8,7 +8,7 @@ namespace NeuralRigSetup;
 internal static class Program
 {
     private const string AppName = "NeuralRig Studio";
-    private const string AppVersion = "3.0.1";
+    private const string AppVersion = "3.1.0";
     private const string Publisher = "Ray Kim (NeuralRig Audio)";
     private const string UninstallKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\NeuralRigStudio";
     private const string ResourceName = "NeuralRigSetup.payload.zip";

@@ -1,7 +1,7 @@
-; NeuralRig Studio v3.0.0 Windows Installer Script (Inno Setup 6)
+; NeuralRig Studio v3.1.0 Windows Installer Script (Inno Setup 6)
 
 #ifndef AppVersion
-  #define AppVersion "3.0.1"
+  #define AppVersion "3.1.0"
 #endif
 
 [Setup]

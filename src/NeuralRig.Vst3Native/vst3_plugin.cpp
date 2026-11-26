@@ -627,7 +627,7 @@ public:
         info->classFlags = kSimpleModeSupported;
         CopyAsciiToChar8(info->subCategories, sizeof(info->subCategories), "Fx");
         CopyAsciiToChar8(info->vendor, sizeof(info->vendor), "NeuralRig Audio");
-        CopyAsciiToChar8(info->version, sizeof(info->version), "3.0.0");
+        CopyAsciiToChar8(info->version, sizeof(info->version), "3.1.0");
         CopyAsciiToChar8(info->sdkVersion, sizeof(info->sdkVersion), "VST 3.7.11");
         return kResultOk;
     }
@@ -643,7 +643,7 @@ public:
         info->classFlags = kSimpleModeSupported;
         CopyAsciiToChar8(info->subCategories, sizeof(info->subCategories), "Fx");
         CopyWideToUtf16(info->vendor, 64, L"NeuralRig Audio");
-        CopyWideToUtf16(info->version, 64, L"3.0.0");
+        CopyWideToUtf16(info->version, 64, L"3.1.0");
         CopyWideToUtf16(info->sdkVersion, 64, L"VST 3.7.11");
         return kResultOk;
     }

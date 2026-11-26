@@ -29,7 +29,7 @@ public static class DawPluginExporter
         return new Vst3ModuleInfoDto
         {
             Name = Vst3PluginMetadata.Name,
-            Version = "3.0.0",
+            Version = "3.1.0",
             FactoryInfo = new Vst3FactoryInfoDto
             {
                 Vendor = Vst3PluginMetadata.Vendor,
@@ -50,7 +50,7 @@ public static class DawPluginExporter
                     Category = "Audio Module Class",
                     Name = Vst3PluginMetadata.Name,
                     Vendor = Vst3PluginMetadata.Vendor,
-                    Version = "3.0.0",
+                    Version = "3.1.0",
                     SdkVersion = "VST 3.7.11",
                     SubCategories = new[] { "Fx", "Guitar", "AmpSim" },
                     ClassFlags = 2,
@@ -67,7 +67,7 @@ public static class DawPluginExporter
         {
             PluginName = ClapNativeMetadata.PluginName,
             Vendor = ClapNativeMetadata.Vendor,
-            Version = "3.0.0",
+            Version = "3.1.0",
             ClapId = ClapNativeMetadata.PluginId,
             Vst3ProcessorCid = Vst3PluginMetadata.ProcessorCidHex,
             Vst3ControllerCid = Vst3PluginMetadata.ControllerCidHex,

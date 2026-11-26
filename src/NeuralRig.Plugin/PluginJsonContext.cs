@@ -68,7 +68,7 @@ public sealed class Vst3ClassInfoDto
     public string Vendor { get; set; } = "NeuralRig Audio";
 
     [JsonPropertyName("Version")]
-    public string Version { get; set; } = "3.0.0";
+    public string Version { get; set; } = "3.1.0";
 
     [JsonPropertyName("SDKVersion")]
     public string SdkVersion { get; set; } = "VST 3.7.11";
@@ -92,7 +92,7 @@ public sealed class Vst3ModuleInfoDto
     public string Name { get; set; } = "NeuralRig Studio";
 
     [JsonPropertyName("Version")]
-    public string Version { get; set; } = "3.0.0";
+    public string Version { get; set; } = "3.1.0";
 
     [JsonPropertyName("Factory Info")]
     public Vst3FactoryInfoDto FactoryInfo { get; set; } = new();
@@ -251,7 +251,7 @@ public sealed class PluginInitSnapshotDto
     public PluginMidiSnapshotDto Midi { get; set; } = new();
     public CustomDeviceSpecDto[] CustomDevices { get; set; } = Array.Empty<CustomDeviceSpecDto>();
     public bool IsAudioRunning { get; set; }
-    public string AppVersion { get; set; } = "3.0.0";
+    public string AppVersion { get; set; } = "3.1.0";
     public CloudStateDto CloudState { get; set; } = new();
 }
 

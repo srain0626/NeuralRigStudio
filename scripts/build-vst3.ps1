@@ -91,7 +91,7 @@ cl.exe /nologo /std:c++20 /O2 /EHsc /MD /DNDEBUG /DUNICODE /D_UNICODE /DNOMINMAX
     $ModuleInfoJson = @'
 {
   "Name": "NeuralRig Studio",
-  "Version": "3.0.0",
+  "Version": "3.1.0",
   "Factory Info": {
     "Vendor": "NeuralRig Audio",
     "URL": "https://neuralrig.studio",
@@ -108,7 +108,7 @@ cl.exe /nologo /std:c++20 /O2 /EHsc /MD /DNDEBUG /DUNICODE /D_UNICODE /DNOMINMAX
       "Category": "Audio Module Class",
       "Name": "NeuralRig Studio",
       "Vendor": "NeuralRig Audio",
-      "Version": "3.0.0",
+      "Version": "3.1.0",
       "SDKVersion": "VST 3.7.11",
       "Sub Categories": [
         "Fx",
