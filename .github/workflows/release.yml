@@ -69,12 +69,15 @@ jobs:
           powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1 -Version "${{ steps.ver.outputs.version }}" -NoGuiVerify
 
       - name: Sign Windows Executables (Optional Authenticode)
-        if: secrets.WINDOWS_CODESIGN_PFX_BASE64 != ''
         shell: pwsh
         env:
           PFX_B64: ${{ secrets.WINDOWS_CODESIGN_PFX_BASE64 }}
           PFX_PASS: ${{ secrets.WINDOWS_CODESIGN_PASSWORD }}
         run: |
+          if ([string]::IsNullOrWhiteSpace($env:PFX_B64)) {
+            Write-Host "No WINDOWS_CODESIGN_PFX_BASE64 secret configured; skipping Authenticode signing."
+            exit 0
+          }
           $pfxPath = Join-Path $env:RUNNER_TEMP "codesign.pfx"
           [System.IO.File]::WriteAllBytes($pfxPath, [System.Convert]::FromBase64String($env:PFX_B64))
           $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter "signtool.exe" |
